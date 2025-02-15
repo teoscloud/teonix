@@ -17,6 +17,7 @@
   let
     system = "x86_64-linux"; 
     username = "teodor";  # Global username variable
+    hostname = "nixbox";  # Define hostname here
 
     stable-pkgs = import nixos-stable {
       inherit system;
