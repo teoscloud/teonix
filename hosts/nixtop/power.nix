@@ -5,9 +5,9 @@
   #powerManagement.enable = true;
   #powerManagement.cpuFreqGovernor = "powersave";
 
-  services.system76-scheduler.enable = true;
+  #services.system76-scheduler.enable = true;
 
-  services.power-profiles-daemon.enable = false;
+  services.power-profiles-daemon.enable = true;
 
   #services.auto-cpufreq.enable = true;
   #services.auto-cpufreq.settings = {
