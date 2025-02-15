@@ -111,9 +111,9 @@ source $ZSH/oh-my-zsh.sh
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
 #aliases
-alias systemupdate='cd ~/myprojects/teonix && nix flake update && sudo nixos-rebuild switch --flake ~/myprojects/teonix#nixbox --impure && home-manager switch --flake ~/myprojects/teonix#teodor'
-alias updatehome='cd ~/myprojects/teonix && home-manager switch --flake ~/myprojects/teonix#teodor'
-alias nixupgrade='cd ~/myprojects/teonix && sudo nixos-rebuild switch --flake ~/myprojects/teonix#nixbox --impure'
+alias systemupdate='cd ~/myprojects/teonix && nix flake update && sudo nixos-rebuild switch --flake "path:."#nixbox --impure && home-manager switch --flake "path:."#teodor'
+alias updatehome='cd ~/myprojects/teonix && home-manager switch --flake "path:."#teodor'
+alias nixupgrade='cd ~/myprojects/teonix && sudo nixos-rebuild switch --flake "path:."#nixbox --impure'
 alias nixupdate='cd ~/myprojects/teonix && nix flake update'
 
 # download yt playlist
