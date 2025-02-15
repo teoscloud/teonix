@@ -37,7 +37,6 @@ Teonix is a modular, flake-based NixOS configuration integrated with Home Manage
    git clone git@github.com:teoscloud/teonix.git
    cd teonix
 
-
 2. **Update Flake Inputs**
 
    Update the flake inputs to ensure you have the latest versions:
