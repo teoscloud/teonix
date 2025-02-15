@@ -10,5 +10,6 @@
   # Import modular configurations
   imports = [
     ./modules/dotfiles.nix  # ✅ Symlinks all dotfiles
+    ./modules/monitor.nix   # Device-specific monitor config
   ];
 }
