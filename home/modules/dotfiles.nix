@@ -37,7 +37,7 @@
   home.file.".config/hypr/scripts/weather.py".source = ../dotfiles/config/hypr/scripts/weather.py;
 
   # weather api:
-  home.file.".config/hypr/scripts/secrets/weather_api_key.txt".source = ../dotfiles/config/hypr/scripts/secrets/weather_api_key.txt;
+  #home.file.".config/hypr/scripts/secrets/weather_api_key.txt".source = ../dotfiles/config/hypr/scripts/secrets/weather_api_key.txt;
 
   # ✅ Symlink ios font config /home/teodor/myprojects/teonix/home/dotfiles/config/fontconfig/fonts.conf
   home.file.".config/fontconfig/fonts.conf".source = ../dotfiles/config/fontconfig/fonts.conf;
