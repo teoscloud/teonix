@@ -1,0 +1,5 @@
+sudo nix flake update && sudo nixos-rebuild switch --flake .#nixbox --impure
+
+sudo nixos-rebuild switch --flake ~/myprojects/teonix#nixbox --impure
+
+home-manager switch --flake ~/myprojects/teonix#teodor

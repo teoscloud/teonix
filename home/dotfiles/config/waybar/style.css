@@ -1,0 +1,105 @@
+* {
+  /*font-family: FiraCode Nerd Font;*/
+  font-family: FiraCode Nerd Font Mono;
+  font-size: 18px;
+  border-radius: 0px;
+  border: none;
+  min-height: 0px;
+}
+
+window#waybar {
+  background: rgba(200, 200, 200, 0.171); /* Fully transparent */
+}
+
+#workspaces {
+  color: #f7f5ff;
+  background: rgba(22, 24, 25, 0.5); /* Dark gray with transparency */
+  margin: 4px 4px;
+  padding: 5px 5px;
+  border-radius: 16px;
+}
+
+#workspaces button {
+  font-weight: bold;
+  padding: 0px 5px;
+  margin: 0px 3px;
+  border-radius: 16px;
+  color: #f7f5ff;
+  background: linear-gradient(45deg, rgba(42, 44, 46, 0.5), rgba(22, 24, 25, 0.5)); /* Gradient with transparency */
+  opacity: 0.5;
+  transition: all 0.3s cubic-bezier(.55,-0.68,.48,1.682);
+}
+
+#workspaces button.urgent {
+  font-weight: bold;
+  padding: 0px 5px;
+  margin: 0px 3px;
+  border-radius: 16px;
+  color: #e7f5c2;
+  background: linear-gradient(45deg, rgba(42, 44, 46, 0.5), rgba(22, 24, 25, 0.5)); /* Gradient with transparency */
+  opacity: 0.5;
+  transition: all 0.3s cubic-bezier(.55,-0.68,.48,1.682);
+}
+
+#workspaces button.active {
+  font-weight: bold;
+  padding: 0px 5px;
+  margin: 0px 3px;
+  border-radius: 16px;
+  color: #f7f5ff;
+  background: linear-gradient(45deg, rgba(42, 44, 46, 0.5), rgba(22, 24, 25, 0.5)); /* Gradient with transparency */
+  transition: all 0.3s cubic-bezier(.55,-0.68,.48,1.682);
+  opacity: 1.0;
+  min-width: 30px;
+}
+
+#workspaces button:hover {
+  font-weight: bold;
+  border-radius: 16px;
+  color: #f7f5ff;
+  background: linear-gradient(45deg, rgba(42, 44, 46, 0.5), rgba(22, 24, 25, 0.5)); /* Gradient with transparency */
+  opacity: 0.5;
+  transition: all 0.3s cubic-bezier(.55,-0.68,.48,1.682);
+}
+
+tooltip {
+  font-family: FiraCode Nerd Font;
+  font-size: 24px;
+  background: rgb(206, 202, 216); /* Light color with transparency */
+  border: 1px solid rgb(35, 37, 39); /* Border with transparency */
+  border-radius: 12px;
+}
+
+tooltip label {
+  color: rgb(48, 51, 53);
+}
+
+#window, #pulseaudio, #cpu, #memory, #idle_inhibitor,
+#battery, #custom-hyprbindings, #custom-swaync, #tray, #custom-exit {
+  font-weight: bold;
+  margin: 4px 0px;
+  margin-left: 7px;
+  padding: 0px 18px;
+  background: rgba(24, 25, 29, 0.5); /* Darker gray with transparency */
+  color: #f7f5ff;
+  border-radius: 24px 10px 24px 10px;
+}
+
+#custom-startmenu {
+  font-weight: bold;
+  color: #f7f5ff;
+  background: rgba(25, 26, 31, 0.5); /* Darker gray with transparency */
+  font-size: 20px;
+  margin: 0px;
+  padding: 0px 30px 0px 15px;
+  border-radius: 0px 0px 40px 0px;
+}
+
+#clock {
+  font-weight: bold;
+  color: #f7f5ff;
+  background: rgba(25, 26, 31, 0.5); /* Darker gray with transparency */
+  margin: 0px;
+  padding: 0px 15px 0px 30px;
+  border-radius: 0px 0px 0px 40px;
+}

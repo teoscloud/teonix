@@ -1,0 +1,25 @@
+# Nix build outputs and derivations
+result
+*.drv
+
+# Temporary files and backups
+*~
+*.swp
+*.tmp
+*.bak
+
+# Editor-specific directories (adjust as needed)
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Ignore any files in directories named "secrets" at any depth.
+**/secrets/**
+
+# If updatebuild is generated or transient, ignore it
+updatebuild/
+
+# Optionally, ignore other temporary or cache directories
+.cache/

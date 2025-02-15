@@ -1,0 +1,1 @@
+sudo mkdir -p /etc/custom-files/edid/ && sudo cp ../customfiles/edid/g9.bin /etc/custom-files/edid/

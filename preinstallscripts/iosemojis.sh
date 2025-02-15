@@ -1,0 +1,1 @@
+mkdir -p ~/.local/share/fonts/ && wget https://github.com/samuelngs/apple-emoji-linux/releases/latest/download/AppleColorEmoji.ttf -O ~/.local/share/fonts/AppleColorEmoji.ttf && fc-cache -f -v
