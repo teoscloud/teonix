@@ -7,8 +7,6 @@
 
   programs.home-manager.enable = true;
 
-  environment.variables.HOSTNAME = hostname;
-
   # Import modular configurations
   imports = [
     ./modules/dotfiles.nix  # ✅ Symlinks all dotfiles
