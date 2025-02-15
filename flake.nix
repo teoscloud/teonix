@@ -79,12 +79,8 @@
     # ✅ Add Home Manager as a Standalone Flake
     homeConfigurations = {
       teodor = home-manager.lib.homeManagerConfiguration {
-        pkgs = unstable-pkgs;  # ✅ Removed `system`
-
-        extraSpecialArgs = {
-          inherit username;
-        };
-
+        pkgs = unstable-pkgs;  # Using unstable-pkgs
+        extraSpecialArgs = { inherit username hostname; };
         modules = [
           ./home/${username}.nix
         ];
