@@ -11,8 +11,8 @@
   };
 
   imports = [
-    ./modules/dotfiles.nix
-    ./modules/monitor.nix
     ./modules/shell.nix
+    ./modules/monitor.nix
+    ./modules/dotfiles.nix
   ];
 }

@@ -8,11 +8,12 @@
   home.sessionVariables = {
     HOSTNAME = hostname;
     PROJECT_DIR = projectdir;
+    HYPRMONITORCONF = "${config.home.homeDirectory}/.config/hypr/monitor.conf";
   };
 
   imports = [
-    ./modules/dotfiles.nix
-    ./modules/monitor.nix
     ./modules/shell.nix
+    ./modules/monitor.nix
+    ./modules/dotfiles.nix
   ];
 }
