@@ -5,7 +5,10 @@
   home.homeDirectory = "/home/${username}";
   home.stateVersion = "25.05";
 
-  programs.home-manager.enable = true;
+  # Example: Set an environment variable for your hostname
+  home.sessionVariables = {
+    HOSTNAME = hostname;
+  };
 
   # Import modular configurations
   imports = [
