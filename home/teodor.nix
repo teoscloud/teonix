@@ -1,4 +1,4 @@
-{ config, pkgs, username, ... }:
+{ config, pkgs, username, hostname, ... }:
 
 {
   home.username = username;  # ✅ Now correctly receives username from flake.nix
@@ -6,6 +6,8 @@
   home.stateVersion = "25.05";
 
   programs.home-manager.enable = true;
+
+  environment.variables.HOSTNAME = hostname;
 
   # Import modular configurations
   imports = [
