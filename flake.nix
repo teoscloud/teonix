@@ -16,10 +16,13 @@
   let
     system = "x86_64-linux"; 
     username = "teodor";  
-    hostname = "nixbox";  
     projectdir = "/home/${username}/myprojects/teonix";  
 
-    # ✅ Define `unstable-pkgs` before passing it
+    # ✅ Define separate hostnames for different machines
+    nixbox_hostname = "nixbox";
+    nixtop_hostname = "nixtop";
+
+    # Define `unstable-pkgs`
     unstable-pkgs = import nixos-unstable {
       inherit system;
       config.allowUnfree = true; 
@@ -29,57 +32,93 @@
       inherit system;
       config.allowUnfree = true; 
     };
-  in {
-    nixosConfigurations.nixbox = nixos-unstable.lib.nixosSystem {
-      inherit system;
 
-      specialArgs = {
-        inherit username hostname projectdir inputs unstable-pkgs stable-pkgs;  # ✅ Ensure `unstable-pkgs` is passed
+    # Common arguments for both systems
+    commonSpecialArgs = { inherit username projectdir inputs unstable-pkgs stable-pkgs; };
+
+  in {
+    nixosConfigurations = {
+      # ✅ NIXBOX (Desktop)
+      nixbox = nixos-unstable.lib.nixosSystem {
+        inherit system;
+        specialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };
+        modules = [
+          ./modules/core/kernel.nix
+          ./modules/core/bootloader.nix
+          ./modules/core/nix-settings.nix
+          ./modules/core/users.nix
+          ./hosts/nixbox/hardware-configuration.nix
+          ./hosts/nixbox/gpuisolate.nix
+          ./hosts/nixbox/edidpatch/edidpatch.nix
+          ./hosts/nixbox/edidpatch/kernel-settings.nix
+          ./modules/hardware/hardware.nix
+          ./modules/env/environment.nix
+          ./modules/apps/packages.nix
+          ./modules/apps/programs.nix
+          ./modules/apps/zoom.nix
+          ./modules/customization/fonts.nix
+          ./modules/customization/localization.nix
+          ./modules/services/virtualisation.nix
+          ./modules/services/networking.nix
+          ./modules/services/system-services.nix
+          ./modules/services/user-services.nix
+          ./modules/services/xdgportal.nix
+          ./modules/config/hyprluxconf.nix
+          inputs.hyprlux.nixosModules.default
+          chaotic.nixosModules.default
+
+          # ✅ Home Manager for nixbox
+          inputs.home-manager.nixosModules.home-manager {
+            home-manager.useGlobalPkgs = true;
+            home-manager.useUserPackages = true;
+            home-manager.extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };
+            home-manager.users.${username} = import ./home/${username}.nix;
+          }
+        ];
       };
 
-      modules = [
-        ./modules/core/kernel.nix
-        ./modules/core/bootloader.nix
-        ./modules/core/nix-settings.nix
-        ./modules/core/users.nix
-        ./hosts/nixbox/hardware-configuration.nix
-        ./hosts/nixbox/gpuisolate.nix
-        ./hosts/nixbox/edidpatch/edidpatch.nix
-        ./hosts/nixbox/edidpatch/kernel-settings.nix
-        ./modules/hardware/hardware.nix
-        ./modules/env/environment.nix
-        ./modules/apps/packages.nix  # ✅ Now correctly receives `unstable-pkgs`
-        ./modules/apps/programs.nix
-        ./modules/apps/zoom.nix
-        ./modules/customization/fonts.nix
-        ./modules/customization/localization.nix
-        ./modules/services/virtualisation.nix
-        ./modules/services/networking.nix
-        ./modules/services/system-services.nix
-        ./modules/services/user-services.nix
-        ./modules/services/xdgportal.nix
-        ./modules/config/hyprluxconf.nix
-        inputs.hyprlux.nixosModules.default
-        chaotic.nixosModules.default
+      # ✅ NIXTOP (Laptop)
+      nixtop = nixos-unstable.lib.nixosSystem {
+        inherit system;
+        specialArgs = commonSpecialArgs // { hostname = nixtop_hostname; };
+        modules = [
+          ./modules/core/kernel.nix
+          ./modules/core/bootloader.nix
+          ./modules/core/nix-settings.nix
+          ./modules/core/users.nix
+          ./hosts/nixtop/hardware-configuration.nix
+          ./modules/hardware/hardware.nix
+          ./modules/env/environment.nix
+          ./modules/apps/packages.nix
+          ./modules/apps/programs.nix
+          ./modules/apps/zoom.nix
+          ./modules/customization/fonts.nix
+          ./modules/customization/localization.nix
+          ./modules/services/virtualisation.nix
+          ./modules/services/networking.nix
+          ./modules/services/system-services.nix
+          ./modules/services/user-services.nix
+          ./modules/services/xdgportal.nix
+          ./modules/config/hyprluxconf.nix
+          inputs.hyprlux.nixosModules.default
+          chaotic.nixosModules.default
 
-        # ✅ Ensure `unstable-pkgs` is passed to Home Manager
-        inputs.home-manager.nixosModules.home-manager {
-          home-manager.useGlobalPkgs = true;
-          home-manager.useUserPackages = true;
-          home-manager.extraSpecialArgs = { inherit username hostname projectdir inputs unstable-pkgs stable-pkgs; };
-          home-manager.users.${username} = import ./home/${username}.nix;
-        }
-      ];
+          # ✅ Home Manager for nixtop
+          inputs.home-manager.nixosModules.home-manager {
+            home-manager.useGlobalPkgs = true;
+            home-manager.useUserPackages = true;
+            home-manager.extraSpecialArgs = commonSpecialArgs // { hostname = nixtop_hostname; };
+            home-manager.users.${username} = import ./home/${username}.nix;
+          }
+        ];
+      };
     };
 
+    # ✅ Home Manager Standalone Config (for both nixbox & nixtop)
     homeConfigurations.teodor = home-manager.lib.homeManagerConfiguration {
-      pkgs = unstable-pkgs;  # ✅ Use `unstable-pkgs`
-
-      extraSpecialArgs = { inherit username hostname projectdir inputs unstable-pkgs stable-pkgs; };  # ✅ Pass to Home Manager
-
-      modules = [
-        ./home/${username}.nix
-      ];
+      pkgs = unstable-pkgs;
+      extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };  # ⚠️ Choose the hostname dynamically if needed
+      modules = [ ./home/${username}.nix ];
     };
   };
 }
