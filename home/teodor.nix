@@ -1,18 +1,18 @@
-{ config, pkgs, username, hostname, ... }:
+{ config, pkgs, username, hostname, projectdir, ... }:
 
 {
-  home.username = username;  # ✅ Now correctly receives username from flake.nix
+  home.username = username;
   home.homeDirectory = "/home/${username}";
   home.stateVersion = "25.05";
 
-  # Example: Set an environment variable for your hostname
   home.sessionVariables = {
     HOSTNAME = hostname;
+    PROJECT_DIR = projectdir;
   };
 
-  # Import modular configurations
   imports = [
-    ./modules/dotfiles.nix  # ✅ Symlinks all dotfiles
-    ./modules/monitor.nix   # Device-specific monitor config
+    ./modules/dotfiles.nix
+    ./modules/monitor.nix
+    ./modules/shell.nix
   ];
 }

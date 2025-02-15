@@ -303,7 +303,8 @@
     microsoft-edge
     
     ghex
-    obs-studio 
+    obs-studio
+    obs-studio-plugins.obs-pipewire-audio-capture
 
     dconf
     hyprpaper            # Wallpaper tool
