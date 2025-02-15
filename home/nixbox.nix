@@ -5,14 +5,14 @@
   home.homeDirectory = "/home/${username}";
   home.stateVersion = "25.05";
 
+  # ✅ Export session variables
   home.sessionVariables = {
-    HOSTNAME = hostname;
-    PROJECT_DIR = projectdir;
+    # session variables
   };
 
+  # ✅ Import modules from `home/hosts/nixbox/modules`
   imports = [
-    ./modules/shell.nix
-    ./modules/monitor.nix
-    ./modules/dotfiles.nix
+    ./hosts/nixbox/modules/zshaliases.nix  # ✅ Renamed from shell.nix
+    ./hosts/nixbox/modules/dotfiles.nix
   ];
 }

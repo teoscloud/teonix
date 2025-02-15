@@ -5,15 +5,14 @@
   home.homeDirectory = "/home/${username}";
   home.stateVersion = "25.05";
 
+  # ✅ Export session variables
   home.sessionVariables = {
-    HOSTNAME = hostname;
-    PROJECT_DIR = projectdir;
-    HYPRMONITORCONF = "${config.home.homeDirectory}/.config/hypr/monitor.conf";
+    # session variables
   };
 
+  # ✅ Import modules from `home/hosts/nixtop/modules`
   imports = [
-    ./modules/shell.nix
-    ./modules/monitor.nix
-    ./modules/dotfiles.nix
+    ./hosts/nixtop/modules/zshaliases.nix  # ✅ Renamed from shell.nix
+    ./hosts/nixtop/modules/dotfiles.nix
   ];
 }

@@ -72,7 +72,7 @@
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
             home-manager.extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };
-            home-manager.users.${username} = import ./home/${username}.nix;
+            home-manager.users.${username} = import ./home/${nixbox_hostname}.nix;
           }
         ];
       };
@@ -109,7 +109,7 @@
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
             home-manager.extraSpecialArgs = commonSpecialArgs // { hostname = nixtop_hostname; };
-            home-manager.users.${username} = import ./home/${username}.nix;
+            home-manager.users.${username} = import ./home/${nixtop_hostname}.nix;
           }
         ];
       };
@@ -130,12 +130,6 @@
         modules = [
           ./home/${nixtop_hostname}.nix  # ✅ Laptop-specific modules
         ];
-      };
-
-      teodor = home-manager.lib.homeManagerConfiguration {
-        pkgs = unstable-pkgs;
-        extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };  # ⚠️ Choose the hostname dynamically if needed
-        modules = [ ./home/${username}.nix ];
       };
     };
   };
