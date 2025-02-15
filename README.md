@@ -55,6 +55,6 @@ Teonix is a modular, flake-based NixOS configuration integrated with Home Manage
 
 4. **Apply Home Manager Configuration**
 
-   Home Manager manages your home directory, dotfiles, and user-specific settings:
+   Home Manager manages your home directory, dotfiles, and user-specific settings. use appropriate hostname:
    ```sh
-   home-manager switch --flake .#teodor
+   home-manager switch --flake .#nixbox

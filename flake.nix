@@ -16,7 +16,7 @@
   let
     system = "x86_64-linux"; 
     username = "teodor";  
-    projectdir = "/home/${username}/myprojects/teonix";  
+    projectdir = "/home/${username}/teonix"; 
 
     # ✅ Define separate hostnames for different machines
     nixbox_hostname = "nixbox";
@@ -114,11 +114,28 @@
       };
     };
 
-    # ✅ Home Manager Standalone Config (for both nixbox & nixtop)
-    homeConfigurations.teodor = home-manager.lib.homeManagerConfiguration {
-      pkgs = unstable-pkgs;
-      extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };  # ⚠️ Choose the hostname dynamically if needed
-      modules = [ ./home/${username}.nix ];
+    homeConfigurations = {
+      ${nixbox_hostname} = home-manager.lib.homeManagerConfiguration {
+        pkgs = unstable-pkgs;
+        extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };
+        modules = [
+          ./home/${nixbox_hostname}.nix       # ✅ PC-specific modules
+        ];
+      };
+
+      ${nixtop_hostname} = home-manager.lib.homeManagerConfiguration {
+        pkgs = unstable-pkgs;
+        extraSpecialArgs = commonSpecialArgs // { hostname = nixtop_hostname; };
+        modules = [
+          ./home/${nixtop_hostname}.nix  # ✅ Laptop-specific modules
+        ];
+      };
+
+      teodor = home-manager.lib.homeManagerConfiguration {
+        pkgs = unstable-pkgs;
+        extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };  # ⚠️ Choose the hostname dynamically if needed
+        modules = [ ./home/${username}.nix ];
+      };
     };
   };
 }
