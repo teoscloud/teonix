@@ -45,8 +45,8 @@ The default installation provides the full Teonix experience, including:
 sudo nixos-generate-config
 
 # 3. Apply Teonix configuration:
-sudo nixos-rebuild switch --flake "path:."#default
-home-manager switch --flake "path:."#teodor
+sudo nixos-rebuild switch --flake "path:."#$HOST
+home-manager switch --flake "path:."#$HOST
 ```
 
 #### 🖥️ Desktop Setup (Nixbox)
@@ -64,7 +64,7 @@ sudo ./edidinstall.sh
 
 # 2. Apply configuration:
 sudo nixos-rebuild switch --flake "path:."#nixbox --impure
-home-manager switch --flake "path:."#pc
+home-manager switch --flake "path:."#nixbox
 ```
 
 #### 💻 Laptop Setup (Nixtop)
@@ -78,7 +78,7 @@ Optimized for portable devices with:
 
 ```bash
 sudo nixos-rebuild switch --flake "path:."#nixtop
-home-manager switch --flake "path:."#laptop
+home-manager switch --flake "path:."#nixtop
 ```
 
 ## 🎨 Customization
@@ -94,7 +94,7 @@ cd ~/teonix/scripts
 
 ### ⌨️ Shell Aliases
 
-Teonix comes with powerful aliases for system management:
+Teonix comes with powerful zsh aliases for system management:
 
 - 🔄 `systemupdate`: Full system update
 - 🏠 `updatehome`: Update Home Manager only
@@ -128,9 +128,8 @@ systemupdate
 
 ## 🚨 Important Notes
 
-- 📂 Always clone in `~` for proper alias functionality
-- 🖥️ Desktop users: Don't forget `--impure` flag
-- 📱 Laptop users: Use normal mode
+- 📂 Always clone in `~` for proper alias functionality (might get fixed in the future)
+- 🖥️ Custom EDID users: Don't forget `--impure` flag
 - 🔧 Default install: Perfect for general use
 - 📚 Configs are modular (per host)
 
@@ -147,4 +146,4 @@ Feel free to:
 MIT License - Feel free to use and modify! 🎉
 
 ---
-Made with 💝 by the Teonix Community
+Made with 💝 by the Teo
