@@ -83,7 +83,7 @@
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
             home-manager.extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };
-            home-manager.users.${username} = import ./home/hosts/nixbox/nixbox.nix;
+            home-manager.users.${username} = import ./home/nixbox.nix;
           }
         ];
       };
@@ -119,7 +119,7 @@
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
             home-manager.extraSpecialArgs = commonSpecialArgs // { hostname = nixtop_hostname; };
-            home-manager.users.${username} = import ./home/hosts/nixtop/nixtop.nix;
+            home-manager.users.${username} = import ./home/nixtop.nix;
           }
         ];
       };
@@ -161,13 +161,25 @@
       };
     };
 
-    # ✅ Home Manager Configurations (Dynamically Selects Host)
-    homeConfigurations.${username} = home-manager.lib.homeManagerConfiguration {
-      pkgs = unstable-pkgs;
-      extraSpecialArgs = commonSpecialArgs // { hostname = detectedHostname; };  
-      modules = [
-        ./home/hosts/${detectedHostname}.nix
-      ];
+    # ✅ Home Manager Configurations
+    homeConfigurations = {
+      nixbox = home-manager.lib.homeManagerConfiguration {
+        pkgs = unstable-pkgs;
+        extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };  
+        modules = [ ./home/nixbox.nix ];
+      };
+
+      nixtop = home-manager.lib.homeManagerConfiguration {
+        pkgs = unstable-pkgs;
+        extraSpecialArgs = commonSpecialArgs // { hostname = nixtop_hostname; };  
+        modules = [ ./home/nixtop.nix ];
+      };
+
+      default = home-manager.lib.homeManagerConfiguration {
+        pkgs = unstable-pkgs;
+        extraSpecialArgs = commonSpecialArgs // { hostname = defaultHostname; };  
+        modules = [ ./home/default.nix ];
+      };
     };
   };
 }
