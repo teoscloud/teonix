@@ -1,60 +1,157 @@
-# Teonix
+# Teonix - A Modular NixOS & Home Manager Configuration
 
-Teonix is a modular, flake-based NixOS configuration integrated with Home Manager. This repository provides a fully reproducible, customizable NixOS setup designed for multiple devices (e.g., desktop and laptop), allowing you to share common modules while tailoring host-specific settings.
+Teonix is a modular and customized NixOS configuration designed for seamless portability between different machines while keeping a consistent user experience.
 
-## Features
+This configuration includes dotfiles, packages, Hyprland settings, and system configurations, providing a custom NixOS experience out-of-the-box.
 
-- **Modular Structure**
-  - **`hosts/`**: Contains host-specific configurations (e.g., `nixbox`, `nixtop`).
-  - **`modules/`**: Contains shared NixOS modules for core settings, services, hardware, environment, and customization.
-  - **`home/`**: Manages user configurations via Home Manager, including dotfile symlinking.
-  - **`customfiles/`**: Contains additional resources (e.g., EDID files).
-  - **`scripts/`**: Contains utility scripts.
-- **Flake-Based Setup**
-  - Uses Nix flakes for reproducibility, easier updates, and modularity.
-- **Home Manager Integration**
-  - Manages user-level settings (dotfiles, shell configuration, installed applications) in a declarative manner.
-- **Device-Specific Customization**
-  - Customize settings such as monitor resolution, port configuration, and VRR on a per-device basis.
+## ✨ Installation Guide
 
+### 1. Clone the Repository
 
-## How to Use
+Before installing Teonix, you must clone the repository into your home directory to ensure the shell aliases and scripts function properly:
 
-### Prerequisites
+```bash
+cd ~
+git clone https://github.com/teoscloud/teonix.git
+cd teonix
+```
 
-- **Nix & Flakes:**  
-  Ensure you have [Nix](https://nixos.org) installed with flake support enabled.
+This will create a `~/teonix` directory, which will be used by Home Manager and system scripts.
 
-- **NixOS 25.05 or Later:**  
-  This configuration is designed for NixOS 25.05. Adjustments may be necessary for other versions.
+### 2. Installing Teonix (Default Setup)
 
-### Getting Started
+The default installation provides the full Teonix experience, including:
 
-1. **Clone the Repository**
+✓ Customized dotfiles (Hyprland, Kitty, Waybar, etc.)  
+✓ Pre-configured system settings  
+✓ Home Manager for user configuration  
+✓ No GPU passthrough or EDID patches required  
 
-   Clone this repository to your local machine:
-   ```sh
-   git clone git@github.com:teoscloud/teonix.git
-   cd teonix
+#### Installation Steps
 
-2. **Update Flake Inputs**
+1. Ensure you have NixOS installed. If not, install NixOS first.
+2. Generate a hardware configuration (if missing):
+   ```bash
+   sudo nixos-generate-config
+   ```
+3. Apply Teonix default configuration:
+   ```bash
+   sudo nixos-rebuild switch --flake "path:."#default
+   home-manager switch --flake "path:."#teodor
+   ```
 
-   Update the flake inputs to ensure you have the latest versions:
-   ```sh
-   nix flake update
+### 3. Installing Teonix on Nixbox (Desktop)
 
-3. **Rebuild Your NixOS System**
+The Nixbox configuration includes everything from default but also:
 
-   For your desktop (nixbox), run:
-   ```sh
-   sudo nixos-rebuild switch --flake .#nixbox --impure
-    ```
-   For a different host configuration (e.g., nixtop), adjust the flake target accordingly:
-   ```sh
-   sudo nixos-rebuild switch --flake .#nixtop --impure
+✓ Custom EDID patch for monitor support  
+✓ GPU Passthrough configuration (VFIO)  
+✓ Requires an additional EDID setup step  
 
-4. **Apply Home Manager Configuration**
+⚠️ Important: Run `edidinstall.sh` First!
 
-   Home Manager manages your home directory, dotfiles, and user-specific settings. use appropriate hostname:
-   ```sh
-   home-manager switch --flake .#nixbox
+Before applying nixbox, you must install the custom EDID firmware for proper monitor detection:
+
+```bash
+cd ~/teonix/scripts
+sudo ./edidinstall.sh
+```
+
+#### Installation Steps
+
+1. Clone the repo into `~/teonix`
+2. Run the EDID install script (`edidinstall.sh`)
+3. Apply the Nixbox configuration:
+   ```bash
+   sudo nixos-rebuild switch --flake "path:."#nixbox --impure
+   home-manager switch --flake "path:."#pc
+   ```
+
+The `--impure` flag is needed for Nixbox because the custom EDID file is stored outside of the Nix store.
+
+### 4. Installing Teonix on Nixtop (Laptop)
+
+The Nixtop configuration includes:
+
+✓ Custom dotfiles for a seamless UX  
+✓ No GPU passthrough or EDID patches  
+✓ Tailored for laptop use  
+
+#### Installation Steps
+
+1. Clone the repo into `~/teonix`
+2. Apply the Nixtop configuration:
+   ```bash
+   sudo nixos-rebuild switch --flake "path:."#nixtop
+   home-manager switch --flake "path:."#laptop
+   ```
+
+Unlike nixbox, Nixtop does not require `--impure` since there are no out-of-store dependencies.
+
+## Additional Features
+
+### 5. Installing iOS Emojis
+
+Teonix allows you to use Apple iOS emojis by running:
+
+```bash
+cd ~/teonix/scripts
+./iosemojis.sh
+```
+
+This will install Apple-style emojis for a better UI experience.
+
+### 6. Shell Aliases (zshaliases.sh)
+
+Teonix includes useful Zsh aliases for easy updates. These are stored in `~/.zshaliases.sh` and loaded into Zsh automatically.
+
+#### Available Commands
+
+- Update system (includes Home Manager & flake update):
+  ```bash
+  systemupdate
+  ```
+- Update only Home Manager:
+  ```bash
+  updatehome
+  ```
+- Update NixOS system without updating flake.lock:
+  ```bash
+  nixupgrade
+  ```
+- Update the flake.lock dependencies:
+  ```bash
+  nixupdate
+  ```
+
+💡 Note: If the repository was cloned outside `~/teonix`, these aliases might not work.
+
+## Updating Teonix
+
+Whenever you make changes to your Teonix configuration, you can push them to GitHub:
+
+```bash
+git add .
+git commit -m "Updated Teonix configuration"
+git push
+```
+
+To pull the latest changes from another machine, run:
+
+```bash
+cd ~/teonix
+git pull
+```
+
+Then apply the updates:
+
+```bash
+systemupdate
+```
+
+## Final Notes
+
+- The repo should always be cloned in `~` to ensure compatibility with shell aliases.
+- Use `--impure` for Desktop (with EDID fix) and normal mode for Laptop.
+- Default install (normal mode) is for general use without extra tweaks.
+- The project is modular, meaning configs are separated per host (Nixtop/Nixbox).
