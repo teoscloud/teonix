@@ -1,3 +1,7 @@
+# 💻 Hyprland Rice overview
+
+![Screenshot](./screenshots/desktop.png)
+
 # 🌟 Teonix - A Modular NixOS & Home Manager Configuration
 
 > 🚀 Your personal NixOS configuration, supercharged with customization and portability!
