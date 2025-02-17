@@ -1,3 +1,6 @@
+# ignore flake.lock for convenience and living on the edge 
+flake.lock
+
 # Nix build outputs and derivations
 result
 *.drv
