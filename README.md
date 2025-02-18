@@ -48,7 +48,10 @@ The default installation provides the full Teonix experience, including:
 # 2. Generate hardware config (if missing):
 sudo nixos-generate-config
 
-# 3. Apply Teonix configuration:
+# 3. Generate flake.lock
+nix flake update
+
+# 4. Apply Teonix configuration:
 sudo nixos-rebuild switch --flake "path:."#$HOST
 home-manager switch --flake "path:."#$HOST
 ```
@@ -66,7 +69,10 @@ Perfect for desktop workstations with:
 cd ~/teonix/scripts
 sudo ./edidinstall.sh
 
-# 2. Apply configuration:
+# 2. Generate flake.lock
+nix flake update
+
+# 3. Apply configuration:
 sudo nixos-rebuild switch --flake "path:."#nixbox --impure
 home-manager switch --flake "path:."#nixbox
 ```
@@ -81,6 +87,10 @@ Optimized for portable devices with:
 🎮 No GPU passthrough needed  
 
 ```bash
+# 1. Generate flake.lock
+nix flake update
+
+# 2. Apply configuration:
 sudo nixos-rebuild switch --flake "path:."#nixtop
 home-manager switch --flake "path:."#nixtop
 ```
