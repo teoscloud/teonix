@@ -1,12 +1,12 @@
-# 💻 Hyprland Rice overview
-
-![Screenshot](./screenshots/desktop.png)
-
 # 🌟 Teonix - A Modular NixOS & Home Manager Configuration
 
 > 🚀 Your personal NixOS configuration, supercharged with customization and portability!
 
 Teonix is a modular and customized NixOS configuration designed for seamless portability between different machines while keeping a consistent user experience. 
+
+# 💻 Hyprland Rice overview
+
+![Screenshot](./screenshots/desktop.png)
 
 ## 🎯 Features
 
