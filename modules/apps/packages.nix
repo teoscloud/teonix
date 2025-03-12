@@ -312,7 +312,7 @@
     #hypridle             # Idle management for Hyprland
     #hyprlock             # Lock screen tool for Hyprland
     #xwayland
-    xwaylandvideobridge
+    kdePackages.xwaylandvideobridge
     
     brave
     chromium
