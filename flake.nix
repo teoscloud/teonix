@@ -60,6 +60,7 @@
           ./modules/core/users.nix
           ./hosts/nixbox/hardware-configuration.nix
           ./hosts/nixbox/gpuisolate.nix
+          ./hosts/nixbox/nixconfig.nix
           ./hosts/nixbox/edidpatch/edidpatch.nix
           ./hosts/nixbox/edidpatch/kernel-settings.nix
           ./modules/hardware/hardware.nix
