@@ -25,6 +25,12 @@ in
       enable = true;
       enable32Bit = true;
 
+      extraPackages = with pkgs; [
+        rocmPackages.clr.icd
+        rocmPackages.rocm-runtime
+        rocmPackages.rocminfo
+      ];
+
       #package32 = pkgs-unstable.pkgsi686Linux.mesa.drivers;
 
       ## amdvlk: an open-source Vulkan driver from AMD

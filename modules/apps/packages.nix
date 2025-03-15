@@ -319,6 +319,8 @@
     google-chrome
 
     lutris               # Gaming platform for Linux
+    davinci-resolve
+    krita
     
     
     
