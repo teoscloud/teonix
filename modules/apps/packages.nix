@@ -344,6 +344,8 @@
 
     #discord-screenaudio
     #discord-krisp
+    kdePackages.kwalletmanager
+    
 
     
   ] ++ (with stable-pkgs; [
