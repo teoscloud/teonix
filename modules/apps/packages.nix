@@ -336,6 +336,8 @@
     dnsmasq              # DNS forwarding and DHCP services
     virtiofsd
     
+    udiskie
+
     #gnome-desktop
     whatsapp-for-linux
 

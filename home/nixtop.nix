@@ -15,4 +15,11 @@
     ./hosts/nixtop/modules/zshaliases.nix  # ✅ Renamed from shell.nix
     ./hosts/nixtop/modules/dotfiles.nix
   ];
+
+  services.udiskie = {
+    enable = true;
+    automount = true;  # Automatically mount new devices
+    notify = true;     # Show notifications
+    tray = "auto";     # Show tray icon only when devices are available
+  };
 }
