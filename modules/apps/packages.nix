@@ -95,7 +95,6 @@
     # Media & Graphics #
     ####################
     mpv                 # Media player
-    gimp                # Image editing
     imv                 # Image viewer
     spotify             # Spotify client
     spotify-tray        # Tray control for Spotify
@@ -181,7 +180,6 @@
     neofetch
     kitty
     gammastep
-    gimp
     networkmanagerapplet
     nemo
     signal-desktop
