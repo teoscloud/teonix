@@ -26,6 +26,24 @@ in {
   home.file.".config/wofi/config".source = "${dotfilesPath}/config/wofi/config";
   home.file.".config/wofi/style.css".source = "${dotfilesPath}/config/wofi/style.css";
 
+  # ✅ wlogout configuration
+  home.file.".config/wlogout/hibernate-hover.png".source = "${dotfilesPath}/config/wlogout/hibernate-hover.png";
+  home.file.".config/wlogout/hibernate.png".source = "${dotfilesPath}/config/wlogout/hibernate.png";
+  home.file.".config/wlogout/layout".source = "${dotfilesPath}/config/wlogout/layout";
+  home.file.".config/wlogout/lock-hover.png".source = "${dotfilesPath}/config/wlogout/lock-hover.png";
+  home.file.".config/wlogout/lock.png".source = "${dotfilesPath}/config/wlogout/lock.png";
+  home.file.".config/wlogout/logout-hover.png".source = "${dotfilesPath}/config/wlogout/logout-hover.png";
+  home.file.".config/wlogout/logout.png".source = "${dotfilesPath}/config/wlogout/logout.png";
+  home.file.".config/wlogout/power-hover.png".source = "${dotfilesPath}/config/wlogout/power-hover.png";
+  home.file.".config/wlogout/power.png".source = "${dotfilesPath}/config/wlogout/power.png";
+  home.file.".config/wlogout/restart-hover.png".source = "${dotfilesPath}/config/wlogout/restart-hover.png";
+  home.file.".config/wlogout/restart.png".source = "${dotfilesPath}/config/wlogout/restart.png";
+  home.file.".config/wlogout/sleep-hover.png".source = "${dotfilesPath}/config/wlogout/sleep-hover.png";
+  home.file.".config/wlogout/sleep.png".source = "${dotfilesPath}/config/wlogout/sleep.png";
+  home.file.".config/wlogout/style.css".source = "${dotfilesPath}/config/wlogout/style.css";
+
+
+
   # ✅ Wallpapers
   home.file.".config/hypr/wallpapers/cloudy.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/cloudy.jpg";
   home.file.".config/hypr/wallpapers/darkmountain.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/darkmountain.jpg";
