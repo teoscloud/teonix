@@ -101,6 +101,8 @@
     moonlight-qt        # Game streaming client
     protontricks        # Tools for Proton gaming
     mangohud            # Gaming performance overlay
+    rustc
+    cargo
 
     ####################
     # Miscellaneous    #
