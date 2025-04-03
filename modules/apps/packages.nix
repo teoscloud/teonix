@@ -297,7 +297,7 @@
     clementine
     yt-dlp
     nix-index
-    rpcs3
+    
     qbittorrent
     easyeffects
     microsoft-edge
