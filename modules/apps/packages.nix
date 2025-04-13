@@ -184,7 +184,7 @@
     gammastep
     networkmanagerapplet
     nemo
-    signal-desktop
+    signal-desktop-bin
     scli
     pfetch
     youtube-music

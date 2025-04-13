@@ -30,7 +30,7 @@
     # android
     waydroid.enable = true;
 
-    vmware.host.enable = true;
+    #vmware.host.enable = true;
 
   };
 
