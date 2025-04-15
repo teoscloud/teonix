@@ -347,6 +347,10 @@
     #discord-screenaudio
     #discord-krisp
     kdePackages.kwalletmanager
+
+    code-cursor
+    unityhub
+    nodePackages.nodejs
     
 
     
