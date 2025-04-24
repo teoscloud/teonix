@@ -293,7 +293,7 @@
     steam-run
     nix-ld
     samba
-    qmmp
+    
     clementine
     yt-dlp
     nix-index
@@ -369,6 +369,7 @@
 
     vesktop
     
+    qmmp
 
     #space-cadet-pinball # Classic pinball game
     
