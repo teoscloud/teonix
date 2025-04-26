@@ -352,7 +352,7 @@
     unityhub
     nodePackages.nodejs
     
-
+    gfn-electron
     
   ] ++ (with stable-pkgs; [
 
