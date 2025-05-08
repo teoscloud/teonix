@@ -353,6 +353,8 @@
     nodePackages.nodejs
     
     gfn-electron
+
+    rpcs3
     
   ] ++ (with stable-pkgs; [
 
