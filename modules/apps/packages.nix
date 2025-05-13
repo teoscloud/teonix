@@ -355,6 +355,7 @@
     gfn-electron
 
     rpcs3
+    fastfetch
     
   ] ++ (with stable-pkgs; [
 
