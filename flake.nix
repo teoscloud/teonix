@@ -99,6 +99,7 @@
           ./modules/core/nix-settings.nix
           ./modules/core/users.nix
           ./hosts/nixtop/hardware-configuration.nix
+          ./hosts/nixtop/nixconfig.nix
           ./modules/hardware/hardware.nix
           ./modules/env/environment.nix
           ./modules/apps/packages.nix
