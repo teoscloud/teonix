@@ -356,6 +356,7 @@
 
     rpcs3
     fastfetch
+    onlyoffice-desktopeditors
     
   ] ++ (with stable-pkgs; [
 
