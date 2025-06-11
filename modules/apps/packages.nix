@@ -300,7 +300,6 @@
     
     qbittorrent
     easyeffects
-    microsoft-edge
     
     ghex
     obs-studio
@@ -355,8 +354,11 @@
     gfn-electron
 
     rpcs3
+    pcsx2
     fastfetch
     onlyoffice-desktopeditors
+    tradingview
+    wtype
     
   ] ++ (with stable-pkgs; [
 
