@@ -51,6 +51,8 @@ in {
   home.file.".config/hypr/wallpapers/darkmountain.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/darkmountain.jpg";
   home.file.".config/hypr/wallpapers/pinkfield.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/pinkfield.jpg";
   home.file.".config/hypr/wallpapers/re8.png".source = "${dotfilesPath}/config/hypr/wallpapers/re8.png";
+  home.file.".config/hypr/wallpapers/IMG_3077.JPEG".source = "${dotfilesPath}/config/hypr/wallpapers/IMG_3077.JPEG";
+  home.file.".config/hypr/wallpapers/IMG_3279.JPEG".source = "${dotfilesPath}/config/hypr/wallpapers/IMG_3279.JPEG";
 
   # ✅ Scripts
   home.file.".config/hypr/scripts/cssbackup.css".source = "${dotfilesPath}/config/hypr/scripts/cssbackup.css";
