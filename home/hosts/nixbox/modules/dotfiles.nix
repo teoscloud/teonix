@@ -15,6 +15,7 @@ in {
 
   # ✅ Hyprland scripts
   home.file.".config/hypr/cyclemon.sh".source = "${dotfilesPath}/config/hypr/cyclemon.sh";
+  home.file.".config/hypr/listentomb.sh".source = "${dotfilesPath}/config/hypr/listentomb.sh";
 
   # ✅ Symlink other application configurations
   home.file.".config/kitty/kitty.conf".source = "${dotfilesPath}/config/kitty/kitty.conf";
