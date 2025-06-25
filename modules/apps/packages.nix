@@ -348,7 +348,6 @@
     kdePackages.kwalletmanager
 
     code-cursor
-    unityhub
     nodePackages.nodejs
     
     gfn-electron
