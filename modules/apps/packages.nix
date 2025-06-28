@@ -358,6 +358,7 @@
     onlyoffice-desktopeditors
     tradingview
     wtype
+    shadps4
     
   ] ++ (with stable-pkgs; [
 
