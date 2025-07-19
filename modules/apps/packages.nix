@@ -361,7 +361,6 @@
     shadps4
     texliveFull
     glow
-    
   ] ++ (with stable-pkgs; [
 
     cava
