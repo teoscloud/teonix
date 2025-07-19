@@ -359,6 +359,8 @@
     tradingview
     wtype
     shadps4
+    texliveFull
+    glow
     
   ] ++ (with stable-pkgs; [
 
