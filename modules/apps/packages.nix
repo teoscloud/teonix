@@ -361,6 +361,8 @@
     shadps4
     texliveFull
     glow
+
+    chiaki-ng
   ] ++ (with stable-pkgs; [
 
     cava
@@ -373,7 +375,7 @@
     
     heroic              # Game launcher
 
-
+    arrpc
     vesktop
     
     qmmp
