@@ -354,6 +354,7 @@
 
     rpcs3
     pcsx2
+    duckstation
     fastfetch
     onlyoffice-desktopeditors
     tradingview
@@ -361,6 +362,7 @@
     shadps4
     texliveFull
     glow
+    bottles
 
     chiaki-ng
   ] ++ (with stable-pkgs; [
@@ -368,7 +370,7 @@
     cava
     whitesur-icon-theme  # Icon theme
 
-    bottles
+    
     jetbrains.idea-ultimate
     
     gnome-extension-manager
