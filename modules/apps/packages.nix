@@ -354,7 +354,6 @@
 
     rpcs3
     pcsx2
-    duckstation
     fastfetch
     onlyoffice-desktopeditors
     tradingview
@@ -365,6 +364,7 @@
     bottles
 
     chiaki-ng
+    darktable
   ] ++ (with stable-pkgs; [
 
     cava
@@ -376,6 +376,7 @@
     gnome-extension-manager
     
     heroic              # Game launcher
+    duckstation
 
     arrpc
     vesktop
