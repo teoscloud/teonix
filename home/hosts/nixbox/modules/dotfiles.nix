@@ -53,6 +53,7 @@ in {
   home.file.".config/hypr/wallpapers/lightpurple.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/lightpurple.jpg";
   home.file.".config/hypr/wallpapers/purplefloral.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/purplefloral.jpg";
   home.file.".config/hypr/wallpapers/flowie.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/flowie.jpg";
+  home.file.".config/hypr/wallpapers/blisslsd.png".source = "${dotfilesPath}/config/hypr/wallpapers/blisslsd.png";
 
   # ✅ Scripts
   home.file.".config/hypr/scripts/cssbackup.css".source = "${dotfilesPath}/config/hypr/scripts/cssbackup.css";
