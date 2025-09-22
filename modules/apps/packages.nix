@@ -98,7 +98,6 @@
     imv                 # Image viewer
     spotify             # Spotify client
     spotify-tray        # Tray control for Spotify
-    moonlight-qt        # Game streaming client
     protontricks        # Tools for Proton gaming
     mangohud            # Gaming performance overlay
     rustc
@@ -109,29 +108,9 @@
     ####################
     
         stress              # CPU stress testing tool
-    moonlight-qt        # Game streaming client
     
     winetricks           # Wine helper tool
     inputs.nix-gaming.packages.${pkgs.system}.wine-tkg # installs a package
-    # support both 32- and 64-bit applications
-    #wineWowPackages.stable
-
-    # support 32-bit only
-    #wine
-
-    # support 64-bit only
-    #(wine.override { wineBuild = "wine64"; })
-
-    # support 64-bit only
-    #wine64
-
-    # wine-staging (version with experimental features)
-    #wineWowPackages.staging
-
-    # winetricks (all versions)
-
-    # native wayland support (unstable)
-    #wineWowPackages.waylandFull
 
     (python3.withPackages (subpkgs: with subpkgs; [
         requests
@@ -273,8 +252,6 @@
     fuse3
     zip
     swww                 # Wallpaper management for sway and Hyprland
-    stremio
-    libsForQt5.qtstyleplugin-kvantum
     themechanger
     polkit_gnome
     p7zip
@@ -337,14 +314,8 @@
     
     udiskie
 
-    #gnome-desktop
-    whatsapp-for-linux
-
     looking-glass-client
     
-
-    #discord-screenaudio
-    #discord-krisp
     kdePackages.kwalletmanager
 
     code-cursor
@@ -364,27 +335,23 @@
     bottles
 
     chiaki-ng
-    darktable
+    #darktable  # Temporarily removed due to build issues with osm-gps-map dependency
+    godot
+    
+
   ] ++ (with stable-pkgs; [
+    # potential stable:
 
     cava
     whitesur-icon-theme  # Icon theme
-
-    
     jetbrains.idea-ultimate
-    
     gnome-extension-manager
-    
     heroic              # Game launcher
-    duckstation
 
     arrpc
     vesktop
     
     qmmp
 
-    #space-cadet-pinball # Classic pinball game
-    
-    #python3.withPackages (ps: with ps; [ requests ]) # Python 3.10 with requests package
   ]);
 }
