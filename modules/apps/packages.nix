@@ -321,7 +321,6 @@
     code-cursor
     nodePackages.nodejs
     
-    gfn-electron
 
     rpcs3
     pcsx2
