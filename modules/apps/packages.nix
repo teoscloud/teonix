@@ -159,7 +159,6 @@
     gnome-software
     
     neofetch
-    kitty
     gammastep
     networkmanagerapplet
     nemo
@@ -339,6 +338,7 @@
     
 
   ] ++ (with stable-pkgs; [
+    kitty
     # potential stable:
 
     cava
