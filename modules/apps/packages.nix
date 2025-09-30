@@ -206,7 +206,7 @@
     pavucontrol
     tree
     neovide
-    greetd.tuigreet
+    tuigreet
     killall
     eza
     cmatrix
