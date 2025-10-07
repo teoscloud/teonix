@@ -335,10 +335,11 @@
     chiaki-ng
     #darktable  # Temporarily removed due to build issues with osm-gps-map dependency
     godot
+
+    kitty
     
 
   ] ++ (with stable-pkgs; [
-    kitty
     # potential stable:
 
     cava
