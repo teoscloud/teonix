@@ -270,7 +270,6 @@
     nix-ld
     samba
     
-    clementine
     yt-dlp
     nix-index
     
@@ -352,6 +351,7 @@
     vesktop
     
     qmmp
+    clementine
 
   ]);
 }
