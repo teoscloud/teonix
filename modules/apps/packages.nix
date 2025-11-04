@@ -87,7 +87,6 @@
     # Gaming Tools #
     ################
     #bottles              # Wine and Proton GUI
-    protonup             # Proton updater
     
     dolphin-emu          # GameCube/Wii emulator
     
@@ -110,7 +109,6 @@
         stress              # CPU stress testing tool
     
     winetricks           # Wine helper tool
-    inputs.nix-gaming.packages.${pkgs.system}.wine-tkg # installs a package
 
     (python3.withPackages (subpkgs: with subpkgs; [
         requests
@@ -239,7 +237,7 @@
     piper
     whitesur-gtk-theme
     mangohud
-    protonup
+    protonup-ng
     
     protontricks
     prismlauncher
@@ -286,7 +284,6 @@
     #hypridle             # Idle management for Hyprland
     #hyprlock             # Lock screen tool for Hyprland
     #xwayland
-    kdePackages.xwaylandvideobridge
     
     brave
     chromium
@@ -331,11 +328,14 @@
     glow
     bottles
 
-    chiaki-ng
     #darktable  # Temporarily removed due to build issues with osm-gps-map dependency
     godot
 
     kitty
+
+    lm_sensors
+
+    #kdePackages.xwaylandvideobridge potentially needed
     
 
   ] ++ (with stable-pkgs; [
@@ -352,6 +352,8 @@
     
     qmmp
     clementine
+
+    #chiaki-ng
 
   ]);
 }

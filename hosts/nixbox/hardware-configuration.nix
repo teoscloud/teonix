@@ -24,9 +24,9 @@
       options = [ "fmask=0077" "dmask=0077" ];
     };
 
-  fileSystems."/home/${username}/mnt/qvo870" =
+  fileSystems."/home/${username}/mnt/qvo870" = 
     { device = "/dev/disk/by-uuid/2b6816ab-cde4-4379-b371-b3de8cb69f48";
-      fsType = "ext4";
+      options = [ "nofail" "x-systemd.automount" ];
     };
 
   fileSystems."/home/${username}/mnt/qvo860" =

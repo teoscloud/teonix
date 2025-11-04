@@ -20,5 +20,5 @@
   };
 
   # nordvpn?
-  chaotic.nordvpn.enable = true;
+  #chaotic.nordvpn.enable = true;
 }
