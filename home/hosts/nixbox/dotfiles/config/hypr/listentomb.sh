@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Mic name (change only if needed)
-MIC_NAME="alsa_input.pci-0000_0e_00.4.analog-stereo"
+MIC_NAME="alsa_input.pci-0000_0d_00.4.analog-stereo"
 
 # Check if loopback module is already loaded
 LOADED_ID=$(pactl list short modules | grep "module-loopback" | grep "$MIC_NAME" | awk '{print $1}')
