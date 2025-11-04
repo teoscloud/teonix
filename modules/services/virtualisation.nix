@@ -20,9 +20,13 @@
     spiceUSBRedirection.enable = true;
     libvirtd = {
       enable = true;
+      onBoot = "start";
+      onShutdown = "shutdown";
+
       qemu = {
         swtpm.enable = true;
       };
+
     };
 
     # android

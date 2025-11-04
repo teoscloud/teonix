@@ -110,8 +110,9 @@
     
     winetricks           # Wine helper tool
 
-    (python3.withPackages (subpkgs: with subpkgs; [
-        requests
+    (python3.withPackages (ps: [
+      ps.requests
+      ps.tkinter
     ]))
 
     free42              # Calculator app
@@ -166,8 +167,9 @@
     youtube-music
     obsidian
     amdgpu_top
-    qemu
+    qemu_full
     libvirt
+    OVMF
     virt-manager
     virt-viewer
     steam-devices-udev-rules
@@ -299,12 +301,6 @@
     ########################
     # Virtualization Tools #
     ########################
-    qemu                 # Virtualization tool
-    libvirt              # Virtualization management
-    virt-manager         # Virtual machine manager
-    virt-viewer          # Virtual machine viewer
-    bridge-utils         # Network bridge utilities
-    dnsmasq              # DNS forwarding and DHCP services
     virtiofsd
     
     udiskie

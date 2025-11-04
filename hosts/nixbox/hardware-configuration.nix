@@ -25,13 +25,15 @@
     };
 
   fileSystems."/home/${username}/mnt/qvo870" = 
-    { device = "/dev/disk/by-uuid/2b6816ab-cde4-4379-b371-b3de8cb69f48";
-      options = [ "nofail" "x-systemd.automount" ];
-    };
+  { device = "/dev/disk/by-uuid/c232ec48-5b23-4718-99de-77a7da454343";
+    fsType = "ext4";
+    options = [ "nofail" "x-systemd.device-timeout=2s" ];
+  };
 
   fileSystems."/home/${username}/mnt/qvo860" =
     { device = "/dev/disk/by-uuid/b3ef6e32-cf62-487b-bc43-03edcfecef09";
       fsType = "ext4";
+      options = [ "nofail" "x-systemd.device-timeout=2s" ];
     };
 
   swapDevices =

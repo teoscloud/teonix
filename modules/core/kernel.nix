@@ -5,6 +5,8 @@
     # Choose the kernel from either stable or unstable as needed
     kernelPackages = pkgs.linuxPackages_cachyos;
 
+    kernelModules = [ "kvm" ];
+
     # Needed For Some Steam Games
     kernel.sysctl = {
       "vm.max_map_count" = 2147483642;
