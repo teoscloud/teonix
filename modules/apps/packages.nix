@@ -349,7 +349,7 @@
     qmmp
     clementine
 
-    #chiaki-ng
+    chiaki-ng
 
   ]);
 }
