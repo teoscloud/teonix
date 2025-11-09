@@ -13,6 +13,10 @@
       rootless = {
         enable = true;
         setSocketVariable = true;
+        # For rootless Docker, daemon settings must be under rootless.daemon.settings
+        daemon.settings = {
+          data-root = "/home/teodor/mnt/qvo870/dockerdata";
+        };
       };
     };
 

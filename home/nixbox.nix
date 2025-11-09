@@ -5,6 +5,13 @@
   home.homeDirectory = "/home/${username}";
   home.stateVersion = "25.05";
 
+  # In your home.nix or equivalent
+  home.file.".config/docker/daemon.json".text = ''
+    {
+      "data-root": "/home/teodor/mnt/qvo870/dockerdata"
+    }
+  '';
+
   # ✅ Export session variables
   home.sessionVariables = {
     # session variables
