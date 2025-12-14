@@ -31,7 +31,15 @@
     # ✅ Define package sources
     unstable-pkgs = import nixos-unstable {
       inherit system;
-      config.allowUnfree = true; 
+      config.allowUnfree = true;
+      overlays = [
+        # Override qemu to disable ceph support (which has broken Python dependencies)
+        (final: prev: {
+          qemu = prev.qemu.override {
+            cephSupport = false;
+          };
+        })
+      ];
     };
 
     stable-pkgs = import nixos-stable {
@@ -61,6 +69,7 @@
           ./hosts/nixbox/hardware-configuration.nix
           #./hosts/nixbox/gpuisolate.nix
           ./hosts/nixbox/nixconfig.nix
+          ./hosts/nixbox/ssh.nix
           ./hosts/nixbox/edidpatch/edidpatch.nix
           ./hosts/nixbox/edidpatch/kernel-settings.nix
           #./hosts/nixbox/powerctrl.nix

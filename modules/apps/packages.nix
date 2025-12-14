@@ -167,7 +167,7 @@
     youtube-music
     obsidian
     amdgpu_top
-    qemu_full
+    qemu                  # Using qemu instead of qemu_full to avoid broken Python dependencies
     libvirt
     OVMF
     virt-manager
