@@ -31,7 +31,7 @@
     # ✅ Define package sources
     unstable-pkgs = import nixos-unstable {
       inherit system;
-      config.allowUnfree = true;
+      config.allowUnfree = true; 
       overlays = [
         # Override qemu to disable ceph support (which has broken Python dependencies)
         (final: prev: {

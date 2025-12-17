@@ -9,7 +9,7 @@
     };
 
     firewall = {
-      allowedTCPPorts = [ 443 3000 25565 25566 ];
+      allowedTCPPorts = [ 443 3000 3001 8000 25565 25566 ];
       allowedUDPPorts = [ 1194 25565 25566 ];
 
       checkReversePath = false; # for nordvpn compatibility
