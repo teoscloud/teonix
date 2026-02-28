@@ -33,6 +33,8 @@
       inherit system;
       config.allowUnfree = true; 
       overlays = [
+        # Chaotic overlay for CachyOS packages (including linuxPackages_cachyos)
+        chaotic.overlays.default
         # Override qemu to disable ceph support (which has broken Python dependencies)
         (final: prev: {
           qemu = prev.qemu.override {
@@ -62,9 +64,9 @@
         inherit system;
         specialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };
         modules = [
+          ./modules/core/nix-settings.nix  # Load first to set up overlays
           ./modules/core/kernel.nix
           ./modules/core/bootloader.nix
-          ./modules/core/nix-settings.nix
           ./modules/core/users.nix
           ./hosts/nixbox/hardware-configuration.nix
           #./hosts/nixbox/gpuisolate.nix
@@ -83,9 +85,11 @@
           ./modules/services/virtualisation.nix
           ./modules/services/networking.nix
           ./modules/services/system-services.nix
+          ./modules/services/plasma.nix  # KDE Plasma Desktop Environment
           ./modules/services/user-services.nix
           ./modules/services/xdgportal.nix
           ./modules/config/hyprluxconf.nix
+          ./modules/config/vkbasalt.nix  # vkBasalt for CS2 vibrance (works with KDE Plasma)
           inputs.hyprlux.nixosModules.default
           chaotic.nixosModules.default
 
@@ -104,9 +108,9 @@
         inherit system;
         specialArgs = commonSpecialArgs // { hostname = nixtop_hostname; };
         modules = [
+          ./modules/core/nix-settings.nix  # Load first to set up overlays
           ./modules/core/kernel.nix
           ./modules/core/bootloader.nix
-          ./modules/core/nix-settings.nix
           ./modules/core/users.nix
           ./hosts/nixtop/hardware-configuration.nix
           ./hosts/nixtop/nixconfig.nix
@@ -120,9 +124,11 @@
           ./modules/services/virtualisation.nix
           ./modules/services/networking.nix
           ./modules/services/system-services.nix
+          ./modules/services/plasma.nix  # KDE Plasma Desktop Environment
           ./modules/services/user-services.nix
           ./modules/services/xdgportal.nix
           ./modules/config/hyprluxconf.nix
+          ./modules/config/vkbasalt.nix  # vkBasalt for CS2 vibrance (works with KDE Plasma)
           inputs.hyprlux.nixosModules.default
           chaotic.nixosModules.default
 
@@ -141,9 +147,9 @@
         inherit system;
         specialArgs = commonSpecialArgs // { hostname = defaultHostname; };
         modules = [
+          ./modules/core/nix-settings.nix  # Load first to set up overlays
           ./modules/core/kernel.nix
           ./modules/core/bootloader.nix
-          ./modules/core/nix-settings.nix
           ./modules/core/users.nix
           hardwareConfigPath  # ✅ Uses dynamically detected hardware config
           ./modules/hardware/hardware.nix
@@ -156,9 +162,11 @@
           ./modules/services/virtualisation.nix
           ./modules/services/networking.nix
           ./modules/services/system-services.nix
+          ./modules/services/plasma.nix  # KDE Plasma Desktop Environment
           ./modules/services/user-services.nix
           ./modules/services/xdgportal.nix
           ./modules/config/hyprluxconf.nix
+          ./modules/config/vkbasalt.nix  # vkBasalt for CS2 vibrance (works with KDE Plasma)
           inputs.hyprlux.nixosModules.default
           chaotic.nixosModules.default
 

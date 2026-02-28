@@ -60,6 +60,18 @@ in {
   home.file.".config/hypr/scripts/mediaplayer.py".source = "${dotfilesPath}/config/hypr/scripts/mediaplayer.py";
   home.file.".config/hypr/scripts/waybar-wttr.py".source = "${dotfilesPath}/config/hypr/scripts/waybar-wttr.py";
   home.file.".config/hypr/scripts/weather.py".source = "${dotfilesPath}/config/hypr/scripts/weather.py";
+  home.file.".config/hypr/scripts/audio-transmit.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/audio-transmit.sh";
+    executable = true;
+  };
+  home.file.".config/hypr/scripts/udp-send-chunked.py" = {
+    source = "${dotfilesPath}/config/hypr/scripts/udp-send-chunked.py";
+    executable = true;
+  };
+  home.file.".config/hypr/scripts/audio-transmit-toggle.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/audio-transmit-toggle.sh";
+    executable = true;
+  };
 
   # ✅ Symlink ios font config
   home.file.".config/fontconfig/fonts.conf".source = "${dotfilesPath}/config/fontconfig/fonts.conf";

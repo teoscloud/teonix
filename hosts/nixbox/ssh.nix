@@ -11,6 +11,10 @@
   # To connect from your MacBook:
   #   ssh username@<nixbox-local-ip>
   #   (Find the IP with: ip addr show or hostname -I)
+  #
+  # For Ollama tunneling (to use local models from MacBook via Cursor):
+  #   ssh -L 11434:localhost:11434 username@<nixbox-local-ip>
+  # Then configure Cursor to use: http://localhost:11434/v1
   
   services.openssh = {
     enable = true;
@@ -29,7 +33,9 @@
       PasswordAuthentication = true;  # Set to false if using only key-based auth
       KbdInteractiveAuthentication = false;
       X11Forwarding = false;
-      AllowTcpForwarding = false;  # Disable port forwarding for extra security
+      # Enable TCP forwarding for Ollama tunneling (allows SSH port forwarding)
+      # This enables: ssh -L 11434:localhost:11434 user@host
+      AllowTcpForwarding = true;
     };
     
     # Open firewall port 22 for SSH

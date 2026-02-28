@@ -1,9 +1,13 @@
-{ config, pkgs, stable-pkgs, username, ... }:
+{ config, pkgs, stable-pkgs, username, lib, ... }:
 
 {
   boot = {
     # Choose the kernel from either stable or unstable as needed
-    kernelPackages = pkgs.linuxPackages_cachyos;
+    # Use CachyOS kernel if available (from chaotic overlay), otherwise fallback to default
+    # The chaotic overlay is applied via nixpkgs.overlays in nix-settings.nix
+    kernelPackages = if pkgs ? linuxPackages_cachyos 
+                     then pkgs.linuxPackages_cachyos 
+                     else pkgs.linuxPackages;
 
     kernelModules = [ "kvm" ];
 

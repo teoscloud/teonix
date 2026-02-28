@@ -45,7 +45,6 @@
     appimage-run         # Run AppImages
     yad                  # Dialog boxes from shell scripts
     playerctl            # Media player control
-    nixfmt-rfc-style     # Nix code formatting
     docker-compose       # Docker utility
     docker               # Docker itself
 
@@ -85,10 +84,13 @@
 
     ################
     # Gaming Tools #
+    vkbasalt              # Vulkan post-processing layer for vibrance/saturation
     ################
     #bottles              # Wine and Proton GUI
     
     dolphin-emu          # GameCube/Wii emulator
+    wowup-cf
+    baobab
     
     ####################
     # Media & Graphics #
@@ -121,6 +123,8 @@
     mediawriter         # Fedora Media Writer
     piper               # Configure gaming mice
     #customRetroarch     # Fixed RetroArch override
+    retroarch-full
+    xivlauncher
     wl-clipboard         # Wayland clipboard tools
     brightnessctl       # Adjust screen brightness
     tree                # Directory tree visualization
@@ -164,7 +168,7 @@
     signal-desktop-bin
     scli
     pfetch
-    youtube-music
+    pear-desktop
     obsidian
     amdgpu_top
     qemu                  # Using qemu instead of qemu_full to avoid broken Python dependencies
@@ -196,7 +200,7 @@
     yad
     inxi
     playerctl
-    nixfmt-rfc-style
+    pkgs.nixfmt
     swww
     grim
     slurp
@@ -291,9 +295,8 @@
     chromium
     google-chrome
 
-    lutris               # Gaming platform for Linux
+    #lutris               # Gaming platform for Linux
     davinci-resolve
-    krita
     
     
     
@@ -332,6 +335,9 @@
     lm_sensors
 
     #kdePackages.xwaylandvideobridge potentially needed
+    whatsapp-electron
+
+    vesktop
     
 
   ] ++ (with stable-pkgs; [
@@ -344,7 +350,7 @@
     heroic              # Game launcher
 
     arrpc
-    vesktop
+    
     
     qmmp
     clementine
