@@ -14,19 +14,11 @@
   };
 
   services = {
-    # Display Manager - SDDM for KDE Plasma
+    # Display Manager - GDM (GNOME); shows Plasma + GNOME + Hyprland sessions
     # Note: Having both SDDM and GDM enabled can cause conflicts
-    # SDDM is recommended for KDE Plasma, GDM for GNOME/Hyprland
-    # You can choose one by commenting out the other
     displayManager = {
-      sddm = {
-        enable = true;
-        wayland.enable = true;  # Enable Wayland support
-      };
-      # Set default session to Plasma (optional - SDDM will show all available sessions)
-      defaultSession = "plasma";
-      # Uncomment below if you want GDM instead (for GNOME/Hyprland)
-      # gdm.enable = true;
+      gdm.enable = true;
+      defaultSession = "gnome";
     };
 
     # Desktop Managers - KDE Plasma 6 + GNOME (SDDM shows both sessions)
