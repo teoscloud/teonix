@@ -72,6 +72,10 @@ in {
     source = "${dotfilesPath}/config/hypr/scripts/audio-transmit-toggle.sh";
     executable = true;
   };
+  home.file.".config/hypr/scripts/scrolling-promote-new-window.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/scrolling-promote-new-window.sh";
+    executable = true;
+  };
 
   # ✅ Symlink ios font config
   home.file.".config/fontconfig/fonts.conf".source = "${dotfilesPath}/config/fontconfig/fonts.conf";

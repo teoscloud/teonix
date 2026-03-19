@@ -81,6 +81,7 @@
     wofi-emoji           # Emoji picker for Wayland
     sway                 # Wayland compositor
     swaybg               # Background utility for sway
+    snapshot
 
     ################
     # Gaming Tools #
@@ -161,11 +162,11 @@
     gnome-tweaks
     gnome-software
     
-    neofetch
+    fastfetch
     gammastep
     networkmanagerapplet
     nemo
-    signal-desktop-bin
+    signal-desktop
     scli
     pfetch
     pear-desktop
@@ -298,7 +299,9 @@
     #lutris               # Gaming platform for Linux
     davinci-resolve
     
-    
+    haskellPackages.asana
+
+    exfatprogs
     
 
     ########################

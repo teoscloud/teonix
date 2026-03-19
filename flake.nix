@@ -86,6 +86,7 @@
           ./modules/services/networking.nix
           ./modules/services/system-services.nix
           ./modules/services/plasma.nix  # KDE Plasma Desktop Environment
+          ./modules/services/gnome.nix   # GNOME desktop + apps (session via SDDM)
           ./modules/services/user-services.nix
           ./modules/services/xdgportal.nix
           ./modules/config/hyprluxconf.nix

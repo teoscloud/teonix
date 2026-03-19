@@ -27,6 +27,6 @@
     enable = true;
     automount = true;  # Automatically mount new devices
     notify = true;     # Show notifications
-    tray = "auto";     # Show tray icon only when devices are available
+    tray = "never";    # Disabled: tray icon hover triggered Hyprland CPopup::onCommit crash
   };
 }

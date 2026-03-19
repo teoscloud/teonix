@@ -2,6 +2,8 @@
 
 {
   boot = {
+    supportedFilesystems = [ "exfat" ];
+
     # Choose the kernel from either stable or unstable as needed
     # Use CachyOS kernel if available (from chaotic overlay), otherwise fallback to default
     # The chaotic overlay is applied via nixpkgs.overlays in nix-settings.nix
@@ -9,7 +11,7 @@
                      then pkgs.linuxPackages_cachyos 
                      else pkgs.linuxPackages;
 
-    kernelModules = [ "kvm" ];
+    kernelModules = [ "kvm" "exfat" ];
 
     # Needed For Some Steam Games
     kernel.sysctl = {

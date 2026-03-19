@@ -1,6 +1,18 @@
 { config, ... }:
 
 {
+  # exFAT/vfat mount options for udisks2 (numeric uid/gid; $UID/$GID are not expanded by udisks2 in all contexts)
+  environment.etc."udisks2/mount_options.conf" = {
+    text = ''
+      [defaults]
+      exfat_defaults=uid=1000,gid=1000,iocharset=utf8,errors=remount-ro,dmask=0002,fmask=0113
+      exfat_allow=uid,gid,iocharset,errors,dmask,fmask,namecase,umask
+      vfat_defaults=uid=1000,gid=1000,dmask=0002,fmask=0113,shortname=mixed,utf8=1,flush
+      vfat_allow=uid,gid,dmask,fmask,iocharset,shortname,utf8,flush
+    '';
+    mode = "0644";
+  };
+
   services = {
     # Display Manager - SDDM for KDE Plasma
     # Note: Having both SDDM and GDM enabled can cause conflicts
@@ -17,14 +29,13 @@
       # gdm.enable = true;
     };
 
-    # Desktop Managers - KDE Plasma 6
+    # Desktop Managers - KDE Plasma 6 + GNOME (SDDM shows both sessions)
     desktopManager = {
       plasma6 = {
         enable = true;
         enableQt5Integration = true;  # Enable Qt5 integration for compatibility
       };
-      # Uncomment below if you want GNOME as well
-      # gnome.enable = true;
+      gnome.enable = true;
     };
     
     # Enable sound with Pipewire

@@ -11,10 +11,11 @@
   "modules-right": [
     "custom/swaync",
     "custom/exit",
-    "tray",
+    // "tray" — SNI tooltips (from tray apps) still create XDG popups; Waybar tray "tooltip":false doesn't suppress them; disabled until Hyprland CPopup fix
     "clock"
   ],
   "hyprland/workspaces": {
+    "tooltip": false,
     "format": "{icon}",
     "format-icons": {
       "default": "",
@@ -26,11 +27,12 @@
     "on-scroll-down": "hyprctl dispatch workspace e-1"
   },
   "clock": {
-    "format": "󰥔 {:%a %b %d %I:%M %p}",  // Adjust this format based on your preference (24h or 12h)
-    "tooltip": true,
-    "tooltip-format": "<tt><b>{calendar}</b></tt>"
+    "format": "󰥔 {:%a %b %d %I:%M %p}",
+    "tooltip": false
+    // tooltip disabled: Hyprland CPopup::onCommit/onUnmap SEGV on Waybar tooltips; re-enable when fixed upstream
   },
   "hyprland/window": {
+    "tooltip": false,
     "format": "{}",
     "icon": true,
     "icon-size": 18,
@@ -43,16 +45,16 @@
   "memory": {
     "interval": 5,
     "format": " {}%",
-    "tooltip": true
+    "tooltip": false
   },
   "cpu": {
     "interval": 5,
     "format": " {usage:2}%",
-    "tooltip": true
+    "tooltip": false
   },
   "disk": {
     "format": " {free}",
-    "tooltip": true
+    "tooltip": false
   },
   "network": {
     "format-icons": [
@@ -67,10 +69,9 @@
     "format-disconnected": "󰤮",
     "tooltip": false
   },
-  "tray": {
-    "spacing": 12
-  },
+  // "tray": { "spacing": 12, "tooltip": false }, — disabled: SNI hover tooltips still trigger Hyprland crash
   "pulseaudio": {
+    "tooltip": false,
     "format": "{icon} {volume}% {format_source}",
     "format-bluetooth": "{volume}% {icon} {format_source}",
     "format-bluetooth-muted": "󰟎 {icon} {format_source}",
@@ -98,6 +99,7 @@
     "on-click": "sleep 0.1 && wlogout"
   },
   "custom/startmenu": {
+    "tooltip": false,
     "exec": "python3 /home/teodor/.config/hypr/scripts/weather.py",
     "restart-interval": 300,
     "return-type":"text",
@@ -114,10 +116,10 @@
       "activated": "",
       "deactivated": ""
     },
-    "tooltip": "true"
+    "tooltip": false
   },
   "custom/swaync": {
-    "tooltip": true,
+    "tooltip": false,
     "format": "{icon} {text}",
     "format-icons": {
       "notification": "<span foreground='red'><sup></sup></span>",  // Bell + red dot

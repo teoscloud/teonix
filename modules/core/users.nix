@@ -4,7 +4,7 @@
   users.users.${username} = {
     isNormalUser = true;
     description = username;
-    extraGroups = [ "networkmanager" "wheel" "docker" "libvirtd" "nordvpn" "input" "kvm" ];
+    extraGroups = [ "networkmanager" "wheel" "docker" "libvirtd" "nordvpn" "input" "kvm" "storage" ];
     
     packages = with pkgs; [
       # Add unstable packages here
