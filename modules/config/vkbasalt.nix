@@ -46,11 +46,10 @@ VKBASALT_EOF
     fi
   '';
 
-  # Environment variables to enable vkBasalt for Vulkan applications
+  # vkBasalt hooks all Vulkan apps when enabled — Chromium/Brave can crash or glitch.
+  # Off by default; for games run: ENABLE_VKBASALT=1 steam %command% (or a wrapper script).
   environment.sessionVariables = {
-    # Enable vkBasalt for all Vulkan applications
-    # Set to "0" to disable globally, then enable per-application
-    ENABLE_VKBASALT = "1";
+    ENABLE_VKBASALT = "0";
     
     # Set the config file path explicitly
     VKBASALT_CONFIG_FILE = "/home/${username}/.config/vkBasalt/vkBasalt.conf";

@@ -11,7 +11,7 @@
   "modules-right": [
     "custom/swaync",
     "custom/exit",
-    // "tray" — SNI tooltips (from tray apps) still create XDG popups; Waybar tray "tooltip":false doesn't suppress them; disabled until Hyprland CPopup fix
+    "tray",
     "clock"
   ],
   "hyprland/workspaces": {
@@ -28,8 +28,8 @@
   },
   "clock": {
     "format": "󰥔 {:%a %b %d %I:%M %p}",
-    "tooltip": false
-    // tooltip disabled: Hyprland CPopup::onCommit/onUnmap SEGV on Waybar tooltips; re-enable when fixed upstream
+    "tooltip": true,
+    "tooltip-format": "<tt><b>{calendar}</b></tt>"
   },
   "hyprland/window": {
     "tooltip": false,
@@ -69,9 +69,13 @@
     "format-disconnected": "󰤮",
     "tooltip": false
   },
-  // "tray": { "spacing": 12, "tooltip": false }, — disabled: SNI hover tooltips still trigger Hyprland crash
+  "tray": {
+    "spacing": 12,
+    "tooltip": false
+  },
   "pulseaudio": {
-    "tooltip": false,
+    "tooltip": true,
+    "tooltip-format": "{volume}% • {desc}",
     "format": "{icon} {volume}% {format_source}",
     "format-bluetooth": "{volume}% {icon} {format_source}",
     "format-bluetooth-muted": "󰟎 {icon} {format_source}",

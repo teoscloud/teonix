@@ -53,6 +53,8 @@
     ];
     # Use KDE's portal implementation
     configPackages = [ pkgs.kdePackages.xdg-desktop-portal-kde ];
+    # Prefer KDE portals in Plasma sessions (Hyprland uses hyprland+gtk from xdgportal.nix)
+    config.plasma.default = [ "kde" "gtk" ];
   };
 
   # Hardware support for KDE

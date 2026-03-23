@@ -7,6 +7,7 @@
       font-awesome         # Icon font
       noto-fonts
       liberation_ttf
+      source-han-serif
     ];
     # prefer apple only
     fontconfig = {

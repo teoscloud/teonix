@@ -1,4 +1,4 @@
-{ config, pkgs, inputs, ... }:
+{ config, pkgs, ... }:
 
 {
   # for cachy
@@ -8,16 +8,11 @@
     xwayland.enable = true;
     hyprlock.enable = true;
 
-    # desktop
+    # Hyprland + xdg-desktop-portal-hyprland from nixos-unstable (matches wlroots/aquamarine in tree).
+    # Do not override with Hyprland git main unless you pin a known-good rev.
     hyprland = {
       enable = true;
       xwayland.enable = true;
-
-      # set the flake package
-      package = inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.hyprland;
-      # make sure to also set the portal package, so that they are in sync
-      portalPackage = inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.xdg-desktop-portal-hyprland;
-
     };
 
     # gaming

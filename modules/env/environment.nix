@@ -17,7 +17,8 @@
       SDL_VIDEODRIVER = "wayland";
       _JAVA_AWT_WM_NONREPARENTING = "1";
       CLUTTER_BACKEND = "wayland";
-      WLR_RENDERER = "vulkan";
+      # WLR_RENDERER: do not force vulkan globally — Hyprland + some AMD stacks are less stable;
+      # wlroots defaults (often gles2) are safer for Brave/Chromium and the compositor.
       XDG_CURRENT_DESKTOP = "Hyprland";
       XDG_SESSION_DESKTOP = "Hyprland";
       GTK_USE_PORTAL = "1";

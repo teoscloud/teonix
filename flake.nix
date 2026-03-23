@@ -2,7 +2,8 @@
   description = "Teos NixOS configuration with flakes";
 
   inputs = {
-    hyprland.url = "git+https://github.com/hyprwm/Hyprland?submodules=1";
+    # Hyprland: use nixpkgs-unstable's build (programs.hyprland default), not git main.
+    # Unpinned Hyprland main + Hyprlux/scrolling often regresses and can crash / end the session on map.
     nixos-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     nixos-stable.url = "nixpkgs/nixos-24.05";  
     chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";

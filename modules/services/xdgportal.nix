@@ -22,11 +22,11 @@
 
   xdg.portal = {
     enable = true;
-    #xdgOpenUsePortal = true;
-    #config = {
-    #  common.default = ["gtk"];
-    #  hyprland.default = ["gtk" "hyprland"];
-    #};
+    # Prefer Hyprland + GTK in Hyprland sessions so screencast/file dialogs match the compositor
+    # (avoids KDE portal winning and odd Chromium/Brave behavior).
+    config = {
+      hyprland.default = [ "hyprland" "gtk" ];
+    };
     extraPortals = [
       #pkgs.xdg-desktop-portal-gtk
       pkgs.xdg-desktop-portal

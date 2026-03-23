@@ -38,9 +38,9 @@
     #vmware.host.enable = true;
   };
 
-  # Cap Docker (rootless user service) to 24GB so the host doesn't starve
-  systemd.user.services.docker.serviceConfig.MemoryMax = "24G";
-  systemd.user.services.docker.serviceConfig.MemoryHigh = "22G";
+  # Cap Docker (rootless user service) to 16GB so the host doesn't starve
+  systemd.user.services.docker.serviceConfig.MemoryMax = "16G";
+  systemd.user.services.docker.serviceConfig.MemoryHigh = "14G";
 
   services.udev.extraRules = ''
     # Set permissions for evdev devices to allow read/write for all users
