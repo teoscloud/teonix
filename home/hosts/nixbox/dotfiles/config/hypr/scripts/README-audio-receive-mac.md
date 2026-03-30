@@ -2,6 +2,8 @@
 
 Your NixOS script sends **stereo 48 kHz s16le** PCM to `<mac_ip>:49152` (default port).
 
+**Hyprland shortcuts (nixbox):** `Super+Shift+L` toggles **SSH** stream (Mac receiver on `127.0.0.1`; socat on Mac). `Super+Shift+;` toggles **UDP** to the Mac’s LAN IP (receiver must listen on `0.0.0.0:49152`, e.g. `receive_audio_mac.py` — not localhost-only). Only one mode runs at a time; starting one stops the other.
+
 ## 1. Quick test (default output)
 
 If you just want to hear it and your Mac’s **default output** is already BlackHole (or you temporarily set it to BlackHole):

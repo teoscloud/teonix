@@ -124,7 +124,18 @@
     mediawriter         # Fedora Media Writer
     piper               # Configure gaming mice
     #customRetroarch     # Fixed RetroArch override
-    retroarch-full
+    # retroarch-full pulls libretro-fbalpha2012, which fails to build on recent nixpkgs (gcc/glibc); same as full minus that core
+    (
+      retroarch.withCores (
+        cores:
+        lib.filter (
+          c:
+          (c ? libretroCore)
+          && (lib.meta.availableOn stdenv.hostPlatform c)
+          && (!lib.strings.hasInfix "fbalpha2012" c.name)
+        ) (lib.attrValues cores)
+      )
+    )
     xivlauncher
     wl-clipboard         # Wayland clipboard tools
     brightnessctl       # Adjust screen brightness
@@ -300,6 +311,7 @@
     davinci-resolve
     
     haskellPackages.asana
+    geary
 
     exfatprogs
     

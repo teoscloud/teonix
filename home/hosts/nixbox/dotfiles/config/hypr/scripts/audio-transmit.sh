@@ -53,14 +53,23 @@ if [[ -n "$USE_SSH" ]]; then
   echo "Sending system audio (${SOURCE}) to ${SSH_TARGET} (encrypted, port ${PORT}). Stop with Ctrl+C." >&2
   # No exec: keep this script as parent so toggle can pkill it
   # Remote Mac: use full path to socat (zsh -l often doesn't get Homebrew PATH)
+  # SSH: -T (no TTY), Compression=no, IPQoS=lowdelay — less bulk queuing on upload path vs default throughput QoS
   stdbuf -o0 ffmpeg -nostdin -y -probesize 32 -analyzeduration 0 -f pulse -i "$SOURCE" \
     -f s16le -acodec pcm_s16le -ar 48000 -ac 2 -fflags nobuffer -flags low_delay - 2>/dev/null | \
-    ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o Compression=no "$SSH_TARGET" "/opt/homebrew/bin/socat - UDP-SENDTO:127.0.0.1:${PORT} || /usr/local/bin/socat - UDP-SENDTO:127.0.0.1:${PORT}"
+    ssh -T \
+      -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+      -o Compression=no \
+      -o IPQoS=lowdelay \
+      "$SSH_TARGET" "/opt/homebrew/bin/socat - UDP-SENDTO:127.0.0.1:${PORT} || /usr/local/bin/socat - UDP-SENDTO:127.0.0.1:${PORT}"
 else
   echo "Sending system audio (${SOURCE}) to ${MAC_IP}:${PORT} (stereo 48kHz s16le). Stop with Ctrl+C." >&2
   echo -n "NixOS-audio" | socat - "UDP-SENDTO:${MAC_IP}:${PORT}" 2>/dev/null || true
   SCRIPT_DIR="$(dirname "$0")"
-  exec stdbuf -o0 ffmpeg -nostdin -y -probesize 32 -analyzeduration 0 -f pulse -i "$SOURCE" \
-    -f s16le -acodec pcm_s16le -ar 48000 -ac 2 -fflags nobuffer -flags low_delay - 2>/dev/null | \
+  # UDP/LAN: steady PCM; avoid aresample async (can pump) — jitter buffer is on the Mac receiver
+  export PULSE_LATENCY_MSEC="${PULSE_LATENCY_MSEC:-100}"
+  # No exec: parent bash must stay alive so toggle PID files remain valid (same as SSH branch)
+  # s16le stereo 48k = 192000 B/s raw; udp-send-chunked paces UDP to ~real-time
+  stdbuf -o0 ffmpeg -nostdin -y -probesize 32 -analyzeduration 0 -f pulse -i "$SOURCE" \
+    -ac 2 -ar 48000 -sample_fmt s16 -f s16le -acodec pcm_s16le - 2>/dev/null | \
     python3 "${SCRIPT_DIR}/udp-send-chunked.py" "${MAC_IP}" "${PORT}"
 fi

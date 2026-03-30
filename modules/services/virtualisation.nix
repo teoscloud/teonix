@@ -7,6 +7,8 @@
       defaultNetwork.settings.dns_enabled = true;
     };
 
+    # WordPress / HTTP on LAN: publish "8080:80" as "0.0.0.0:8080:80" (all interfaces), not 127.0.0.1.
+    # Host firewall: TCP 8080 is in modules/services/networking.nix — rebuild & switch to apply.
     docker = {
       enable = true;
 
