@@ -16,23 +16,23 @@
       };
     };
 
-    # Graphics settings
+    # Graphics settings — AMD RADV (Mesa) is the primary Vulkan driver
     graphics = {
       enable = true;
       enable32Bit = true;
 
       extraPackages = with pkgs; [
+        # Vulkan runtime (RADV is inside Mesa; loader + validation make it discoverable)
+        vulkan-loader
+        vulkan-validation-layers
+
+        # ROCm/OpenCL compute (not Vulkan, but needed for GPU compute workloads)
         rocmPackages.clr.icd
         rocmPackages.rocm-runtime
         rocmPackages.rocminfo
       ];
 
-      #package32 = pkgs-unstable.pkgsi686Linux.mesa.drivers;
-
-      ## amdvlk: an open-source Vulkan driver from AMD
-      #extraPackages = [ pkgs.amdvlk ];
-      #extraPackages32 = [ pkgs.driversi686Linux.amdvlk ];
-
+      # 32-bit Vulkan/RADV: handled by enable32Bit = true (pulls in 32-bit Mesa + loader)
     };
 
   };

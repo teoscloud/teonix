@@ -1,4 +1,4 @@
-{ config, ... }:
+{ config, lib, ... }:
 
 {
   # exFAT/vfat mount options for udisks2 (numeric uid/gid; $UID/$GID are not expanded by udisks2 in all contexts)
@@ -50,8 +50,10 @@
     udisks2.enable = true;
     printing.enable = true;
 
-    # hypridle for hyprland
-    hypridle.enable = true;
+    # hypridle: started by exec-once in hyprland.conf, not as a system service
+    # (system service starts at GDM before any compositor is running → errors)
+    # mkForce: hyprlock module also sets this to true; we override it
+    hypridle.enable = lib.mkForce false;
 
     xserver = {
       enable = true;

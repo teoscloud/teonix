@@ -1,6 +1,10 @@
 # ignore flake.lock for convenience and living on the edge 
 flake.lock
 
+# Optional: stable ring (flake.lock.stable.1 … .4) + log from `nixstablesave`
+# flake.lock.stable*
+# .nix-stable-log.txt
+
 # Nix build outputs and derivations
 result
 *.drv

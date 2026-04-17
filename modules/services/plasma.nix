@@ -44,18 +44,7 @@
     };
   };
 
-  # XDG Desktop Portal configuration for KDE
-  # This works alongside the existing xdgportal.nix configuration
-  xdg.portal = {
-    enable = true;
-    extraPortals = with pkgs; [
-      kdePackages.xdg-desktop-portal-kde
-    ];
-    # Use KDE's portal implementation
-    configPackages = [ pkgs.kdePackages.xdg-desktop-portal-kde ];
-    # Prefer KDE portals in Plasma sessions (Hyprland uses hyprland+gtk from xdgportal.nix)
-    config.plasma.default = [ "kde" "gtk" ];
-  };
+  # XDG portals: centralized in xdgportal.nix (hyprland+gtk for Hyprland, kde+gtk for Plasma)
 
   # Hardware support for KDE
   hardware = {

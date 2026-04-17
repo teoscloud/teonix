@@ -37,6 +37,7 @@
 
     libva
     vulkan-loader
+    vulkan-tools           # vulkaninfo — verify driver visibility
     
 
     #######################
@@ -312,6 +313,7 @@
     
     haskellPackages.asana
     geary
+    ppsspp-sdl-wayland
 
     exfatprogs
     
@@ -328,7 +330,7 @@
     kdePackages.kwalletmanager
 
     code-cursor
-    nodePackages.nodejs
+    nodejs
     
 
     rpcs3

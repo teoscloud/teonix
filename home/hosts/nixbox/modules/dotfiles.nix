@@ -76,6 +76,10 @@ in {
     source = "${dotfilesPath}/config/hypr/scripts/scrolling-promote-new-window.sh";
     executable = true;
   };
+  home.file.".config/hypr/scripts/ro-type.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/ro-type.sh";
+    executable = true;
+  };
 
   # ✅ Symlink ios font config
   home.file.".config/fontconfig/fonts.conf".source = "${dotfilesPath}/config/fontconfig/fonts.conf";

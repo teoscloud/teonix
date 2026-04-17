@@ -59,6 +59,10 @@ in {
   home.file.".config/hypr/scripts/mediaplayer.py".source = "${dotfilesPath}/config/hypr/scripts/mediaplayer.py";
   home.file.".config/hypr/scripts/waybar-wttr.py".source = "${dotfilesPath}/config/hypr/scripts/waybar-wttr.py";
   home.file.".config/hypr/scripts/weather.py".source = "${dotfilesPath}/config/hypr/scripts/weather.py";
+  home.file.".config/hypr/scripts/ro-type.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/ro-type.sh";
+    executable = true;
+  };
 
   # ✅ Symlink ios font config
   home.file.".config/fontconfig/fonts.conf".source = "${dotfilesPath}/config/fontconfig/fonts.conf";
