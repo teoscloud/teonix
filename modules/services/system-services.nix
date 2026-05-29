@@ -1,4 +1,4 @@
-{ config, lib, ... }:
+{ config, pkgs, lib, ... }:
 
 {
   # exFAT/vfat mount options for udisks2 (numeric uid/gid; $UID/$GID are not expanded by udisks2 in all contexts)
@@ -14,6 +14,14 @@
   };
 
   services = {
+    # nixpkgs defaults to dbus-broker; a live `nixos-rebuild switch` from classic dbus is blocked
+    # (switchInhibitors). Pin classic dbus so `switch` / `systemupdate` keep working. To migrate to
+    # broker later: delete this line, then `sudo nixos-rebuild boot --flake …` and reboot.
+    dbus.implementation = "dbus";
+
+    # Freedesktop Secret Service for Mailspring, browsers, etc. (not KWallet).
+    gnome.gnome-keyring.enable = true;
+
     # Display Manager - GDM (GNOME); shows Plasma + GNOME + Hyprland sessions
     # Note: Having both SDDM and GDM enabled can cause conflicts
     displayManager = {
@@ -69,4 +77,15 @@
   # RealtimeKit
   security.rtkit.enable = true;
 
+  # Unlock login keyring at GDM / console login (Hyprland sessions included).
+  # gdm-password (the real password-auth service) does `substack login`, so the keyring
+  # module in `login` is what actually unlocks/creates the keyring at GDM login.
+  security.pam.services = {
+    gdm.enableGnomeKeyring = true;
+    login.enableGnomeKeyring = true;
+  };
+
+  programs.seahorse.enable = true;
+
+  services.dbus.packages = [ pkgs.gnome-keyring ];
 }

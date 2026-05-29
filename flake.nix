@@ -42,6 +42,7 @@
             cephSupport = false;
           };
         })
+        (import ./modules/core/skip-sandbox-checks-overlay.nix)
       ];
     };
 

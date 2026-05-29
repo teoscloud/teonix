@@ -314,6 +314,15 @@
     haskellPackages.asana
     geary
     ppsspp-sdl-wayland
+    # Electron picks its secret backend from XDG_CURRENT_DESKTOP; under Hyprland it isn't
+    # recognized and falls back to the "basic" (no-encryption) store, so Mailspring reports
+    # "encryption is not available" even with gnome-keyring running. Force libsecret.
+    (mailspring.overrideAttrs (old: {
+      preFixup = (old.preFixup or "") + ''
+        gappsWrapperArgs+=(--add-flags "--password-store=gnome-libsecret")
+      '';
+    }))
+    libsecret # Mailspring + other apps using org.freedesktop.Secrets (via gnome-keyring)
 
     exfatprogs
     
@@ -326,8 +335,6 @@
     udiskie
 
     looking-glass-client
-    
-    kdePackages.kwalletmanager
 
     code-cursor
     nodejs
@@ -355,6 +362,8 @@
     whatsapp-electron
 
     vesktop
+    discord-canary
+    equibop
     
 
   ] ++ (with stable-pkgs; [

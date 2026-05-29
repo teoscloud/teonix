@@ -37,5 +37,6 @@
   # Add chaotic overlay to system pkgs so kernel packages can access it
   nixpkgs.overlays = [
     inputs.chaotic.overlays.default
+    (import ./skip-sandbox-checks-overlay.nix)
   ];
 }
