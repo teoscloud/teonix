@@ -1,12 +1,38 @@
 { config, pkgs, stable-pkgs, unstable-pkgs, inputs, ... }:
 
-#let
-#  pythonPackages = pkgsUnstable.python3Packages;
-#in
+let
+  nwg-dock-scale-patch = pkgs.writeText "nwg-dock-scale-threshold.patch" ''
+    diff --git a/main.go b/main.go
+    --- a/main.go
+    +++ b/main.go
+    @@ -144,17 +144,11 @@ func rebuild(position *string) {
+     		}
+     	}
+     
+    -	divider := 1
+    -	if len(allItems) > 0 {
+    -		divider = len(allItems)
+    -	}
+    -
+    -	// scale icons down when their number increases
+    -	if *imgSize*6/(divider) < *imgSize {
+    -		overflow := (len(allItems) - 6) / 3
+    +	// scale icons down only past 30 apps, one step every 5 apps
+    +	imgSizeScaled = *imgSize
+    +	if len(allItems) > 30 {
+    +		overflow := (len(allItems)-31)/5 + 1
+     		imgSizeScaled = *imgSize * 6 / (6 + overflow)
+    -	} else {
+    -		imgSizeScaled = *imgSize
+     	}
+     
+     	if *launcherPos == "start" {
+  '';
 
-
-
-{
+  nwg-dock-hyprland = unstable-pkgs.nwg-dock-hyprland.overrideAttrs (old: {
+    patches = (old.patches or [ ]) ++ [ nwg-dock-scale-patch ];
+  });
+in {
 
   nixpkgs.config.permittedInsecurePackages = [
     "dotnet-runtime-wrapped-6.0.36"
@@ -365,8 +391,6 @@
     discord-canary
     equibop
 
-    nwg-dock-hyprland
-
   ] ++ (with stable-pkgs; [
     # potential stable:
 
@@ -384,5 +408,7 @@
 
     chiaki-ng
 
-  ]);
+  ]) ++ [
+    nwg-dock-hyprland
+  ];
 }

@@ -10,7 +10,7 @@ exec nwg-dock-hyprland \
   -r \
   -p bottom \
   -a center \
-  -i 59 \
+  -i 54 \
   -mb 9 \
   -s style.css \
   -nolauncher \
