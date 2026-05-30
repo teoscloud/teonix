@@ -1,7 +1,28 @@
-{ config, ... }:
+{ config, pkgs, lib, ... }:
 
 let
-  dotfilesPath = ../dotfiles;  # Adjusted path for nixbox
+  dotfilesPath = ../dotfiles;
+  dockImages = "${dotfilesPath}/config/nwg-dock-hyprland/images";
+  dockShare = "${pkgs.nwg-dock-hyprland}/share/nwg-dock-hyprland";
+
+  # code-cursor only installs 1024x1024; GTK menus then blow up (nwg-dock instance picker).
+  cursorIconSrc = "${pkgs.code-cursor}/share/icons/hicolor/1024x1024/apps/cursor.png";
+  cursorIconSizes = [ 16 22 24 32 48 64 128 256 ];
+  cursorHicolorIcons = pkgs.runCommand "cursor-hicolor-menu-icons" {
+    nativeBuildInputs = [ pkgs.imagemagick ];
+  } ''
+    for size in ${lib.concatStringsSep " " (map toString cursorIconSizes)}; do
+      mkdir -p "$out/hicolor/''${size}x''${size}/apps"
+      magick ${cursorIconSrc} -resize "''${size}x''${size}" \
+        "$out/hicolor/''${size}x''${size}/apps/cursor.png"
+    done
+  '';
+  cursorHicolorIconFiles = lib.listToAttrs (map (size: {
+    name = "icons/hicolor/${toString size}x${toString size}/apps/cursor.png";
+    value = {
+      source = "${cursorHicolorIcons}/hicolor/${toString size}x${toString size}/apps/cursor.png";
+    };
+  }) cursorIconSizes);
 in {
   # ✅ Symlink shell dotfiles
   home.file.".zshrc".source = "${dotfilesPath}/shell/.zshrc";
@@ -26,6 +47,35 @@ in {
   home.file.".config/waybar/style.css".source = "${dotfilesPath}/config/waybar/style.css";
   home.file.".config/wofi/config".source = "${dotfilesPath}/config/wofi/config";
   home.file.".config/wofi/style.css".source = "${dotfilesPath}/config/wofi/style.css";
+
+  # ✅ nwg-dock-hyprland (macOS-style dock + reserved exclusive zone)
+  home.file.".config/nwg-dock-hyprland/style.css" = {
+    source = "${dotfilesPath}/config/nwg-dock-hyprland/style.css";
+    force = true;
+  };
+  home.file.".config/nwg-dock-hyprland/launch.sh" = {
+    source = "${dotfilesPath}/config/nwg-dock-hyprland/launch.sh";
+    executable = true;
+    force = true;
+  };
+
+  # Gray instance dots (SVG fill in ~/.local/share; GTK CSS cannot recolor pixbufs)
+  home.file.".local/share/nwg-dock-hyprland/images/task-single.svg".source = "${dockImages}/task-single.svg";
+  home.file.".local/share/nwg-dock-hyprland/images/task-multiple.svg".source = "${dockImages}/task-multiple.svg";
+  home.file.".local/share/nwg-dock-hyprland/images/task-empty.svg".source = "${dockImages}/task-empty.svg";
+  home.file.".local/share/nwg-dock-hyprland/images/task-single-vertical.svg".source = "${dockImages}/task-single-vertical.svg";
+  home.file.".local/share/nwg-dock-hyprland/images/task-multiple-vertical.svg".source = "${dockImages}/task-multiple-vertical.svg";
+  home.file.".local/share/nwg-dock-hyprland/images/task-empty-vertical.svg".source = "${dockImages}/task-empty-vertical.svg";
+  home.file.".local/share/nwg-dock-hyprland/images/icon-missing.svg".source = "${dockShare}/images/icon-missing.svg";
+
+  # Smaller cursor icons for GTK menus (dock multi-instance picker, app launchers, etc.)
+  xdg.dataFile = cursorHicolorIconFiles;
+
+  home.activation.updateUserHicolorIconCache = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ -d "$HOME/.local/share/icons/hicolor" ] && command -v gtk-update-icon-cache >/dev/null; then
+      gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+    fi
+  '';
 
   # ✅ wlogout configuration
   home.file.".config/wlogout/hibernate-hover.png".source = "${dotfilesPath}/config/wlogout/hibernate-hover.png";

@@ -364,7 +364,8 @@
     vesktop
     discord-canary
     equibop
-    
+
+    nwg-dock-hyprland
 
   ] ++ (with stable-pkgs; [
     # potential stable:
