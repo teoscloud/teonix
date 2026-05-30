@@ -9,10 +9,10 @@ window {
 
 #box {
   background: rgba(28, 28, 30, 0.78);
-  border-radius: 18px;
+  border-radius: 17px;
   border: 1px solid rgba(255, 255, 255, 0.24);
   /* Extra bottom padding holds dot row; icons stay higher in the pill */
-  padding: 6px 10px 10px 10px;
+  padding: 6px 9px 9px 9px;
 }
 
 button,
@@ -26,7 +26,7 @@ image {
 button {
   padding: 2px 3px;
   margin: 0 2px;
-  border-radius: 14px;
+  border-radius: 13px;
 }
 
 /* Squircle highlight on hover (no size change) */

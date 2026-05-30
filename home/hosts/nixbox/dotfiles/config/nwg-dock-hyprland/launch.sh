@@ -10,8 +10,8 @@ exec nwg-dock-hyprland \
   -r \
   -p bottom \
   -a center \
-  -i 64 \
-  -mb 10 \
+  -i 59 \
+  -mb 9 \
   -s style.css \
   -nolauncher \
   -g '"waybar,swaync-control-center,gtk-layer-shell,xdg-desktop-portal-gtk,org.gnome.NautilusPreviewer,easyeffects"'
