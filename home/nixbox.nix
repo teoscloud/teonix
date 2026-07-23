@@ -21,6 +21,7 @@
   imports = [
     ./hosts/nixbox/modules/zshaliases.nix  # ✅ Renamed from shell.nix
     ./hosts/nixbox/modules/dotfiles.nix
+    ./hosts/nixbox/modules/hyprflow.nix
   ];
 
   services.udiskie = {

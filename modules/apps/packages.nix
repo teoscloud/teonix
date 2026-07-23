@@ -29,9 +29,292 @@ let
      	if *launcherPos == "start" {
   '';
 
+  nwg-dock-scroll-patch = pkgs.writeText "nwg-dock-scroll-cycle.patch" ''
+    diff --git a/tools.go b/tools.go
+    --- a/tools.go
+    +++ b/tools.go
+    @@ -14,6 +14,9 @@ import (
+     	"os"
+     	"os/exec"
+     	"path/filepath"
+    +	"encoding/json"
+    +	"sort"
+    +	"time"
+     	"strings"
+     )
+     
+    @@ -27,6 +30,195 @@ func taskInstances(ID string) []client {
+     	return found
+     }
+     
+    +var lastInstanceCycleMs int64
+    +
+    +func absInt(x int) int {
+    +	if x < 0 {
+    +		return -x
+    +	}
+    +	return x
+    +}
+    +
+    +// scroll up = +1 (next / higher workspace), scroll down = -1 (previous / lower workspace)
+    +func scrollStepFromEvent(e *gdk.Event) int {
+    +	scroll := e.AsScroll()
+    +	if scroll == nil {
+    +		return 0
+    +	}
+    +	switch scroll.Direction() {
+    +	case gdk.ScrollUp:
+    +		return 1
+    +	case gdk.ScrollDown:
+    +		return -1
+    +	case gdk.ScrollSmooth:
+    +		if scroll.DeltaY() < 0 {
+    +			return 1
+    +		}
+    +		if scroll.DeltaY() > 0 {
+    +			return -1
+    +		}
+    +	}
+    +	return 0
+    +}
+    +
+    +func addressesEqual(a, b string) bool {
+    +	normalize := func(addr string) string {
+    +		addr = strings.TrimSpace(strings.ToLower(addr))
+    +		if addr == "" {
+    +			return ""
+    +		}
+    +		if !strings.HasPrefix(addr, "0x") {
+    +			addr = "0x" + addr
+    +		}
+    +		return addr
+    +	}
+    +	return normalize(a) == normalize(b)
+    +}
+    +
+    +func sortedInstances(instances []client) []client {
+    +	sorted := make([]client, len(instances))
+    +	copy(sorted, instances)
+    +	sort.Slice(sorted, func(i, j int) bool {
+    +		if sorted[i].Workspace.Id != sorted[j].Workspace.Id {
+    +			return sorted[i].Workspace.Id < sorted[j].Workspace.Id
+    +		}
+    +		return sorted[i].Address < sorted[j].Address
+    +	})
+    +	return sorted
+    +}
+    +
+    +func instanceIndex(instances []client, address string) int {
+    +	for i := range instances {
+    +		if addressesEqual(instances[i].Address, address) {
+    +			return i
+    +		}
+    +	}
+    +	return -1
+    +}
+    +
+    +func currentFocusedInstance(instances []client) *client {
+    +	aw, err := getActiveWindow()
+    +	if err == nil && aw != nil {
+    +		for i := range instances {
+    +			if addressesEqual(instances[i].Address, aw.Address) {
+    +				return &instances[i]
+    +			}
+    +		}
+    +	}
+    +	if activeClient != nil {
+    +		for i := range instances {
+    +			if addressesEqual(instances[i].Address, activeClient.Address) {
+    +				return &instances[i]
+    +			}
+    +		}
+    +	}
+    +	return nil
+    +}
+    +
+    +func bestInstanceForCurrentWorkspace(instances []client) *client {
+    +	sorted := sortedInstances(instances)
+    +	if len(sorted) == 0 {
+    +		return nil
+    +	}
+    +	aw, err := getActiveWindow()
+    +	if err != nil || aw == nil {
+    +		return &sorted[0]
+    +	}
+    +	currentWS := aw.Workspace.Id
+    +	bestDist := int(^uint(0) >> 1)
+    +	var onWS *client
+    +	var closest *client
+    +	for i := range sorted {
+    +		inst := &sorted[i]
+    +		if inst.Workspace.Id == currentWS && onWS == nil {
+    +			onWS = inst
+    +		}
+    +		dist := absInt(inst.Workspace.Id - currentWS)
+    +		if dist < bestDist {
+    +			bestDist = dist
+    +			closest = inst
+    +		}
+    +	}
+    +	if onWS != nil {
+    +		return onWS
+    +	}
+    +	return closest
+    +}
+    +
+    +func scrollBaseInstance(instances []client) *client {
+    +	if current := currentFocusedInstance(instances); current != nil {
+    +		return current
+    +	}
+    +	return bestInstanceForCurrentWorkspace(instances)
+    +}
+    +
+    +// Sorted by workspace (asc) then address; scroll up = next, scroll down = prev, wraps
+    +func instanceByStep(instances []client, current *client, step int) *client {
+    +	sorted := sortedInstances(instances)
+    +	idx := instanceIndex(sorted, current.Address)
+    +	if idx < 0 {
+    +		return bestInstanceForCurrentWorkspace(instances)
+    +	}
+    +	n := len(sorted)
+    +	next := (idx + step) % n
+    +	if next < 0 {
+    +		next += n
+    +	}
+    +	return &sorted[next]
+    +}
+    +
+    +func getCursorNoWarps() int {
+    +	reply, err := hyprctl("j/getoption cursor:no_warps")
+    +	if err != nil {
+    +		return 0
+    +	}
+    +	var opt struct {
+    +		Int int `json:"int"`
+    +	}
+    +	if json.Unmarshal(reply, &opt) != nil {
+    +		return 0
+    +	}
+    +	return opt.Int
+    +}
+    +
+    +func focusClientFromScroll(c client) {
+    +	prev := getCursorNoWarps()
+    +	hyprctl("keyword cursor:no_warps true")
+    +	focusClient(c)
+    +	if prev == 0 {
+    +		hyprctl("keyword cursor:no_warps false")
+    +	} else {
+    +		hyprctl(fmt.Sprintf("keyword cursor:no_warps %d", prev))
+    +	}
+    +}
+    +
+    +func handleInstanceScroll(class string, step int) bool {
+    +	if step == 0 {
+    +		return false
+    +	}
+    +	now := time.Now().UnixMilli()
+    +	instances := taskInstances(class)
+    +	if len(instances) <= 1 {
+    +		return false
+    +	}
+    +	base := scrollBaseInstance(instances)
+    +	if base == nil {
+    +		return false
+    +	}
+    +	inst := instanceByStep(instances, base, step)
+    +	if inst == nil {
+    +		return false
+    +	}
+    +	// Small debounce to coalesce the burst of sub-events one physical notch emits,
+    +	// while still letting deliberate consecutive scrolls each advance a step.
+    +	if now-lastInstanceCycleMs < 50 {
+    +		return true
+    +	}
+    +	focusClientFromScroll(*inst)
+    +	lastInstanceCycleMs = now
+    +	return true
+    +}
+    +
+     func pinnedButton(ID string, position *string) *gtk.Box {
+     	vertical = *position == "left" || *position == "right"
+     
+    @@ -290,6 +482,19 @@ func taskButton(t client, instances []client, position *string) *gtk.Box {
+     			return false
+     		})
+     	}
+    +
+    +	if len(instances) > 1 {
+    +		scrollMask := int(gdk.ScrollMask | gdk.SmoothScrollMask)
+    +		scrollClass := t.Class
+    +		button.AddEvents(scrollMask)
+    +		box.AddEvents(scrollMask)
+    +		button.Connect("scroll-event", func(_ *gtk.Button, e *gdk.Event) bool {
+    +			return handleInstanceScroll(scrollClass, scrollStepFromEvent(e))
+    +		})
+    +		box.Connect("scroll-event", func(_ *gtk.Box, e *gdk.Event) bool {
+    +			return handleInstanceScroll(scrollClass, scrollStepFromEvent(e))
+    +		})
+    +	}
+     
+     	return box
+     }
+  '';
+
   nwg-dock-hyprland = unstable-pkgs.nwg-dock-hyprland.overrideAttrs (old: {
-    patches = (old.patches or [ ]) ++ [ nwg-dock-scale-patch ];
+    patches = (old.patches or [ ]) ++ [
+      nwg-dock-scale-patch
+      nwg-dock-scroll-patch
+    ];
   });
+
+  # nixpkgs 1.22.0 source build omits .desktop/icons; restore launcher integration.
+  mailspringDesktop = unstable-pkgs.makeDesktopItem {
+    name = "mailspring";
+    desktopName = "Mailspring";
+    genericName = "Mail Client";
+    comment = "The best email app for people and teams at work";
+    exec = "mailspring %U";
+    icon = "mailspring";
+    categories = [ "Network" "Email" "Office" ];
+    mimeTypes = [ "x-scheme-handler/mailto" "x-scheme-handler/mailspring" ];
+    startupWMClass = "Mailspring";
+  };
+
+  mailspring-with-launcher = unstable-pkgs.mailspring.overrideAttrs (old: {
+    preFixup = (old.preFixup or "") + ''
+      gappsWrapperArgs+=(--add-flags "--password-store=gnome-libsecret")
+    '';
+    postInstall = (old.postInstall or "") + ''
+      mkdir -p $out/share/applications
+      cp ${mailspringDesktop}/share/applications/mailspring.desktop $out/share/applications/
+
+      for size in 16 32 64 128 256; do
+        if [ -f app/build/resources/linux/icons/''${size}.png ]; then
+          install -D -m 0644 app/build/resources/linux/icons/''${size}.png \
+            $out/share/icons/hicolor/''${size}x''${size}/apps/mailspring.png
+        fi
+      done
+    '';
+  });
+
+  hyprflow = import ./hyprflow.nix {
+    lib = unstable-pkgs.lib;
+    rustPlatform = unstable-pkgs.rustPlatform;
+    fetchFromGitHub = unstable-pkgs.fetchFromGitHub;
+  };
+
+  # Bottles → patool: not on cache for python3.14 yet, and patool's test suite
+  # fails in the sandbox (MIME/bzip2). Skip checks only inside an extended
+  # package set used for bottles — does not rebuild the rest of the system.
+  bottles = (unstable-pkgs.extend (final: prev: {
+    python3Packages = prev.python3Packages.overrideScope (_pyfinal: pyprev: {
+      patool = pyprev.patool.overrideAttrs (_old: {
+        doCheck = false;
+        doInstallCheck = false;
+      });
+    });
+  })).bottles;
 in {
 
   nixpkgs.config.permittedInsecurePackages = [
@@ -47,6 +330,7 @@ in {
     # System Utilities #
     ####################
     wev
+    hyprflow             # Save/restore Hyprland window sessions across reboots
     zsh                 # Shell
     git                 # Version control
     pciutils            # PCI device listing utilities
@@ -114,8 +398,6 @@ in {
     # Gaming Tools #
     vkbasalt              # Vulkan post-processing layer for vibrance/saturation
     ################
-    #bottles              # Wine and Proton GUI
-    
     dolphin-emu          # GameCube/Wii emulator
     wowup-cf
     baobab
@@ -210,7 +492,8 @@ in {
     pear-desktop
     obsidian
     amdgpu_top
-    qemu                  # Using qemu instead of qemu_full to avoid broken Python dependencies
+    # Local override only (not a global overlay) — avoids cache-busting the whole qemu dep tree
+    (qemu.override { cephSupport = false; })
     libvirt
     OVMF
     virt-manager
@@ -240,7 +523,6 @@ in {
     inxi
     playerctl
     pkgs.nixfmt
-    swww
     grim
     slurp
     swaynotificationcenter
@@ -293,7 +575,7 @@ in {
     dolphin-emu
     fuse3
     zip
-    swww                 # Wallpaper management for sway and Hyprland
+    awww                 # Wallpaper management for sway and Hyprland
     themechanger
     polkit_gnome
     p7zip
@@ -317,7 +599,6 @@ in {
     nix-index
     
     qbittorrent
-    easyeffects
     
     ghex
     obs-studio
@@ -340,14 +621,7 @@ in {
     haskellPackages.asana
     geary
     ppsspp-sdl-wayland
-    # Electron picks its secret backend from XDG_CURRENT_DESKTOP; under Hyprland it isn't
-    # recognized and falls back to the "basic" (no-encryption) store, so Mailspring reports
-    # "encryption is not available" even with gnome-keyring running. Force libsecret.
-    (mailspring.overrideAttrs (old: {
-      preFixup = (old.preFixup or "") + ''
-        gappsWrapperArgs+=(--add-flags "--password-store=gnome-libsecret")
-      '';
-    }))
+    mailspring-with-launcher
     libsecret # Mailspring + other apps using org.freedesktop.Secrets (via gnome-keyring)
 
     exfatprogs
@@ -366,7 +640,6 @@ in {
     nodejs
     
 
-    rpcs3
     pcsx2
     fastfetch
     onlyoffice-desktopeditors
@@ -375,7 +648,7 @@ in {
     shadps4
     texliveFull
     glow
-    bottles
+    bottles               # Wine/Proton GUI (patool checks skipped — see let binding)
 
     #darktable  # Temporarily removed due to build issues with osm-gps-map dependency
     godot

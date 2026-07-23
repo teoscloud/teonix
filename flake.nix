@@ -9,6 +9,8 @@
     chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
     nix-gaming.url = "github:fufexan/nix-gaming";
     hyprlux.url = "github:amadejkastelic/Hyprlux";
+    # Share one nixpkgs — avoids evaluating/building against a second (stale) tree
+    hyprlux.inputs.nixpkgs.follows = "nixos-unstable";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixos-unstable";
   };
@@ -30,19 +32,15 @@
                       else "nixos";
 
     # ✅ Define package sources
+    # Keep overlays minimal — every overrideAttrs/override that changes a
+    # derivation hash causes cache misses and local compiles for that package
+    # and everything that depends on it.
     unstable-pkgs = import nixos-unstable {
       inherit system;
-      config.allowUnfree = true; 
+      config.allowUnfree = true;
       overlays = [
         # Chaotic overlay for CachyOS packages (including linuxPackages_cachyos)
         chaotic.overlays.default
-        # Override qemu to disable ceph support (which has broken Python dependencies)
-        (final: prev: {
-          qemu = prev.qemu.override {
-            cephSupport = false;
-          };
-        })
-        (import ./modules/core/skip-sandbox-checks-overlay.nix)
       ];
     };
 
@@ -86,6 +84,7 @@
           ./modules/customization/localization.nix
           ./modules/services/virtualisation.nix
           ./modules/services/networking.nix
+          ./modules/services/mullvad.nix  # Mullvad VPN daemon + GUI (needs systemd-resolved)
           ./modules/services/system-services.nix
           ./modules/services/plasma.nix  # KDE Plasma Desktop Environment
           ./modules/services/gnome.nix   # GNOME desktop + apps (session via SDDM)
@@ -100,6 +99,8 @@
           inputs.home-manager.nixosModules.home-manager {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
+            # Existing files (e.g. ~/.zshrc) → ~/.zshrc.bak instead of aborting activation
+            home-manager.backupFileExtension = "bak";
             home-manager.extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };
             home-manager.users.${username} = import ./home/nixbox.nix;
           }
@@ -126,6 +127,7 @@
           ./modules/customization/localization.nix
           ./modules/services/virtualisation.nix
           ./modules/services/networking.nix
+          ./modules/services/mullvad.nix  # Mullvad VPN daemon + GUI (needs systemd-resolved)
           ./modules/services/system-services.nix
           ./modules/services/plasma.nix  # KDE Plasma Desktop Environment
           ./modules/services/user-services.nix
@@ -139,6 +141,7 @@
           inputs.home-manager.nixosModules.home-manager {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
+            home-manager.backupFileExtension = "bak";
             home-manager.extraSpecialArgs = commonSpecialArgs // { hostname = nixtop_hostname; };
             home-manager.users.${username} = import ./home/nixtop.nix;
           }
@@ -164,6 +167,7 @@
           ./modules/customization/localization.nix
           ./modules/services/virtualisation.nix
           ./modules/services/networking.nix
+          ./modules/services/mullvad.nix  # Mullvad VPN daemon + GUI (needs systemd-resolved)
           ./modules/services/system-services.nix
           ./modules/services/plasma.nix  # KDE Plasma Desktop Environment
           ./modules/services/user-services.nix
@@ -177,6 +181,7 @@
           inputs.home-manager.nixosModules.home-manager {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
+            home-manager.backupFileExtension = "bak";
             home-manager.extraSpecialArgs = commonSpecialArgs // { hostname = defaultHostname; };
             home-manager.users.${username} = import ./home/default.nix;
           }

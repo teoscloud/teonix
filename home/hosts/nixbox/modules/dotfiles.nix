@@ -25,11 +25,18 @@ let
   }) cursorIconSizes);
 in {
   # ✅ Symlink shell dotfiles
-  home.file.".zshrc".source = "${dotfilesPath}/shell/.zshrc";
-  home.file.".p10k.zsh".source = "${dotfilesPath}/shell/.p10k.zsh";
+  home.file.".zshrc" = {
+    source = "${dotfilesPath}/shell/.zshrc";
+    force = true;
+  };
+  home.file.".p10k.zsh" = {
+    source = "${dotfilesPath}/shell/.p10k.zsh";
+    force = true;
+  };
 
   # ✅ Symlink Hyprland configurations
   home.file.".config/hypr/hyprland.conf".source = "${dotfilesPath}/config/hypr/hyprland.conf";
+  home.file.".config/hyprflow/config.toml".source = "${dotfilesPath}/config/hyprflow/config.toml";
   home.file.".config/hypr/hyprlock.conf".source = "${dotfilesPath}/config/hypr/hyprlock.conf";
   home.file.".config/hypr/hyprpaper.conf".source = "${dotfilesPath}/config/hypr/hyprpaper.conf";
   home.file.".config/hypr/hypridle.conf".source = "${dotfilesPath}/config/hypr/hypridle.conf";
@@ -128,6 +135,10 @@ in {
   };
   home.file.".config/hypr/scripts/ro-type.sh" = {
     source = "${dotfilesPath}/config/hypr/scripts/ro-type.sh";
+    executable = true;
+  };
+  home.file.".config/hypr/scripts/hyprflow-restore-on-login.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/hyprflow-restore-on-login.sh";
     executable = true;
   };
 

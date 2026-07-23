@@ -109,6 +109,20 @@ in
       fi
       command -v nixos-version >/dev/null && print -r -- "Running: ${shNixosVer}"
     }
+
+    # hyprflow — session save/restore (see ~/.config/hyprflow/config.toml)
+    alias hfsave='hyprflow save'
+    alias hfrestore='hyprflow restore'
+    alias hflist='hyprflow list'
+    alias hfstatus='systemctl --user status hyprflow-autosave.timer'
+
+    # Mullvad VPN (GUI: mullvad-vpn | status: mvpn)
+    alias mvpn='mullvad status'
+    alias mvpnon='mullvad connect'
+    alias mvpnoff='mullvad disconnect'
+    alias mvpnse='mullvad relay set location se sto && mullvad connect'
+    alias mvpnus='mullvad relay set location us && mullvad connect'
+    alias mvpngui='mullvad-vpn'
   '';
 
 }

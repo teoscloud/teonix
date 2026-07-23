@@ -1,0 +1,52 @@
+[general]
+default_session = "latest"
+restore_delay_ms = 500
+window_detect_timeout_ms = 5000
+autosave_retain = 5
+
+[filters]
+# Hyprland shell / tray / layer-shell — not user apps to restore
+ignore_classes = [
+  "waybar",
+  "wofi",
+  "rofi",
+  "mako",
+  "swaync-control-center",
+  "swaync-client",
+  "nwg-dock-hyprland",
+  "gtk-layer-shell",
+  "polkit",
+  "nm-applet",
+  "blueman-tray",
+  "Blueman",
+  "xdg-desktop-portal",
+  "xdg-desktop-portal-gtk",
+  "org.gnome.NautilusPreviewer",
+  "hyprpaper",
+  "hypridle",
+  "gammastep",
+  "chrome_crashpad_handler",
+]
+
+[apps.kitty]
+binary = "kitty"
+capture_cwd = true
+capture_last_command = true
+hint_template = "# Last: {last_command}\n# Dir: {cwd}"
+
+[apps.brave-browser]
+binary = "brave"
+# Run `hyprflow config` to list Brave profiles, then map them to workspaces:
+# profile_workspaces = { "Default" = 1, "Profile 1" = 6 }
+
+[apps.code-cursor]
+binary = "cursor"
+
+[apps.Mailspring]
+binary = "mailspring"
+
+[apps.signal]
+binary = "signal-desktop"
+
+[apps.arrpc]
+binary = "arrpc"
