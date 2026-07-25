@@ -1,0 +1,18 @@
+[Unit]
+Description=EEDN denoise for PCM2902 mic → Easy Effects
+After=pipewire.service pipewire-pulse.service easyeffects.service
+Wants=pipewire.service
+BindsTo=pipewire.service
+Conflicts=pcm2902-listen.service
+
+[Service]
+Type=simple
+Environment=LADSPA_PATH=%h/.local/lib/ladspa
+Environment=LV2_PATH=%h/.local/lib/lv2
+ExecStartPre=-/run/current-system/sw/bin/systemctl --user stop pcm2902-listen.service
+ExecStart=/run/current-system/sw/bin/pipewire -c %h/.config/pipewire/filter-chain.conf.d/eedn-pcm2902-mic.conf
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

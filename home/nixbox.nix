@@ -30,4 +30,7 @@
     notify = true;     # Show notifications
     tray = "never";    # Disabled: tray icon hover triggered Hyprland CPopup::onCommit crash
   };
+
+  # EasyEffects daemon — starts with graphical session (Hyprland login)
+  services.easyeffects.enable = true;
 }

@@ -1,0 +1,102 @@
+diff --git a/main.go b/main.go
+--- a/main.go
++++ b/main.go
+@@ -50,6 +50,8 @@
+ 	imgSizeScaled                      int
+ 	lastWinAddr                        string
+ 	mainBox                            *gtk.Box
++	lastDockSig                        string
++	dockRebuildQueued                  bool
+ 	monitors                           []monitor
+ 	oldClients                         []client
+ 	outerOrientation, innerOrientation gtk.Orientation
+@@ -95,6 +97,21 @@
+ var vertical bool
+ var alignmentBox *gtk.Box
+ 
++// dockSignature captures dock-relevant state. Active highlight is by class,
++// so switching between windows of the same class must not rebuild.
++func dockSignature() string {
++	classes := make([]string, len(clients))
++	for i, c := range clients {
++		classes[i] = c.Class
++	}
++	sort.Strings(classes)
++	active := ""
++	if activeClient != nil {
++		active = activeClient.Class
++	}
++	return strings.Join(classes, "\n") + "\x00" + active
++}
++
+ func buildMainBox() {
+ 	if mainBox != nil {
+ 		mainBox.Destroy()
+@@ -682,13 +699,24 @@
+ 
+ 	oldClients = clients
+ 	refreshMainBox := func(forceRefresh bool) {
+-		if forceRefresh || (len(clients) != len(oldClients)) {
+-			glib.TimeoutAdd(0, func() bool {
++		sig := dockSignature()
++		if !forceRefresh && sig == lastDockSig {
++			return
++		}
++		if dockRebuildQueued {
++			return
++		}
++		dockRebuildQueued = true
++		glib.TimeoutAdd(0, func() bool {
++			dockRebuildQueued = false
++			sig := dockSignature()
++			if sig != lastDockSig {
+ 				buildMainBox()
+ 				oldClients = clients
+-				return false
+-			})
+-		}
++				lastDockSig = dockSignature()
++			}
++			return false
++		})
+ 	}
+ 
+ 	err = listClients()
+@@ -696,6 +724,7 @@
+ 		log.Fatalf("Couldn't list clients: %s", err)
+ 	}
+ 	buildMainBox()
++	lastDockSig = dockSignature()
+ 
+ 	win.ShowAll()
+ 
+@@ -781,17 +810,23 @@
+ 			}
+ 
+ 			s := string(buf[:n])
++			refreshFromSocket := func() {
++				err = listClients()
++				if err != nil {
++					log.Fatalf("Couldn't list clients: %s", err)
++				}
++				refreshMainBox(false)
++			}
+ 			if strings.Contains(s, "activewindowv2") {
+ 				winAddr := strings.TrimSpace(strings.Split(s, "activewindowv2>>")[1])
+ 				if winAddr != lastWinAddr && !strings.Contains(winAddr, ">>") {
+-					err = listClients()
+-					if err != nil {
+-						log.Fatalf("Couldn't list clients: %s", err)
+-					} else {
+-						refreshMainBox(true)
+-					}
++					refreshFromSocket()
+ 					lastWinAddr = winAddr
+ 				}
++			} else if strings.Contains(s, "openwindow") ||
++				strings.Contains(s, "closewindow") ||
++				strings.Contains(s, "movewindow") {
++				refreshFromSocket()
+ 			}
+ 		}
+ 	}()

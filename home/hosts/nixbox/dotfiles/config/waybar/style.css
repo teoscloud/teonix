@@ -74,7 +74,7 @@ tooltip label {
   color: rgb(48, 51, 53);
 }
 
-#window, #pulseaudio, #cpu, #memory, #idle_inhibitor,
+#window, #pulseaudio, #custom-eedn-volume, #cpu, #memory, #idle_inhibitor,
 #battery, #custom-hyprbindings, #custom-swaync, #tray, #custom-exit {
   font-weight: bold;
   margin: 4px 0px;

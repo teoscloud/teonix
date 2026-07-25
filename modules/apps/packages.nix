@@ -261,10 +261,16 @@ let
      }
   '';
 
+  # Go dock force-rebuilds the full GTK tree (and reloads every icon pixbuf) on
+  # every Hyprland activewindowv2 event. Destroy() does not promptly free those
+  # pixbufs, so RSS climbs without bound during normal focus switching.
+  # Only rebuild when the class multiset or active class actually changes.
+  nwg-dock-smart-rebuild-patch = ./nwg-dock-smart-rebuild.patch;
   nwg-dock-hyprland = unstable-pkgs.nwg-dock-hyprland.overrideAttrs (old: {
     patches = (old.patches or [ ]) ++ [
       nwg-dock-scale-patch
       nwg-dock-scroll-patch
+      nwg-dock-smart-rebuild-patch
     ];
   });
 
@@ -599,7 +605,12 @@ in {
     nix-index
     
     qbittorrent
-    
+    easyeffects
+    carla
+    ardour
+    yabridge
+    yabridgectl
+
     ghex
     obs-studio
     obs-studio-plugins.obs-pipewire-audio-capture

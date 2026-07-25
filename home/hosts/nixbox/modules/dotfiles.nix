@@ -141,6 +141,10 @@ in {
     source = "${dotfilesPath}/config/hypr/scripts/hyprflow-restore-on-login.sh";
     executable = true;
   };
+  home.file.".config/hypr/scripts/waybar-eedn-volume.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/waybar-eedn-volume.sh";
+    executable = true;
+  };
 
   # ✅ Symlink ios font config
   home.file.".config/fontconfig/fonts.conf".source = "${dotfilesPath}/config/fontconfig/fonts.conf";

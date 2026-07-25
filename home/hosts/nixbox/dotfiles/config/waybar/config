@@ -6,7 +6,8 @@
   "modules-left": [
     //"custom/startmenu",
     "hyprland/window",
-    "pulseaudio"
+    "pulseaudio",
+    "custom/eedn-volume"
   ],
   "modules-right": [
     "custom/swaync",
@@ -82,6 +83,9 @@
     "format-muted": " {format_source}",
     "format-source": " {volume}%",
     "format-source-muted": "",
+    // Allow scroll/set above 100%
+    "max-volume": 300,
+    "scroll-step": 5,
     "format-icons": {
       "headphone": "",
       "hands-free": "",
@@ -96,6 +100,18 @@
       ]
     },
     "on-click": "sleep 0.1 && pavucontrol"
+  },
+  "custom/eedn-volume": {
+    "return-type": "json",
+    "exec": "~/.config/hypr/scripts/waybar-eedn-volume.sh status",
+    // Fast poll for label; do NOT signal-refresh on scroll (that races and drops ticks)
+    "interval": 1,
+    "signal": 8,
+    // Direct pactl — same ±5% as pulseaudio scroll-step, minimal latency
+    "on-scroll-up": "sh -c 'id=$(cat \"$XDG_RUNTIME_DIR/waybar-eedn-volume.id\") && pactl set-sink-input-mute \"$id\" 0; pactl set-sink-input-volume \"$id\" +5%'",
+    "on-scroll-down": "sh -c 'id=$(cat \"$XDG_RUNTIME_DIR/waybar-eedn-volume.id\") && pactl set-sink-input-volume \"$id\" -5%'",
+    "on-click": "~/.config/hypr/scripts/waybar-eedn-volume.sh mute",
+    "tooltip": true
   },
   "custom/exit": {
     "tooltip": false,

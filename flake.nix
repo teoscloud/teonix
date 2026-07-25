@@ -86,6 +86,7 @@
           ./modules/services/networking.nix
           ./modules/services/mullvad.nix  # Mullvad VPN daemon + GUI (needs systemd-resolved)
           ./modules/services/system-services.nix
+          ./modules/services/eedn-pcm2902.nix  # PCM2902 mic → EEDN denoise → Easy Effects (nixbox)
           ./modules/services/plasma.nix  # KDE Plasma Desktop Environment
           ./modules/services/gnome.nix   # GNOME desktop + apps (session via SDDM)
           ./modules/services/user-services.nix
