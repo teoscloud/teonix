@@ -19,6 +19,15 @@ band-5 / band-6 tweaks.
 | HF Bias | 0.4 |
 | Stereo Link | 0.9 |
 | Bypass | 0.0 |
+| Gate Enable | 1 |
+| Gate Threshold (dB) | **-78.0** |
+| Gate Hysteresis (dB) | 3.0 |
+| Gate Attack / Hold / Release (ms) | 2 / 80 / 120 |
+| Gate Range (dB) | 100 (mute) |
+
+Gate calibrated to **denoised** idle at 100% playback volume
+(peak ≈ −80 dBFS, p99 ≈ −81). Opens a few dB above residual so
+only-noise playback is silenced; real content opens the gate.
 
 Wired as:
 

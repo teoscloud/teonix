@@ -30,6 +30,14 @@ typedef struct {
   int   hpf_enable;     /* cut below freq_low */
   int   lpf_enable;     /* cut above freq_high */
   int   bypass;
+  /* Post-denoise noise gate: hard-mute when only idle residual remains. */
+  int   gate_enable;
+  float gate_threshold_db;  /* open when envelope exceeds this (dBFS) */
+  float gate_hysteresis_db; /* close below threshold - hysteresis */
+  float gate_attack_ms;
+  float gate_hold_ms;
+  float gate_release_ms;
+  float gate_range_db;      /* attenuation when closed (e.g. 100 = mute) */
 } EednParams;
 
 typedef struct EednState EednState;

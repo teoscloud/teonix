@@ -13,6 +13,16 @@ from tkinter import messagebox, ttk
 CONF = Path.home() / ".config/pipewire/filter-chain.conf.d/eedn-pcm2902-mic.conf"
 SERVICE = "eedn-pcm2902.service"
 
+_GATE = {
+    "Gate Enable": 1.0,
+    "Gate Threshold (dB)": -78.0,
+    "Gate Hysteresis (dB)": 3.0,
+    "Gate Attack (ms)": 2.0,
+    "Gate Hold (ms)": 80.0,
+    "Gate Release (ms)": 120.0,
+    "Gate Range (dB)": 100.0,
+}
+
 MAC = {
     "Threshold (dB)": -88.2,
     "Range Band 1 (dB)": 0.8,
@@ -30,6 +40,7 @@ MAC = {
     "HF Bias": 0.35,
     "Stereo Link": 0.85,
     "Bypass": 0.0,
+    **_GATE,
 }
 
 GENTLE = {
@@ -50,9 +61,11 @@ GENTLE = {
     "HF Bias": 0.35,
     "Stereo Link": 0.85,
     "Bypass": 0.0,
+    **_GATE,
 }
 
 # Ship-as-default — current live PCM2902 filter-chain (tuner session).
+# Gate calibrated to denoised idle @ 100% playback: peak ≈ -80, p99 ≈ -81 dBFS.
 DEFAULT = {
     "Threshold (dB)": -71.4583,
     "Range Band 1 (dB)": 12.0,
@@ -70,6 +83,13 @@ DEFAULT = {
     "HF Bias": 0.40,
     "Stereo Link": 0.90,
     "Bypass": 0.0,
+    "Gate Enable": 1.0,
+    "Gate Threshold (dB)": -78.0,
+    "Gate Hysteresis (dB)": 3.0,
+    "Gate Attack (ms)": 2.0,
+    "Gate Hold (ms)": 80.0,
+    "Gate Release (ms)": 120.0,
+    "Gate Range (dB)": 100.0,
 }
 
 # Older live session (pre-default threshold / band-6 tweak).
@@ -90,6 +110,7 @@ USER_TUNED = {
     "HF Bias": 0.40,
     "Stereo Link": 0.90,
     "Bypass": 0.0,
+    **_GATE,
 }
 
 # Silent-capture band layout (pre live threshold/range tweaks).
@@ -110,6 +131,7 @@ PCM2902_MEASURED = {
     "HF Bias": 0.40,
     "Stereo Link": 0.90,
     "Bypass": 0.0,
+    **_GATE,
 }
 
 PRESETS = {
@@ -253,6 +275,18 @@ class Tuner(tk.Tk):
         bypass = tk.DoubleVar(value=float(base.get("Bypass", 0.0)))
         self.vars["Bypass"] = bypass
         tk.Checkbutton(body, text="Bypass", variable=bypass, onvalue=1.0, offvalue=0.0).pack(anchor="w", pady=8)
+
+        ttk.Label(body, text="Noise gate (mute idle residual)", padding=(0, 8, 0, 2)).pack(anchor="w")
+        gate = tk.DoubleVar(value=float(base.get("Gate Enable", 1.0)))
+        self.vars["Gate Enable"] = gate
+        tk.Checkbutton(body, text="Gate Enable", variable=gate, onvalue=1.0, offvalue=0.0).pack(anchor="w")
+        self._slider_row(body, "Gate Threshold (dB)", -140.0, 0.0, base.get("Gate Threshold (dB)", -78.0))
+        self._slider_row(body, "Gate Hysteresis (dB)", 0.0, 24.0, base.get("Gate Hysteresis (dB)", 3.0))
+        self._slider_row(body, "Gate Attack (ms)", 0.1, 50.0, base.get("Gate Attack (ms)", 2.0))
+        self._slider_row(body, "Gate Hold (ms)", 0.0, 500.0, base.get("Gate Hold (ms)", 80.0))
+        self._slider_row(body, "Gate Release (ms)", 1.0, 1000.0, base.get("Gate Release (ms)", 120.0))
+        self._slider_row(body, "Gate Range (dB)", 0.0, 140.0, base.get("Gate Range (dB)", 100.0))
+        self.geometry("640x780")
 
         self.status = ttk.Label(self, text=str(CONF), padding=10)
         self.status.pack(fill="x")

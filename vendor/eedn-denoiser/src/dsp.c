@@ -43,6 +43,12 @@ struct EednState {
   float in_min;
   float gr_min[EEDN_BANDS];
   float gr_max[EEDN_BANDS];
+  /* Post-denoise gate */
+  float gate_env;
+  float gate_gain;       /* 0..1 linear */
+  float gate_hold_left;  /* samples remaining in hold */
+  float gate_att_coeff;
+  float gate_rel_coeff;
   int configured;
 };
 
@@ -169,6 +175,15 @@ void eedn_default_params(EednParams *p) {
   p->hpf_enable = 0;
   p->lpf_enable = 0;
   p->bypass = 0;
+  /* Calibrated to PCM2902 → EEDN residual idle @ 100% playback vol:
+   * post-denoise peak ≈ -80 dBFS, p99 ≈ -81; open a few dB above that. */
+  p->gate_enable = 1;
+  p->gate_threshold_db = -78.0f;
+  p->gate_hysteresis_db = 3.0f;
+  p->gate_attack_ms = 2.0f;
+  p->gate_hold_ms = 80.0f;
+  p->gate_release_ms = 120.0f;
+  p->gate_range_db = 100.0f;
 }
 
 EednState *eedn_create(void) {
@@ -255,6 +270,11 @@ void eedn_reset(EednState *s, double sample_rate) {
   s->in_min = 1.0f;
   s->att_coeff = ms_to_coeff(s->p.attack_ms, s->sr);
   s->rel_coeff = ms_to_coeff(s->p.release_ms, s->sr);
+  s->gate_env = 0.0f;
+  s->gate_gain = 0.0f; /* start closed until real signal */
+  s->gate_hold_left = 0.0f;
+  s->gate_att_coeff = ms_to_coeff(s->p.gate_attack_ms, s->sr);
+  s->gate_rel_coeff = ms_to_coeff(s->p.gate_release_ms, s->sr);
   recompute_xovers(s);
   s->configured = 1;
 }
@@ -276,6 +296,8 @@ void eedn_set_params(EednState *s, const EednParams *p) {
   s->p = *p;
   s->att_coeff = ms_to_coeff(s->p.attack_ms, s->sr);
   s->rel_coeff = ms_to_coeff(s->p.release_ms, s->sr);
+  s->gate_att_coeff = ms_to_coeff(s->p.gate_attack_ms, s->sr);
+  s->gate_rel_coeff = ms_to_coeff(s->p.gate_release_ms, s->sr);
   if (bands_changed)
     recompute_xovers(s);
 }
@@ -437,6 +459,44 @@ void eedn_process(EednState *s,
       yl = biquad_process(&s->ch[0].lpf[1], biquad_process(&s->ch[0].lpf[0], yl));
       if (stereo)
         yr = biquad_process(&s->ch[1].lpf[1], biquad_process(&s->ch[1].lpf[0], yr));
+    }
+
+    /* Post-denoise gate: silence output when only residual idle remains. */
+    if (s->p.gate_enable) {
+      float det = fabsf(yl);
+      if (stereo) {
+        float ar = fabsf(yr);
+        if (ar > det) det = ar;
+      }
+      /* Slightly slower envelope than sample peaks so hiss spikes don't chatter. */
+      follow(&s->gate_env, det, s->gate_att_coeff, s->gate_rel_coeff);
+
+      float thr = clampf(s->p.gate_threshold_db, EEDN_DB_MIN, 0.0f);
+      float hyst = fmaxf(s->p.gate_hysteresis_db, 0.0f);
+      float open_db = thr;
+      float close_db = thr - hyst;
+      float level_db = lin_to_db(s->gate_env);
+      float hold_samples = fmaxf(s->p.gate_hold_ms, 0.0f) * 0.001f * (float)s->sr;
+
+      int want_open = (level_db >= open_db);
+      if (s->gate_gain > 0.5f) {
+        /* While open: stay open through hysteresis band + hold time. */
+        if (level_db >= close_db)
+          s->gate_hold_left = hold_samples;
+        else if (s->gate_hold_left > 0.0f)
+          s->gate_hold_left -= 1.0f;
+        want_open = (s->gate_hold_left > 0.0f) || (level_db >= close_db);
+      } else if (want_open) {
+        s->gate_hold_left = hold_samples;
+      }
+
+      float target = want_open ? 1.0f : db_to_lin(-clampf(s->p.gate_range_db, 0.0f, 140.0f));
+      float coeff = want_open ? s->gate_att_coeff : s->gate_rel_coeff;
+      /* coeff is "remain" style (exp decay toward 0); blend toward target. */
+      s->gate_gain = coeff * s->gate_gain + (1.0f - coeff) * target;
+
+      yl *= s->gate_gain;
+      if (stereo) yr *= s->gate_gain;
     }
 
     out_l[i] = yl;

@@ -29,6 +29,13 @@ enum {
   L_HF_BIAS,
   L_STEREO_LINK,
   L_BYPASS,
+  L_GATE_ENABLE,
+  L_GATE_THRESHOLD,
+  L_GATE_HYST,
+  L_GATE_ATTACK,
+  L_GATE_HOLD,
+  L_GATE_RELEASE,
+  L_GATE_RANGE,
   L_N_PORTS
 };
 
@@ -84,6 +91,13 @@ static void run(LADSPA_Handle instance, unsigned long n_samples) {
   params.hf_bias = pget(self, L_HF_BIAS, params.hf_bias);
   params.stereo_link = pget(self, L_STEREO_LINK, params.stereo_link);
   params.bypass = pget(self, L_BYPASS, 0.0f) >= 0.5f;
+  params.gate_enable = pget(self, L_GATE_ENABLE, (float)params.gate_enable) >= 0.5f;
+  params.gate_threshold_db = pget(self, L_GATE_THRESHOLD, params.gate_threshold_db);
+  params.gate_hysteresis_db = pget(self, L_GATE_HYST, params.gate_hysteresis_db);
+  params.gate_attack_ms = pget(self, L_GATE_ATTACK, params.gate_attack_ms);
+  params.gate_hold_ms = pget(self, L_GATE_HOLD, params.gate_hold_ms);
+  params.gate_release_ms = pget(self, L_GATE_RELEASE, params.gate_release_ms);
+  params.gate_range_db = pget(self, L_GATE_RANGE, params.gate_range_db);
 
   eedn_set_params(self->dsp, &params);
 
@@ -119,7 +133,7 @@ static void init_descriptor(void) {
   port_descriptors[L_INPUT_R] = LADSPA_PORT_INPUT | LADSPA_PORT_AUDIO;
   port_descriptors[L_OUTPUT_L] = LADSPA_PORT_OUTPUT | LADSPA_PORT_AUDIO;
   port_descriptors[L_OUTPUT_R] = LADSPA_PORT_OUTPUT | LADSPA_PORT_AUDIO;
-  for (int i = L_THRESHOLD; i <= L_BYPASS; i++)
+  for (int i = L_THRESHOLD; i < L_N_PORTS; i++)
     port_descriptors[i] = LADSPA_PORT_INPUT | LADSPA_PORT_CONTROL;
 
   port_names[L_INPUT_L] = "Input L";
@@ -142,9 +156,16 @@ static void init_descriptor(void) {
   port_names[L_HF_BIAS] = "HF Bias";
   port_names[L_STEREO_LINK] = "Stereo Link";
   port_names[L_BYPASS] = "Bypass";
+  port_names[L_GATE_ENABLE] = "Gate Enable";
+  port_names[L_GATE_THRESHOLD] = "Gate Threshold (dB)";
+  port_names[L_GATE_HYST] = "Gate Hysteresis (dB)";
+  port_names[L_GATE_ATTACK] = "Gate Attack (ms)";
+  port_names[L_GATE_HOLD] = "Gate Hold (ms)";
+  port_names[L_GATE_RELEASE] = "Gate Release (ms)";
+  port_names[L_GATE_RANGE] = "Gate Range (dB)";
 
   memset(port_hints, 0, sizeof(port_hints));
-  for (int i = L_THRESHOLD; i <= L_BYPASS; i++)
+  for (int i = L_THRESHOLD; i < L_N_PORTS; i++)
     port_hints[i].HintDescriptor = LADSPA_HINT_BOUNDED_BELOW | LADSPA_HINT_BOUNDED_ABOVE | LADSPA_HINT_DEFAULT_MIDDLE;
 
   port_hints[L_THRESHOLD].LowerBound = -140.0f;
@@ -172,6 +193,29 @@ static void init_descriptor(void) {
   port_hints[L_BYPASS].HintDescriptor =
     LADSPA_HINT_BOUNDED_BELOW | LADSPA_HINT_BOUNDED_ABOVE |
     LADSPA_HINT_TOGGLED | LADSPA_HINT_DEFAULT_0;
+
+  port_hints[L_GATE_ENABLE].LowerBound = 0.0f;
+  port_hints[L_GATE_ENABLE].UpperBound = 1.0f;
+  port_hints[L_GATE_ENABLE].HintDescriptor =
+    LADSPA_HINT_BOUNDED_BELOW | LADSPA_HINT_BOUNDED_ABOVE |
+    LADSPA_HINT_TOGGLED | LADSPA_HINT_DEFAULT_1;
+
+  port_hints[L_GATE_THRESHOLD].LowerBound = -140.0f;
+  port_hints[L_GATE_THRESHOLD].UpperBound = 0.0f;
+  port_hints[L_GATE_THRESHOLD].HintDescriptor =
+    LADSPA_HINT_BOUNDED_BELOW | LADSPA_HINT_BOUNDED_ABOVE | LADSPA_HINT_DEFAULT_LOW;
+
+  port_hints[L_GATE_HYST].LowerBound = 0.0f;
+  port_hints[L_GATE_HYST].UpperBound = 24.0f;
+
+  port_hints[L_GATE_ATTACK].LowerBound = 0.1f;
+  port_hints[L_GATE_ATTACK].UpperBound = 50.0f;
+  port_hints[L_GATE_HOLD].LowerBound = 0.0f;
+  port_hints[L_GATE_HOLD].UpperBound = 500.0f;
+  port_hints[L_GATE_RELEASE].LowerBound = 1.0f;
+  port_hints[L_GATE_RELEASE].UpperBound = 1000.0f;
+  port_hints[L_GATE_RANGE].LowerBound = 0.0f;
+  port_hints[L_GATE_RANGE].UpperBound = 140.0f;
 
   descriptor.UniqueID = EEDN_LADSPA_UNIQUE_ID;
   descriptor.Label = "eedn_denoiser";
