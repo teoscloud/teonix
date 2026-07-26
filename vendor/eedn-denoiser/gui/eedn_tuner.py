@@ -52,7 +52,27 @@ GENTLE = {
     "Bypass": 0.0,
 }
 
-# Default / seed preset — captured from live tuner session (UserTuned).
+# Ship-as-default — current live PCM2902 filter-chain (tuner session).
+DEFAULT = {
+    "Threshold (dB)": -71.4583,
+    "Range Band 1 (dB)": 12.0,
+    "Range Band 2 (dB)": 11.5,
+    "Range Band 3 (dB)": 8.0,
+    "Range Band 4 (dB)": 14.0,
+    "Range Band 5 (dB)": 12.5115,
+    "Range Band 6 (dB)": 8.8918,
+    "Band 1 Freq (Hz)": 120.0,
+    "Band 2 Freq (Hz)": 240.0,
+    "Band 3 Freq (Hz)": 600.0,
+    "Band 4 Freq (Hz)": 1580.0,
+    "Band 5 Freq (Hz)": 3000.0,
+    "Band 6 Freq (Hz)": 12000.0,
+    "HF Bias": 0.40,
+    "Stereo Link": 0.90,
+    "Bypass": 0.0,
+}
+
+# Older live session (pre-default threshold / band-6 tweak).
 USER_TUNED = {
     "Threshold (dB)": -44.1146,
     "Range Band 1 (dB)": 12.0,
@@ -72,7 +92,7 @@ USER_TUNED = {
     "Bypass": 0.0,
 }
 
-# Earlier silent-capture layout (pre UserTuned threshold/range tweaks).
+# Silent-capture band layout (pre live threshold/range tweaks).
 PCM2902_MEASURED = {
     "Threshold (dB)": -69.0,
     "Range Band 1 (dB)": 12.0,
@@ -93,6 +113,7 @@ PCM2902_MEASURED = {
 }
 
 PRESETS = {
+    "default": DEFAULT,
     "UserTuned": USER_TUNED,
     "PCM2902 Measured": PCM2902_MEASURED,
     "Mac Bertom": MAC,
@@ -165,13 +186,13 @@ class Tuner(tk.Tk):
             return
 
         current = parse_conf(CONF.read_text())
-        base = dict(USER_TUNED)
+        base = dict(DEFAULT)
         base.update({k: current[k] for k in base if k in current})
 
         top = ttk.Frame(self, padding=10)
         top.pack(fill="x")
         ttk.Label(top, text="Preset").pack(side="left")
-        self.preset = tk.StringVar(value="UserTuned")
+        self.preset = tk.StringVar(value="default")
         cb = ttk.Combobox(top, textvariable=self.preset, values=list(PRESETS), state="readonly", width=22)
         cb.pack(side="left", padx=8)
         cb.bind("<<ComboboxSelected>>", lambda _e: self.load_preset(self.preset.get()))

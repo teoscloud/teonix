@@ -39,17 +39,18 @@ That unit currently appears as Playback stream **“PCM2902 output”** and was 
 
 ## 2. Current tuned controls (ship these as defaults)
 
-From measured silent capture + user threshold tweak. Keep in the filter-chain `control = { }` block:
+Preset name: **`default`**. Live tuner session on PCM2902. Keep in the
+filter-chain `control = { }` block (`pipewire/eedn-pcm2902-mic.conf`):
 
 | Control | Value |
 |---------|------:|
-| Threshold (dB) | **-69** |
+| Threshold (dB) | **-71.4583** |
 | Range Band 1 (dB) | 12.0 |
 | Range Band 2 (dB) | 11.5 |
 | Range Band 3 (dB) | 8.0 |
 | Range Band 4 (dB) | 14.0 |
-| Range Band 5 (dB) | 12.5 |
-| Range Band 6 (dB) | 10.0 |
+| Range Band 5 (dB) | 12.5115 |
+| Range Band 6 (dB) | 8.8918 |
 | Band 1 Freq (Hz) | 120 |
 | Band 2 Freq (Hz) | 240 |
 | Band 3 Freq (Hz) | 600 |
@@ -60,7 +61,7 @@ From measured silent capture + user threshold tweak. Keep in the filter-chain `c
 | Stereo Link | 0.9 |
 | Bypass | 0.0 |
 
-Rationale notes: `presets/pcm2902_measured.md`.
+Notes: `presets/default.md` (band rationale in `presets/pcm2902_measured.md`).
 
 **Hardware node names (verify on machine if USB path changes):**
 
@@ -159,7 +160,7 @@ and restarts `eedn-pcm2902.service`. After flake integration, either:
 # Illustrative — adapt to the flake’s module style
 options.services.eednPcm2902 = {
   enable = mkEnableOption "EEDN denoised PCM2902 mic → Easy Effects";
-  thresholdDb = mkOption { type = types.float; default = -69.0; };
+  thresholdDb = mkOption { type = types.float; default = -71.4583; };
   # … optional overrides for ranges / band Hz …
 };
 
@@ -180,7 +181,8 @@ options.services.eednPcm2902 = {
 | `src/dsp.c`, `src/ladspa_plugin.c` | LADSPA port names (must match conf keys) |
 | `pipewire/eedn-pcm2902-mic.conf` | Exact filter-chain graph + control names |
 | `systemd/eedn-pcm2902.service` | Unit semantics |
-| `presets/pcm2902_measured.md` | Why defaults look like this |
+| `presets/default.md` | Ship-as-default control values |
+| `presets/pcm2902_measured.md` | Band layout / measurement rationale |
 | `flake.nix` / `shell.nix` | Existing nix packaging hints |
 
 **Do not** use `pipewire/eedn-denoise-sink.conf` for this mic path — that was an alternate “apps → DAC” experiment.

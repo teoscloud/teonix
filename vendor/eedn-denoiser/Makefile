@@ -2,6 +2,7 @@ PREFIX        ?= $(HOME)/.local
 LIBDIR        ?= $(PREFIX)/lib
 LV2DIR        ?= $(LIBDIR)/lv2
 LADSPADIR     ?= $(LIBDIR)/ladspa
+SHAREDIR      ?= $(PREFIX)/share/eedn-denoiser
 
 CC            ?= gcc
 CFLAGS        ?= -O3 -ffast-math -fPIC -Wall -Wextra -std=c11
@@ -44,11 +45,14 @@ $(LADSPA_SO): $(SRC_DSP) $(SRC_LADSPA) | $(BUILD)
 	$(CC) $(CFLAGS) -Isrc -shared -o $@ $(SRC_DSP) $(SRC_LADSPA) $(LDFLAGS) $(LIBS)
 
 install: all
-	mkdir -p $(LV2DIR)/eedn.lv2 $(LADSPADIR)
+	mkdir -p $(LV2DIR)/eedn.lv2 $(LADSPADIR) $(SHAREDIR)/presets $(SHAREDIR)/pipewire
 	cp -f $(LV2_BUNDLE)/* $(LV2DIR)/eedn.lv2/
 	cp -f $(LADSPA_SO) $(LADSPADIR)/
+	cp -f presets/* $(SHAREDIR)/presets/
+	cp -f pipewire/eedn-pcm2902-mic.conf pipewire/eedn-denoise-sink.conf $(SHAREDIR)/pipewire/
 	@echo "Installed LV2  → $(LV2DIR)/eedn.lv2"
 	@echo "Installed LADSPA → $(LADSPADIR)/eedn_denoiser.so"
+	@echo "Installed presets/conf → $(SHAREDIR)"
 	@echo "Add to env if needed:"
 	@echo "  export LV2_PATH=\"$(LV2DIR):\$$LV2_PATH\""
 	@echo "  export LADSPA_PATH=\"$(LADSPADIR):\$$LADSPA_PATH\""

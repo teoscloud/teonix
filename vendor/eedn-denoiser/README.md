@@ -63,7 +63,7 @@ That will:
 nix-shell --run ./scripts/tuner.sh
 ```
 
-Sliders write `~/.config/pipewire/filter-chain.conf.d/eedn-pcm2902-mic.conf` and restart `eedn-pcm2902.service`. Includes a **Mac Bertom** preset.
+Sliders write `~/.config/pipewire/filter-chain.conf.d/eedn-pcm2902-mic.conf` and restart `eedn-pcm2902.service`. Default preset is **`default`** (live PCM2902 tune); also includes UserTuned, PCM2902 Measured, Mac Bertom, Gentle.
 
 ## Controls (Bertom-like)
 

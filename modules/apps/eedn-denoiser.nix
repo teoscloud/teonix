@@ -20,6 +20,14 @@ stdenv.mkDerivation {
     rm -rf build .git
   '';
 
+  # Ship filter-chain template + preset docs alongside the plugins.
+  postInstall = ''
+    mkdir -p $out/share/eedn-denoiser/presets $out/share/eedn-denoiser/pipewire
+    cp -r presets/. $out/share/eedn-denoiser/presets/
+    cp pipewire/eedn-pcm2902-mic.conf $out/share/eedn-denoiser/pipewire/
+    cp pipewire/eedn-denoise-sink.conf $out/share/eedn-denoiser/pipewire/ 2>/dev/null || true
+  '';
+
   meta = with lib; {
     description = "Bertom-style zero-latency multiband denoiser (LV2 + LADSPA)";
     license = licenses.mit;

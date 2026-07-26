@@ -607,7 +607,6 @@ in {
     qbittorrent
     easyeffects
     carla
-    ardour
     yabridge
     yabridgectl
 
