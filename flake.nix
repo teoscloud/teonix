@@ -4,9 +4,17 @@
   inputs = {
     # Hyprland: use nixpkgs-unstable's build (programs.hyprland default), not git main.
     # Unpinned Hyprland main + Hyprlux/scrolling often regresses and can crash / end the session on map.
-    nixos-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    nixos-stable.url = "nixpkgs/nixos-24.05";  
+    #
+    # Pin past nixpkgs#518860 regression: modular-services `process.environment` broke HM
+    # evaluation (`service.nix` called with unexpected `config`). Reverted in ec69cf3f7b
+    # (2026-07-25) but not yet on the nixpkgs-unstable channel tip — track master until
+    # the channel catches up, then switch back to github:NixOS/nixpkgs/nixpkgs-unstable.
+    nixos-unstable.url = "github:NixOS/nixpkgs/master";
+    nixos-stable.url = "nixpkgs/nixos-24.05";
     chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
+    # Keep Chaotic on the same nixpkgs/HM as the system (avoids dual evaluation).
+    chaotic.inputs.nixpkgs.follows = "nixos-unstable";
+    chaotic.inputs.home-manager.follows = "home-manager";
     nix-gaming.url = "github:fufexan/nix-gaming";
     hyprlux.url = "github:amadejkastelic/Hyprlux";
     # Share one nixpkgs — avoids evaluating/building against a second (stale) tree
@@ -194,19 +202,19 @@
     homeConfigurations = {
       nixbox = home-manager.lib.homeManagerConfiguration {
         pkgs = unstable-pkgs;
-        extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };  
+        extraSpecialArgs = commonSpecialArgs // { hostname = nixbox_hostname; };
         modules = [ ./home/nixbox.nix ];
       };
 
       nixtop = home-manager.lib.homeManagerConfiguration {
         pkgs = unstable-pkgs;
-        extraSpecialArgs = commonSpecialArgs // { hostname = nixtop_hostname; };  
+        extraSpecialArgs = commonSpecialArgs // { hostname = nixtop_hostname; };
         modules = [ ./home/nixtop.nix ];
       };
 
       default = home-manager.lib.homeManagerConfiguration {
         pkgs = unstable-pkgs;
-        extraSpecialArgs = commonSpecialArgs // { hostname = defaultHostname; };  
+        extraSpecialArgs = commonSpecialArgs // { hostname = defaultHostname; };
         modules = [ ./home/default.nix ];
       };
     };

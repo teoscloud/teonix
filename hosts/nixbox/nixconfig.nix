@@ -1,10 +1,7 @@
 { config, pkgs, stable-pkgs, lib, ... }:
 
 {
-  nix.settings = {
-    # Parallel derivations (was 1 — that serialized every compile).
-    # "auto" ≈ one job per CPU; pair with cores for within-job parallelism.
-    max-jobs = "auto";
-    cores = 0; # 0 = use all available cores per job
-  };
+  # Build parallelism / desktop-friendly caps live in modules/core/nix-settings.nix
+  # (max-jobs=2, cores=3, idle CPU/IO, memory caps). Do not set max-jobs=auto /
+  # cores=0 here — that saturates all 24 threads during systemupdate.
 }

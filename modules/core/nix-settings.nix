@@ -3,8 +3,15 @@
 {
   nix.settings = {
     download-buffer-size = 134217728;
-    # Parallel downloads from caches (default is low)
-    max-substitution-jobs = 32;
+    # Keep cache downloads moderate so they don't saturate disk/network during updates.
+    max-substitution-jobs = 4;
+
+    # Conservative desktop-friendly parallelism (24-thread / 32G host):
+    # - max-jobs × cores ≈ 6 threads worst-case for local compiles
+    # - idle CPU/IO policy below still yields to interactive apps
+    # Tonable up later if updates feel too slow and the session stays smooth.
+    max-jobs = 2;
+    cores = 3;
 
     experimental-features = [
       "nix-command"
@@ -29,6 +36,21 @@
       "hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc="
       "nix-gaming.cachix.org-1:nbjlureqMbRAxR1gJ/f3hxemL9svXaZF/Ees8vCUUs4="
     ];
+  };
+
+  # When the session needs CPU/disk, nix-daemon yields (fixes desktop freezes during
+  # systemupdate / local compiles). Applies to all nix-daemon builds, not just aliases.
+  nix.daemonCPUSchedPolicy = "idle";
+  nix.daemonIOSchedClass = "idle";
+  nix.daemonIOSchedPriority = 7;
+
+  # Soft cgroup caps so a big local rebuild can't OOM / fully pin the machine.
+  # Leave ~half of 32G for the session (you often already sit ~12–16G used).
+  systemd.services.nix-daemon.serviceConfig = {
+    CPUWeight = 10; # default 100 — prefer desktop/apps
+    IOWeight = 10;
+    MemoryHigh = "10G"; # start reclaiming early
+    MemoryMax = "14G"; # hard cap; keeps headroom for Hyprland/browsers
   };
 
   nixpkgs.config = {

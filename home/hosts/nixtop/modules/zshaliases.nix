@@ -9,10 +9,14 @@ in
 
   # Generate a monitor configuration file for Hyprland.
   home.file.".zshaliases.sh".source = pkgs.writeText ".zshaliases.sh" ''
-    alias systemupdate='cd ${projectdir} && nix flake update && sudo nixos-rebuild switch --flake "path:."#${hostname} --impure && home-manager switch --flake "path:."#${hostname}'
-    alias updatehome='cd ${projectdir} && home-manager switch --flake "path:."#${hostname}'
-    alias nixupgrade='cd ${projectdir} && sudo nixos-rebuild switch --flake "path:."#${hostname} --impure'
-    alias nixupdate='cd ${projectdir} && nix flake update'
+    # Desktop-friendly updates: low CPU/IO priority on the client. nix-daemon is also
+    # capped (idle sched + max-jobs/cores) in modules/core/nix-settings.nix.
+    _nix_nice() { nice -n 19 ionice -c3 "$@"; }
+    _nix_rebuild_opts=(--option max-jobs 2 --option cores 3)
+    alias systemupdate='cd ${projectdir} && _nix_nice nix flake update && _nix_nice sudo nixos-rebuild switch --flake "path:."#${hostname} --impure "''${_nix_rebuild_opts[@]}" && _nix_nice home-manager switch -b bak --flake "path:."#${hostname}'
+    alias updatehome='cd ${projectdir} && _nix_nice home-manager switch -b bak --flake "path:."#${hostname}'
+    alias nixupgrade='cd ${projectdir} && _nix_nice sudo nixos-rebuild switch --flake "path:."#${hostname} --impure "''${_nix_rebuild_opts[@]}"'
+    alias nixupdate='cd ${projectdir} && _nix_nice nix flake update'
 
     # --- Stable locks: flake.lock.stable.1 = newest .. .4 = oldest (ring of 4). No git. ---
     alias nix-gens='sudo nix-env -p /nix/var/nix/profiles/system --list-generations'
@@ -70,15 +74,15 @@ in
     stablenixupdate() { _nix_stable_copy_lock; }
     stablenixupgrade() {
       _nix_stable_copy_lock || return
-      cd "${projectdir}" && sudo nixos-rebuild switch --flake "path:."#${hostname} --impure
+      cd "${projectdir}" && _nix_nice sudo nixos-rebuild switch --flake "path:."#${hostname} --impure "''${_nix_rebuild_opts[@]}"
     }
     stableupdatehome() {
       _nix_stable_copy_lock || return
-      cd "${projectdir}" && home-manager switch --flake "path:."#${hostname}
+      cd "${projectdir}" && _nix_nice home-manager switch -b bak --flake "path:."#${hostname}
     }
     stablesystemupdate() {
       _nix_stable_copy_lock || return
-      cd "${projectdir}" && sudo nixos-rebuild switch --flake "path:."#${hostname} --impure && home-manager switch --flake "path:."#${hostname}
+      cd "${projectdir}" && _nix_nice sudo nixos-rebuild switch --flake "path:."#${hostname} --impure "''${_nix_rebuild_opts[@]}" && _nix_nice home-manager switch -b bak --flake "path:."#${hostname}
     }
     nix-stable-switch() { stablesystemupdate "$@"; }
 
