@@ -2,14 +2,10 @@
   description = "Teos NixOS configuration with flakes";
 
   inputs = {
-    # Hyprland: use nixpkgs-unstable's build (programs.hyprland default), not git main.
-    # Unpinned Hyprland main + Hyprlux/scrolling often regresses and can crash / end the session on map.
-    #
-    # Pin past nixpkgs#518860 regression: modular-services `process.environment` broke HM
-    # evaluation (`service.nix` called with unexpected `config`). Reverted in ec69cf3f7b
-    # (2026-07-25) but not yet on the nixpkgs-unstable channel tip — track master until
-    # the channel catches up, then switch back to github:NixOS/nixpkgs/nixpkgs-unstable.
-    nixos-unstable.url = "github:NixOS/nixpkgs/master";
+    # Use the unstable *channel* so Hydra binaries are available (nixpkgs/master
+    # often forces multi-hour local Electron/Chromium/KDE builds with no cache hit).
+    # Hyprland: stick to nixpkgs' package — do not pin Hyprland git main here.
+    nixos-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     nixos-stable.url = "nixpkgs/nixos-24.05";
     chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
     # Keep Chaotic on the same nixpkgs/HM as the system (avoids dual evaluation).
@@ -94,7 +90,6 @@
           ./modules/services/networking.nix
           ./modules/services/mullvad.nix  # Mullvad VPN daemon + GUI (needs systemd-resolved)
           ./modules/services/system-services.nix
-          ./modules/services/eedn-pcm2902.nix  # PCM2902 mic → EEDN denoise → Easy Effects (nixbox)
           ./modules/services/plasma.nix  # KDE Plasma Desktop Environment
           ./modules/services/gnome.nix   # GNOME desktop + apps (session via SDDM)
           ./modules/services/user-services.nix

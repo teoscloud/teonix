@@ -15,6 +15,9 @@ ignore_classes = [
   "swaync-client",
   "nwg-dock-hyprland",
   "gtk-layer-shell",
+  "quickshell",
+  "Quickshell",
+  "qs",
   "polkit",
   "nm-applet",
   "blueman-tray",
@@ -26,6 +29,8 @@ ignore_classes = [
   "hypridle",
   "gammastep",
   "chrome_crashpad_handler",
+  "buschain-control-popup",
+  "buschain-mixer",
 ]
 
 [apps.kitty]

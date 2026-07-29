@@ -5,10 +5,10 @@
   services.resolved.enable = true;
   networking.networkmanager.dns = "systemd-resolved";
 
-  # GUI + CLI (pkgs.mullvad is CLI-only).
+  # Daemon/CLI = pkgs.mullvad (default). GUI is a separate package now.
   services.mullvad-vpn = {
     enable = true;
-    package = pkgs.mullvad-vpn;
+    gui.enable = true;
   };
 
   # First boot after install: keep LAN + internet usable until you log in

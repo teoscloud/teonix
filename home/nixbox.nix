@@ -12,11 +12,6 @@
     }
   '';
 
-  # ✅ Export session variables
-  home.sessionVariables = {
-    # session variables
-  };
-
   # ✅ Import modules from `home/hosts/nixbox/modules`
   imports = [
     ./hosts/nixbox/modules/zshaliases.nix  # ✅ Renamed from shell.nix

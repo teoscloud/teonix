@@ -55,6 +55,10 @@ in {
   home.file.".config/wofi/config".source = "${dotfilesPath}/config/wofi/config";
   home.file.".config/wofi/style.css".source = "${dotfilesPath}/config/wofi/style.css";
 
+  # Quickshell — live out-of-store symlink so `qs -r` picks up edits without HM rebuild
+  home.file.".config/quickshell".source = config.lib.file.mkOutOfStoreSymlink
+    "${config.home.homeDirectory}/teonix/home/hosts/nixbox/dotfiles/config/quickshell";
+
   # ✅ nwg-dock-hyprland (macOS-style dock + reserved exclusive zone)
   home.file.".config/nwg-dock-hyprland/style.css" = {
     source = "${dotfilesPath}/config/nwg-dock-hyprland/style.css";
@@ -141,11 +145,6 @@ in {
     source = "${dotfilesPath}/config/hypr/scripts/hyprflow-restore-on-login.sh";
     executable = true;
   };
-  home.file.".config/hypr/scripts/waybar-eedn-volume.sh" = {
-    source = "${dotfilesPath}/config/hypr/scripts/waybar-eedn-volume.sh";
-    executable = true;
-  };
-
   # ✅ Symlink ios font config
   home.file.".config/fontconfig/fonts.conf".source = "${dotfilesPath}/config/fontconfig/fonts.conf";
 

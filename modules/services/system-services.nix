@@ -48,6 +48,25 @@
         support32Bit = true;
       };
       pulse.enable = true;
+      # Keep USB interfaces hot (no auto-suspend) for low-latency audio work.
+      wireplumber.extraConfig."99-usb-audio-no-suspend" = {
+        "monitor.alsa.rules" = [
+          {
+            matches = [
+              { "node.name" = "~alsa_input.usb-Burr-Brown_from_TI_USB_Audio_CODEC.*"; }
+              { "node.name" = "~alsa_output.usb-Burr-Brown_from_TI_USB_Audio_CODEC.*"; }
+              { "node.name" = "~alsa_input.usb-Focusrite_Scarlett_2i4_USB.*"; }
+              { "node.name" = "~alsa_output.usb-Focusrite_Scarlett_2i4_USB.*"; }
+            ];
+            actions = {
+              update-props = {
+                "session.suspend-timeout-seconds" = 0;
+                "node.pause-on-idle" = false;
+              };
+            };
+          }
+        ];
+      };
     };
     
 

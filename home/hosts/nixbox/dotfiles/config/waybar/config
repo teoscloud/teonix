@@ -6,8 +6,7 @@
   "modules-left": [
     //"custom/startmenu",
     "hyprland/window",
-    "pulseaudio",
-    "custom/eedn-volume"
+    "custom/buschain-control"
   ],
   "modules-right": [
     "custom/swaync",
@@ -74,43 +73,18 @@
     "spacing": 12,
     "tooltip": false
   },
-  "pulseaudio": {
-    "tooltip": true,
-    "tooltip-format": "{volume}% • {desc}",
-    "format": "{icon} {volume}% {format_source}",
-    "format-bluetooth": "{volume}% {icon} {format_source}",
-    "format-bluetooth-muted": "󰟎 {icon} {format_source}",
-    "format-muted": " {format_source}",
-    "format-source": " {volume}%",
-    "format-source-muted": "",
-    // Allow scroll/set above 100%
-    "max-volume": 300,
-    "scroll-step": 5,
-    "format-icons": {
-      "headphone": "",
-      "hands-free": "",
-      "headset": "",
-      "phone": "",
-      "portable": "",
-      "car": "",
-      "default": [
-        "",
-        "",
-        ""
-      ]
-    },
-    "on-click": "sleep 0.1 && pavucontrol"
-  },
-  "custom/eedn-volume": {
+  // BusChain Control — helper from ~/Projects (status/scroll/popup); rice stays here.
+  // Defaults: see buschain-control README "Waybar" section.
+  "custom/buschain-control": {
+    "format": "{}",
     "return-type": "json",
-    "exec": "~/.config/hypr/scripts/waybar-eedn-volume.sh status",
-    // Fast poll for label; do NOT signal-refresh on scroll (that races and drops ticks)
-    "interval": 1,
-    "signal": 8,
-    // Direct pactl — same ±5% as pulseaudio scroll-step, minimal latency
-    "on-scroll-up": "sh -c 'id=$(cat \"$XDG_RUNTIME_DIR/waybar-eedn-volume.id\") && pactl set-sink-input-mute \"$id\" 0; pactl set-sink-input-volume \"$id\" +5%'",
-    "on-scroll-down": "sh -c 'id=$(cat \"$XDG_RUNTIME_DIR/waybar-eedn-volume.id\") && pactl set-sink-input-volume \"$id\" -5%'",
-    "on-click": "~/.config/hypr/scripts/waybar-eedn-volume.sh mute",
+    "exec": "/home/teodor/Projects/buschain-control/packaging/waybar/buschain-waybar status",
+    "interval": 3,
+    "signal": 9,
+    "exec-on-event": true,
+    "on-click": "/home/teodor/Projects/buschain-control/packaging/waybar/buschain-waybar popup",
+    "on-scroll-up": "/home/teodor/Projects/buschain-control/packaging/waybar/buschain-waybar up",
+    "on-scroll-down": "/home/teodor/Projects/buschain-control/packaging/waybar/buschain-waybar down",
     "tooltip": true
   },
   "custom/exit": {

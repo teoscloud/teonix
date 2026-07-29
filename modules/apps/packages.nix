@@ -274,7 +274,7 @@ let
     ];
   });
 
-  # nixpkgs 1.22.0 source build omits .desktop/icons; restore launcher integration.
+  # Wrap cached mailspring — do NOT overrideAttrs (that rebuilds the Electron app).
   mailspringDesktop = unstable-pkgs.makeDesktopItem {
     name = "mailspring";
     desktopName = "Mailspring";
@@ -287,22 +287,15 @@ let
     startupWMClass = "Mailspring";
   };
 
-  mailspring-with-launcher = unstable-pkgs.mailspring.overrideAttrs (old: {
-    preFixup = (old.preFixup or "") + ''
-      gappsWrapperArgs+=(--add-flags "--password-store=gnome-libsecret")
+  mailspring-with-launcher = unstable-pkgs.symlinkJoin {
+    name = "mailspring-with-launcher";
+    paths = [ unstable-pkgs.mailspring mailspringDesktop ];
+    nativeBuildInputs = [ unstable-pkgs.makeWrapper ];
+    postBuild = ''
+      wrapProgram "$out/bin/mailspring" \
+        --add-flags "--password-store=gnome-libsecret"
     '';
-    postInstall = (old.postInstall or "") + ''
-      mkdir -p $out/share/applications
-      cp ${mailspringDesktop}/share/applications/mailspring.desktop $out/share/applications/
-
-      for size in 16 32 64 128 256; do
-        if [ -f app/build/resources/linux/icons/''${size}.png ]; then
-          install -D -m 0644 app/build/resources/linux/icons/''${size}.png \
-            $out/share/icons/hicolor/''${size}x''${size}/apps/mailspring.png
-        fi
-      done
-    '';
-  });
+  };
 
   hyprflow = import ./hyprflow.nix {
     lib = unstable-pkgs.lib;
@@ -393,7 +386,8 @@ in {
     grim                 # Screenshot tool for Wayland
     slurp                # Select a region for screenshots in Wayland
     
-    waybar               # Status bar for Wayland
+    quickshell           # QML Wayland shell (nixbox primary bar/dock/notifs)
+    waybar               # Status bar for Wayland (legacy / other hosts)
     wofi                 # Application launcher for Wayland
     wofi-emoji           # Emoji picker for Wayland
     sway                 # Wayland compositor
