@@ -13,7 +13,7 @@ Pill {
         text: "\uF0F3"
         color: Globals.notifCount > 0 ? Theme.accentHot : Theme.fg
         font.family: Theme.fontFamily
-        font.pixelSize: Theme.fontSizeSm
+        font.pixelSize: Theme.fontSizeLg
         font.bold: true
     }
 

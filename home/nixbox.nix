@@ -5,6 +5,12 @@
   home.homeDirectory = "/home/${username}";
   home.stateVersion = "25.05";
 
+  # BusChain Control → Quickshell mixer / HW scroll strip
+  home.sessionVariables = {
+    BUSCHAIN_CONTROL_QS_MIXER = "1";
+    BUSCHAIN_CONTROL_QS_STRIP = "1";
+  };
+
   # In your home.nix or equivalent
   home.file.".config/docker/daemon.json".text = ''
     {

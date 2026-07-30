@@ -13,7 +13,7 @@ Pill {
         text: "\uF011"
         color: Theme.fg
         font.family: Theme.fontFamily
-        font.pixelSize: Theme.fontSizeSm
+        font.pixelSize: Theme.fontSizeLg
         font.bold: true
     }
 

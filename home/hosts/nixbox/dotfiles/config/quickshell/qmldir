@@ -10,3 +10,4 @@ NotifButton 1.0 NotifButton.qml
 PowerButton 1.0 PowerButton.qml
 MixerPanel 1.0 MixerPanel.qml
 VolumePill 1.0 VolumePill.qml
+ScrollStrip 1.0 ScrollStrip.qml

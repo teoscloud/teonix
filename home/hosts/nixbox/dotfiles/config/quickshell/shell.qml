@@ -41,7 +41,8 @@ ShellRoot {
 
     Bar {}
     Dock {}
-    // BusChain volume pill / mixer — wire later (VolumePill.qml, MixerPanel.qml)
+    ScrollStrip {}
+    MixerPanel {}
     NotificationCenter {}
     PowerMenu {}
     Launcher {}

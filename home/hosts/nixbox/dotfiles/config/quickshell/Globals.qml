@@ -30,6 +30,23 @@ Singleton {
     readonly property string buschainWaybar: Quickshell.shellPath("scripts/qs-buschain-waybar.sh")
     readonly property string buschainCtl: Quickshell.shellPath("scripts/qs-buschain-ctl.sh")
     readonly property string wallpaperTintScript: Quickshell.shellPath("scripts/qs-wallpaper-tint.py")
+    readonly property string mixerTickPath: `${Quickshell.env("XDG_RUNTIME_DIR")}/buschain-control/mixer.tick`
+
+    // Shared Master HW status for VolumePill / ScrollStrip
+    property int hwVolPct: 0
+    property bool hwVolMuted: false
+    property int hwVolEpoch: 0
+
+    // VolumePill geometry (updated from Bar.qml) — strip + mixer anchor
+    property string volStripAnchor: "left"
+    property int volStripMarginX: 120
+    property int volStripWidth: 110
+    property int volPillX: 120
+    property int volPillWidth: 64
+
+    function bumpHwVol() {
+        hwVolEpoch++;
+    }
 
     function glassColor(alpha) {
         // Composite: dark glass base × wallpaper average tint

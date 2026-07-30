@@ -5,46 +5,102 @@ import "theme.js" as Theme
 
 Rectangle {
     id: root
-    implicitHeight: Theme.barHeight - 8
-    implicitWidth: row.implicitWidth + 18
-    radius: Theme.radius
-    color: muted ? Qt.rgba(0.45, 0.2, 0.2, 0.55) : Theme.pillBg()
-    border.color: Theme.border
+    implicitHeight: Theme.moduleHeight
+    implicitWidth: Math.max(row.implicitWidth + 22, 64)
+    topLeftRadius: 20
+    topRightRadius: 12
+    bottomRightRadius: 20
+    bottomLeftRadius: 12
+    color: root.muted
+        ? Qt.rgba(0.45, 0.2, 0.2, 0.55)
+        : (ma.containsMouse ? Theme.pillHoverBg() : Theme.pillBg())
+    border.color: Qt.rgba(1, 1, 1, 0.10)
     border.width: 1
 
-    property int pct: 0
-    property bool muted: false
+    property int pct: Globals.hwVolPct
+    property bool muted: Globals.hwVolMuted
+    property real accum: 0
+
+    Behavior on color {
+        ColorAnimation { duration: Theme.animFast }
+    }
 
     Row {
         id: row
         anchors.centerIn: parent
         spacing: 6
+
         Text {
-            text: root.muted ? "󰖁" : "󰕾"
-            color: Theme.fg
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeLg
-        }
-        Text {
-            text: root.pct + "%"
+            id: icon
+            text: root.muted ? "󰖁" : (root.pct < 34 ? "󰕿" : (root.pct < 67 ? "󰖀" : "󰕾"))
             color: Theme.fg
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSize
-            font.bold: true
+            verticalAlignment: Text.AlignVCenter
+        }
+
+        // Digits sit high in FiraCode NF vs nerd icons — pin to icon line box + nudge down
+        Item {
+            width: pctLabel.implicitWidth
+            height: icon.height
+            Text {
+                id: pctLabel
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.verticalCenterOffset: 1
+                text: root.pct + "%"
+                color: Theme.fg
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSm
+                font.bold: true
+                verticalAlignment: Text.AlignVCenter
+            }
         }
     }
 
     MouseArea {
+        id: ma
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: Qt.ArrowCursor
         onClicked: Globals.toggleMixer()
         onWheel: event => {
-            if (event.angleDelta.y > 0)
-                volUp.running = true;
-            else if (event.angleDelta.y < 0)
-                volDown.running = true;
+            root.accum += event.angleDelta.y;
+            let notches = 0;
+            while (root.accum >= 120) {
+                notches += 1;
+                root.accum -= 120;
+            }
+            while (root.accum <= -120) {
+                notches -= 1;
+                root.accum += 120;
+            }
+            if (notches > 2)
+                notches = 2;
+            if (notches < -2)
+                notches = -2;
+            if (notches !== 0) {
+                const times = Math.abs(notches);
+                const dir = notches > 0 ? "up" : "down";
+                const cmds = [];
+                for (let i = 0; i < times; i++)
+                    cmds.push(Globals.buschainCtl + " hw-vol " + dir);
+                poke.command = ["sh", "-c", cmds.join("; ")];
+                poke.running = true;
+            }
+            event.accepted = true;
         }
+    }
+
+    function applyStatus(text) {
+        try {
+            const j = JSON.parse(String(text || "").trim());
+            let p = parseInt(j.percentage ?? j.hw_volume_pct ?? 0, 10);
+            if (isNaN(p))
+                p = 0;
+            Globals.hwVolPct = Math.max(0, Math.min(100, p));
+            Globals.hwVolMuted = !!j.muted || !!j.hw_mute || j.class === "muted";
+        } catch (e) {}
     }
 
     Process {
@@ -52,33 +108,43 @@ Rectangle {
         command: [Globals.buschainWaybar, "status"]
         running: true
         stdout: StdioCollector {
-            onStreamFinished: {
-                try {
-                    const j = JSON.parse(this.text.trim());
-                    let p = parseInt(j.percentage ?? 0, 10);
-                    if (isNaN(p))
-                        p = 0;
-                    root.pct = Math.max(0, Math.min(100, p));
-                    root.muted = !!j.muted || j.class === "muted";
-                } catch (e) {}
-            }
+            waitForEnd: true
+            onStreamFinished: root.applyStatus(text)
         }
     }
 
     Process {
-        id: volUp
-        command: [Globals.buschainWaybar, "up"]
-        stdout: StdioCollector { onStreamFinished: statusProc.running = true }
+        id: poke
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: statusProc.running = true
+        }
+        stderr: StdioCollector { waitForEnd: true }
+        onExited: statusProc.running = true
     }
 
-    Process {
-        id: volDown
-        command: [Globals.buschainWaybar, "down"]
-        stdout: StdioCollector { onStreamFinished: statusProc.running = true }
+    FileView {
+        path: Globals.mixerTickPath
+        watchChanges: true
+        onFileChanged: {
+            reload();
+            statusProc.running = true;
+        }
+    }
+
+    Connections {
+        target: Globals
+        function onHwVolEpochChanged() {
+            statusProc.running = true;
+        }
+        function onMixerOpenChanged() {
+            if (!Globals.mixerOpen)
+                statusProc.running = true;
+        }
     }
 
     Timer {
-        interval: 2000
+        interval: 2500
         running: true
         repeat: true
         onTriggered: statusProc.running = true

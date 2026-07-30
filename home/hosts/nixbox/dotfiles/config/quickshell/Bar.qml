@@ -45,7 +45,7 @@ Scope {
                     z: 1
                 }
 
-                // LEFT — capped so it never eats into the centered strip
+                // LEFT — window title + Master HW pill; capped vs centered workspaces
                 Item {
                     anchors.left: parent.left
                     anchors.leftMargin: Theme.pad
@@ -54,9 +54,41 @@ Scope {
                     height: Theme.moduleHeight
                     clip: true
 
-                    ActiveWindow {
+                    Row {
+                        id: leftRow
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.spacing
+
+                        ActiveWindow {
+                            id: activeWin
+                        }
+
+                        VolumePill {
+                            id: volPill
+                        }
+
+                        function syncVolStrip() {
+                            // Screen-X of pill (bar left pad + title + gap)
+                            const x = Math.round(Theme.pad + activeWin.width + Theme.spacing);
+                            Globals.volPillX = Math.max(0, x);
+                            Globals.volPillWidth = Math.max(56, Math.round(volPill.width));
+                            Globals.volStripAnchor = "left";
+                            Globals.volStripMarginX = Math.max(0, x - 14);
+                            Globals.volStripWidth = Math.max(80, Math.round(volPill.width + 28));
+                        }
+
+                        Component.onCompleted: Qt.callLater(syncVolStrip)
+                        onWidthChanged: syncVolStrip()
+                    }
+
+                    Connections {
+                        target: activeWin
+                        function onWidthChanged() { leftRow.syncVolStrip(); }
+                    }
+                    Connections {
+                        target: volPill
+                        function onWidthChanged() { leftRow.syncVolStrip(); }
                     }
                 }
 
