@@ -1,42 +1,58 @@
 # nixbox Quickshell rice
 
-Primary Hyprland shell on **nixbox**: top bar, bottom dock, notifications, power menu, and BusChain Control mixer panel.
+Primary Hyprland shell: top bar, bottom dock, Control Center (media + notifications),
+Spotlight launcher, emoji picker, power menu.
+
+## Home Manager (reproducible)
+
+Wired from `home/hosts/nixbox/modules/dotfiles.nix` (imported by `home/nixbox.nix`):
+
+| Path | HM |
+|------|-----|
+| `~/.config/quickshell` | Out-of-store symlink → this tree (`mkOutOfStoreSymlink`) so edits hot-reload without rebuild |
+| `~/.config/hypr/hyprland.conf` | Store copy — blur layerrules, Super+Space / Super+Period binds |
+| Packages | `quickshell`, `libqalculate` (`qalc`), `ffmpeg` (wallpaper tint), `wl-clipboard`, `wtype` in `modules/apps/packages.nix` |
+
+Fresh machine:
+
+```bash
+# clone repo to ~/teonix, then
+updatehome          # applies HM symlink + hypr conf
+# system rebuild if packages changed (libqalculate / ffmpeg)
+qs -p ~/.config/quickshell
+```
+
+Wallpaper glass tint: `scripts/qs-wallpaper-tint.py` (samples active hyprpaper via ffmpeg).
+Cache: `~/.cache/qs-wallpaper-tint.json`.
 
 ## Run / reload
 
 ```bash
-# Prefer live tree while iterating (also linked via HM out-of-store symlink)
-pkill waybar swaync nwg-dock-hyprland 2>/dev/null
-pkill quickshell 2>/dev/null
-qs -p ~/teonix/home/hosts/nixbox/dotfiles/config/quickshell &
+pkill -x quickshell 2>/dev/null
+qs -p ~/.config/quickshell &
 
-qs -r                      # hot-reload after edits
-qs ipc call mixer toggle
-qs ipc call power toggle   # Super+O
-qs ipc call notifs toggle
+qs -r                              # hot-reload after .qml edits
+# theme.js / new files need a full restart
+
+qs ipc call launcher toggle        # Super+Space
+qs ipc call emoji toggle           # Super+Period
+qs ipc call notifs toggle          # Super+N (if bound)
+qs ipc call power toggle           # Super+O
 ```
-
-After `updatehome`, `~/.config/quickshell` is an out-of-store symlink to this tree — plain `quickshell` / `qs` works.
 
 ## Layout
 
-| File | Role |
-|------|------|
-| `theme.js` | Shared colors / spacing (importable from subdirs) |
-| `Globals.qml` | Overlay open state + BusChain helper paths |
-| `Bar.qml` | Top bar |
-| `Dock.qml` | Bottom dock |
-| `MixerPanel.qml` | BusChain HW / apps / tracks / favorites |
-| `NotificationCenter.qml` | Toasts + drawer |
-| `PowerMenu.qml` | Lock / logout / suspend / reboot / shutdown |
-| `components/` | Sliders, workspaces, clock, window title |
+Bar + dock render **only on `DP-1`** (`Globals.shellMonitor`). Overlays follow the focused screen.
 
-## Volume
+| Zone | Modules |
+|------|---------|
+| Left | Active window pill |
+| Center | Workspaces |
+| Right | Notifs · Power · Tray · Clock |
+| Bottom | Dock (pinned + running extras) |
+| Overlay | Spotlight · Emoji · Control Center · Power |
 
-- Scroll / status → `scripts/qs-buschain-waybar.sh` (BusChain helper, else `pactl`)
-- Click → mixer panel
-- Mixer ctl → `scripts/qs-buschain-ctl.sh` (needs `buschain-ctl` from `~/Projects/buschain-control`)
+## Theme
 
-## Fallback
-
-If QS is down: `buschain-control --popup` (egui). GTK mixer is legacy.
+`theme.js` — FiraCode Mono, glass alphas (bar/dock untinted; overlays use wallpaper tint via `Globals.glassColor`).
+Hyprland frost: `layerrule = blur on, … match:namespace ^(quickshell.*)$` with `ignore_alpha 0.08`.

@@ -3,83 +3,149 @@ import Quickshell.Hyprland
 import QtQuick
 import "../theme.js" as Theme
 
-Rectangle {
+// Occupied workspaces only (+ focused), scroll with wraparound.
+// Visual pill stays original; hitbox uses full bar height for easier scroll.
+Item {
     id: root
-    implicitHeight: Theme.barHeight - 8
-    implicitWidth: row.implicitWidth + 16
-    radius: Theme.radius
-    color: Theme.pillBg()
-    border.color: Theme.border
-    border.width: 1
+    implicitHeight: Theme.barHeight
+    implicitWidth: pill.width + 16
 
-    Row {
-        id: row
+    property var workspaceIds: {
+        const ids = {};
+        const list = Hyprland.workspaces.values || [];
+        for (let i = 0; i < list.length; i++) {
+            const ws = list[i];
+            const id = ws.id;
+            if (!(id > 0))
+                continue;
+            let n = 0;
+            if (ws.lastIpcObject?.windows !== undefined)
+                n = Number(ws.lastIpcObject.windows) || 0;
+            if (n <= 0) {
+                const tops = ws.toplevels;
+                if (tops?.values)
+                    n = tops.values.length;
+                else if (tops?.length !== undefined)
+                    n = tops.length;
+            }
+            if (n > 0)
+                ids[id] = true;
+        }
+        const focused = Hyprland.focusedWorkspace?.id;
+        if (focused > 0)
+            ids[focused] = true;
+        const sorted = Object.keys(ids).map(k => Number(k)).sort((a, b) => a - b);
+        return sorted.length ? sorted : [focused > 0 ? focused : 1];
+    }
+
+    function switchRelative(delta) {
+        const ids = root.workspaceIds;
+        if (!ids.length)
+            return;
+        const cur = Hyprland.focusedWorkspace?.id;
+        let idx = ids.indexOf(cur);
+        if (idx < 0)
+            idx = 0;
+        const next = ids[(idx + delta + ids.length * 8) % ids.length];
+        Hyprland.dispatch("workspace " + next);
+    }
+
+    Rectangle {
+        id: pill
         anchors.centerIn: parent
-        spacing: 4
+        implicitHeight: Theme.moduleHeight
+        height: Theme.moduleHeight
+        width: Math.max(row.implicitWidth + 28, 70)
+        radius: Theme.radius
+        color: Theme.wsContainerBg()
 
-        Repeater {
-            model: 10
-            delegate: Item {
-                id: ws
-                required property int index
-                property int wsId: index + 1
-                property var workspace: {
-                    const list = Hyprland.workspaces.values;
-                    for (let i = 0; i < list.length; i++) {
-                        if (list[i].id === wsId)
-                            return list[i];
+        Row {
+            id: row
+            anchors.centerIn: parent
+            spacing: 8
+
+            Repeater {
+                model: root.workspaceIds
+                delegate: Item {
+                    id: ws
+                    required property var modelData
+                    property int wsId: modelData
+                    property var workspace: {
+                        const list = Hyprland.workspaces.values || [];
+                        for (let i = 0; i < list.length; i++) {
+                            if (list[i].id === wsId)
+                                return list[i];
+                        }
+                        return null;
                     }
-                    return null;
-                }
-                property bool isActive: Hyprland.focusedWorkspace?.id === wsId
-                property bool exists: workspace !== null
+                    property bool isActive: Hyprland.focusedWorkspace?.id === wsId
+                    property bool urgent: !!(workspace?.lastIpcObject?.urgent
+                        || workspace?.urgent)
 
-                width: isActive ? 30 : 18
-                height: 18
-                scale: ma.containsMouse ? 1.08 : 1.0
+                    width: isActive ? 33 : 24
+                    height: 22
 
-                Behavior on width {
-                    NumberAnimation { duration: Theme.animMed; easing.type: Easing.OutCubic }
-                }
-                Behavior on scale {
-                    NumberAnimation { duration: Theme.animFast }
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: 9
-                    color: isActive ? Theme.bgElevated : (exists ? Theme.bgElevated : "transparent")
-                    opacity: isActive ? 1.0 : (exists ? 0.55 : 0.3)
-                    border.color: isActive ? Theme.accent : (exists ? Theme.border : "transparent")
-                    border.width: 1
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: isActive ? "" : ""
-                        color: isActive ? Theme.accentHot : Theme.fg
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 11
-                        opacity: isActive ? 1.0 : (exists ? 0.85 : 0.4)
+                    Behavior on width {
+                        NumberAnimation {
+                            duration: Theme.animMed
+                            easing.type: Easing.OutCubic
+                        }
                     }
-                }
 
-                MouseArea {
-                    id: ma
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: Hyprland.dispatch("workspace " + wsId)
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: Theme.radius
+                        color: Theme.wsBtnBg()
+                        opacity: isActive ? 1.0 : 0.55
+
+                        Behavior on opacity {
+                            NumberAnimation { duration: Theme.animMed }
+                        }
+
+                        Text {
+                            anchors.centerIn: parent
+                            // Nerd Font circle glyphs sit slightly high — nudge down
+                            anchors.verticalCenterOffset: 1
+                            text: urgent && !isActive ? "\uF05A" : (isActive ? "\uF192" : "\uF111")
+                            color: urgent && !isActive ? Theme.accentHot : Theme.fg
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSm
+                            opacity: isActive ? 1.0 : 0.85
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Hyprland.dispatch("workspace " + wsId)
+                        onWheel: event => {
+                            if (event.angleDelta.y > 0)
+                                root.switchRelative(1);
+                            else if (event.angleDelta.y < 0)
+                                root.switchRelative(-1);
+                            event.accepted = true;
+                        }
+                    }
                 }
             }
         }
     }
 
-    WheelHandler {
+    // Full bar-height wheel target (extends past pill padding)
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.NoButton
+        hoverEnabled: true
+        z: -1
         onWheel: event => {
             if (event.angleDelta.y > 0)
-                Hyprland.dispatch("workspace e-1");
+                root.switchRelative(1);
             else if (event.angleDelta.y < 0)
-                Hyprland.dispatch("workspace e+1");
+                root.switchRelative(-1);
+            event.accepted = true;
         }
     }
 }

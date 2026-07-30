@@ -26,6 +26,13 @@
     tray = "never";    # Disabled: tray icon hover triggered Hyprland CPopup::onCommit crash
   };
 
+  # Quickshell owns org.freedesktop.Notifications — mask swaync's user unit
+  # (swaynotificationcenter ships WantedBy=graphical-session.target)
+  home.activation.disableSwaync = config.lib.dag.entryAfter [ "writeBoundary" ] ''
+    systemctl --user stop swaync.service 2>/dev/null || true
+    systemctl --user mask swaync.service 2>/dev/null || true
+  '';
+
   # EasyEffects daemon — starts with graphical session (Hyprland login)
   services.easyeffects = {
     enable = true;

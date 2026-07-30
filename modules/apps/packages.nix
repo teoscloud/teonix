@@ -387,6 +387,8 @@ in {
     slurp                # Select a region for screenshots in Wayland
     
     quickshell           # QML Wayland shell (nixbox primary bar/dock/notifs)
+    libqalculate         # qalc CLI for Quickshell Spotlight math
+    gnome-calculator     # Spotlight "Open Calculator" action
     waybar               # Status bar for Wayland (legacy / other hosts)
     wofi                 # Application launcher for Wayland
     wofi-emoji           # Emoji picker for Wayland

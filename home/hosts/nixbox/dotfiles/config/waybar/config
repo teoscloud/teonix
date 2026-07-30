@@ -3,10 +3,12 @@
   "output": "DP-1",
   "position": "top",
   "modules-center": ["hyprland/workspaces"],
+  // buschain pill first — fixed left edge so scroll strip (margin_x≈8) can hit it.
+  // Strip owns hover-scroll; variable-width #window must not sit before the pill.
   "modules-left": [
+    "custom/buschain-control",
     //"custom/startmenu",
-    "hyprland/window",
-    "custom/buschain-control"
+    "hyprland/window"
   ],
   "modules-right": [
     "custom/swaync",
@@ -73,18 +75,18 @@
     "spacing": 12,
     "tooltip": false
   },
-  // BusChain Control — helper from ~/Projects (status/scroll/popup); rice stays here.
-  // Defaults: see buschain-control README "Waybar" section.
+  // BusChain Control — rice only. Match packaging/waybar/module.jsonc.
+  // Volume scroll = tray scroll strip (NOT on-scroll-* — that double-fires).
+  // Strip miss: BUSCHAIN_CONTROL_SCROLL_ANCHOR / _MARGIN_TOP / _MARGIN_X /
+  // _WIDTH / _HEIGHT — see packaging/scroll-strip/README.md.
   "custom/buschain-control": {
     "format": "{}",
     "return-type": "json",
-    "exec": "/home/teodor/Projects/buschain-control/packaging/waybar/buschain-waybar status",
+    "exec": "/home/teodor/Projects/buschain-control/target/debug/buschain-ctl status",
     "interval": 3,
     "signal": 9,
-    "exec-on-event": true,
+    "exec-on-event": false,
     "on-click": "/home/teodor/Projects/buschain-control/packaging/waybar/buschain-waybar popup",
-    "on-scroll-up": "/home/teodor/Projects/buschain-control/packaging/waybar/buschain-waybar up",
-    "on-scroll-down": "/home/teodor/Projects/buschain-control/packaging/waybar/buschain-waybar down",
     "tooltip": true
   },
   "custom/exit": {

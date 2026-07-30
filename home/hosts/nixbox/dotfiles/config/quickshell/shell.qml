@@ -25,9 +25,25 @@ ShellRoot {
         function toggle(): void { Globals.toggleNotifs(); }
     }
 
+    IpcHandler {
+        target: "launcher"
+        function toggle(): void { Globals.toggleLauncher(); }
+        function open(): void { Globals.openLauncher(); }
+        function close(): void { Globals.closeLauncher(); }
+    }
+
+    IpcHandler {
+        target: "emoji"
+        function toggle(): void { Globals.toggleEmoji(); }
+        function open(): void { Globals.openEmoji(); }
+        function close(): void { Globals.closeEmoji(); }
+    }
+
     Bar {}
     Dock {}
-    MixerPanel {}
+    // BusChain volume pill / mixer — wire later (VolumePill.qml, MixerPanel.qml)
     NotificationCenter {}
     PowerMenu {}
+    Launcher {}
+    EmojiPicker {}
 }
