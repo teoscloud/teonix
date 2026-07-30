@@ -2,6 +2,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Widgets
 import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
@@ -17,6 +18,56 @@ Scope {
     readonly property color colCardHover: Qt.rgba(1, 1, 1, 0.13)
     readonly property color colBorder: Qt.rgba(1, 1, 1, 0.16)
     readonly property color colAccent: Theme.accentHot
+
+    function iconFromName(name) {
+        if (!name)
+            return "";
+        const s = String(name).trim();
+        if (!s.length)
+            return "";
+        if (s.charAt(0) === "/" || s.indexOf("://") >= 0)
+            return s.charAt(0) === "/" ? ("file://" + s) : s;
+        try {
+            return Quickshell.iconPath(s, true) || "";
+        } catch (e) {
+            return "";
+        }
+    }
+
+    function resolveAppIcon(stream) {
+        if (!stream)
+            return "";
+        const cands = [];
+        if (stream.icon_name)
+            cands.push(stream.icon_name);
+        if (stream.application) {
+            cands.push(stream.application);
+            cands.push(String(stream.application).toLowerCase());
+        }
+        if (stream.binary) {
+            let b = String(stream.binary).replace(/^\./, "").replace(/-wrapped$/, "");
+            cands.push(b);
+            cands.push(b.toLowerCase());
+        }
+        if (stream.app_id)
+            cands.push(String(stream.app_id).split(".").pop());
+        if (stream.name)
+            cands.push(String(stream.name).split(" ")[0].toLowerCase());
+        for (let i = 0; i < cands.length; i++) {
+            const p = iconFromName(cands[i]);
+            if (p)
+                return p;
+        }
+        return iconFromName("audio-x-generic") || iconFromName("application-x-executable") || "";
+    }
+
+    function resolveTrackIcon(track) {
+        if (!track)
+            return "";
+        if (track.kind === "master")
+            return iconFromName("audio-volume-high") || iconFromName("multimedia-volume-control") || "";
+        return iconFromName("audio-headphones") || iconFromName("audio-x-generic") || "";
+    }
 
     PanelWindow {
         visible: Globals.mixerOpen
@@ -132,13 +183,23 @@ Scope {
         }
 
         function refresh() {
-            refreshProc.running = false;
-            refreshProc.running = true;
+            // Coalesce tick + poll + ctl races so we don't kill mid-read
+            refreshDebounce.restart();
         }
 
         function runCtl(args) {
             ctlProc.command = [Globals.buschainCtl].concat(args);
             ctlProc.running = true;
+        }
+
+        Timer {
+            id: refreshDebounce
+            interval: 90
+            repeat: false
+            onTriggered: {
+                refreshProc.running = false;
+                refreshProc.running = true;
+            }
         }
 
         Rectangle {
@@ -225,7 +286,7 @@ Scope {
                     }
                 }
 
-                // Playback
+                // Playback — same strip layout as Tracks; favorites leftmost, then apps
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -274,114 +335,62 @@ Scope {
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
                             Layout.preferredWidth: 36
+                            Layout.alignment: Qt.AlignVCenter
                             horizontalAlignment: Text.AlignRight
+                            verticalAlignment: Text.AlignVCenter
                         }
                     }
 
-                    Text {
-                        visible: mixerWin.favTracks().length > 0
-                        text: "Favorites"
-                        color: root.colMuted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 11
-                        font.bold: true
-                    }
-
-                    Flickable {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: mixerWin.favTracks().length > 0 ? 150 : 0
-                        visible: mixerWin.favTracks().length > 0
-                        contentWidth: favRow.implicitWidth
-                        clip: true
-                        flickableDirection: Flickable.HorizontalFlick
-                        Row {
-                            id: favRow
-                            spacing: 6
-                            Repeater {
-                                model: mixerWin.favTracks()
-                                TrackStrip {
-                                    required property var modelData
-                                    track: modelData
-                                    favorited: true
-                                    onStar: mixerWin.toggleFavorite(modelData.id)
-                                    onVol: db => mixerWin.runCtl(["track", "vol", String(modelData.id), String(db)])
-                                    onMuteToggle: mixerWin.runCtl(["track", "mute", String(modelData.id), "toggle"])
-                                }
-                            }
-                        }
-                    }
-
-                    Text {
-                        text: "Apps"
-                        color: root.colMuted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 11
-                        font.bold: true
-                    }
-
-                    ListView {
+                    Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        clip: true
-                        spacing: 5
-                        model: mixerWin.streams
-                        delegate: Rectangle {
-                            required property var modelData
-                            width: ListView.view.width
-                            height: 48
-                            radius: 10
-                            color: root.colCard
-                            border.color: Qt.rgba(1, 1, 1, 0.10)
-                            border.width: 1
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 8
-                                spacing: 3
-                                Text {
-                                    text: modelData.application || modelData.name || "App"
-                                    color: root.colFg
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    font.bold: true
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
+
+                        Flickable {
+                            anchors.fill: parent
+                            contentWidth: playbackRow.implicitWidth
+                            contentHeight: height
+                            clip: true
+                            flickableDirection: Flickable.HorizontalFlick
+                            interactive: true
+
+                            Row {
+                                id: playbackRow
+                                spacing: 6
+                                height: parent.height
+
+                                // Favorites first (leftmost)
+                                Repeater {
+                                    model: mixerWin.favTracks()
+                                    TrackStrip {
+                                        required property var modelData
+                                        track: modelData
+                                        favorited: true
+                                        tall: true
+                                        onStar: mixerWin.toggleFavorite(modelData.id)
+                                        onVol: db => mixerWin.runCtl(["track", "vol", String(modelData.id), String(db)])
+                                        onMuteToggle: mixerWin.runCtl(["track", "mute", String(modelData.id), "toggle"])
+                                    }
                                 }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 6
-                                    Text {
-                                        text: modelData.mute ? "M" : "A"
-                                        color: root.colMuted
-                                        font.pixelSize: 11
-                                        font.bold: true
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.ArrowCursor
-                                            onClicked: mixerWin.runCtl(["playback", "mute", String(modelData.index), "toggle"])
-                                        }
-                                    }
-                                    HSlider {
-                                        Layout.fillWidth: true
-                                        from: 0
-                                        to: 100
-                                        stepSize: 1
-                                        value: Math.min(100, modelData.volume_pct || 0)
-                                        onMoved: mixerWin.runCtl(["playback", "vol", String(modelData.index), String(Math.round(value))])
-                                    }
-                                    Text {
-                                        text: Math.min(100, modelData.volume_pct || 0) + "%"
-                                        color: root.colMuted
-                                        font.pixelSize: 11
-                                        Layout.preferredWidth: 34
-                                        horizontalAlignment: Text.AlignRight
+
+                                Repeater {
+                                    model: mixerWin.streams
+                                    StreamStrip {
+                                        required property var modelData
+                                        stream: modelData
+                                        tall: true
+                                        onVol: pct => mixerWin.runCtl(["playback", "vol", String(modelData.index), String(pct)])
+                                        onMuteToggle: mixerWin.runCtl(["playback", "mute", String(modelData.index), "toggle"])
                                     }
                                 }
                             }
                         }
+
                         Text {
                             anchors.centerIn: parent
-                            visible: mixerWin.streams.length === 0 && mixerWin.err.length === 0
-                            text: "No playback streams"
+                            visible: mixerWin.favTracks().length === 0
+                                && mixerWin.streams.length === 0
+                                && mixerWin.err.length === 0
+                            text: "No favorites or playback streams"
                             color: root.colMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
@@ -489,20 +498,20 @@ Scope {
             stdout: StdioCollector {
                 waitForEnd: true
                 onStreamFinished: {
+                    const raw = String(text || "").trim();
+                    // Empty = process killed for a newer poll; keep last good UI
+                    if (!raw.length)
+                        return;
                     try {
-                        mixerWin.applyPayload(JSON.parse(text.trim()));
+                        mixerWin.applyPayload(JSON.parse(raw));
                     } catch (e) {
-                        mixerWin.err = "parse error";
+                        // Transient race while scrolling HW — don't flash the panel
                     }
                 }
             }
             stderr: StdioCollector {
                 waitForEnd: true
-                onStreamFinished: {
-                    const t = text.trim();
-                    if (t.length > 0)
-                        mixerWin.err = t;
-                }
+                // Ignore stderr noise from overlapping ctl calls
             }
         }
 
@@ -643,17 +652,6 @@ Scope {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 6
-                Text {
-                    text: device.mute ? "M" : "V"
-                    color: root.colMuted
-                    font.pixelSize: 11
-                    font.bold: true
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.ArrowCursor
-                        onClicked: mixerWin.runCtl([drow.kind, "mute", String(device.name), "toggle"])
-                    }
-                }
                 HSlider {
                     Layout.fillWidth: true
                     from: 0
@@ -667,7 +665,113 @@ Scope {
                     color: root.colMuted
                     font.pixelSize: 11
                     Layout.preferredWidth: 34
+                    Layout.alignment: Qt.AlignVCenter
                     horizontalAlignment: Text.AlignRight
+                    verticalAlignment: Text.AlignVCenter
+                }
+                Text {
+                    text: "MUTE"
+                    color: device.mute ? Theme.danger : root.colMuted
+                    font.pixelSize: 10
+                    font.bold: true
+                    Layout.alignment: Qt.AlignVCenter
+                    MouseArea {
+                        anchors.fill: parent
+                        anchors.margins: -4
+                        cursorShape: Qt.ArrowCursor
+                        onClicked: mixerWin.runCtl([drow.kind, "mute", String(device.name), "toggle"])
+                    }
+                }
+            }
+        }
+    }
+
+    component StreamStrip: Rectangle {
+        id: sstrip
+        property var stream: ({})
+        property bool tall: false
+        signal vol(int pct)
+        signal muteToggle
+
+        width: 78
+        height: tall ? Math.max(150, parent ? parent.height : 150) : 150
+        radius: 10
+        color: root.colCard
+        border.color: Qt.rgba(1, 1, 1, 0.10)
+        border.width: 1
+
+        readonly property int pct: Math.min(100, Math.max(0, Number(stream.volume_pct) || 0))
+        readonly property string iconSrc: root.resolveAppIcon(stream)
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 6
+            spacing: 4
+
+            Item {
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 36
+                Layout.alignment: Qt.AlignHCenter
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 9
+                    color: Qt.rgba(1, 1, 1, 0.06)
+                    clip: true
+                    IconImage {
+                        anchors.centerIn: parent
+                        implicitSize: 26
+                        asynchronous: true
+                        source: sstrip.iconSrc
+                        visible: status === Image.Ready
+                    }
+                    Text {
+                        anchors.centerIn: parent
+                        visible: !sstrip.iconSrc || parent.children[0].status !== Image.Ready
+                        text: "󰎈"
+                        color: root.colMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 16
+                    }
+                }
+            }
+
+            Text {
+                text: String(stream.application || stream.name || "App")
+                color: root.colFg
+                font.family: Theme.fontFamily
+                font.pixelSize: 10
+                font.bold: true
+                elide: Text.ElideRight
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 66
+                horizontalAlignment: Text.AlignHCenter
+                maximumLineCount: 1
+            }
+
+            VSlider {
+                Layout.fillHeight: true
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignHCenter
+                from: 0
+                to: 100
+                stepSize: 1
+                value: sstrip.pct
+                valueText: sstrip.pct + "%"
+                onMoved: sstrip.vol(Math.round(value))
+            }
+
+            Text {
+                text: "MUTE"
+                color: stream.mute ? Theme.danger : root.colMuted
+                font.pixelSize: 10
+                font.bold: true
+                opacity: stream.mute ? 1 : 0.75
+                Layout.alignment: Qt.AlignHCenter
+                MouseArea {
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    cursorShape: Qt.ArrowCursor
+                    onClicked: sstrip.muteToggle()
                 }
             }
         }
@@ -682,18 +786,24 @@ Scope {
         signal vol(real db)
         signal muteToggle
 
-        width: 68
+        width: 78
         height: tall ? Math.max(150, parent ? parent.height : 150) : 150
         radius: 10
         color: favorited ? Qt.rgba(0.9, 0.96, 0.76, 0.14) : root.colCard
         border.color: Qt.rgba(1, 1, 1, 0.10)
         border.width: 1
 
+        readonly property string iconSrc: root.resolveTrackIcon(track)
+        readonly property real gainDb: Number(track.gain_db) || 0
+
         function dbToUi(db) {
             const lin = Math.pow(10.0, Number(db || 0) / 20.0);
             return Math.max(0, Math.min(150, lin * 100.0));
         }
         function uiToDb(ui) {
+            // Exact 0 dB at UI 100 (snap target)
+            if (Math.abs(ui - 100) < 0.05)
+                return 0;
             const lin = Math.max(1e-4, Number(ui) / 100.0);
             return Math.round((20.0 * Math.log(lin) / Math.LN10) * 10) / 10;
         }
@@ -701,60 +811,94 @@ Scope {
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: 6
-            spacing: 3
+            spacing: 4
 
-            Text {
-                text: favorited ? "★" : "☆"
-                color: favorited ? root.colAccent : root.colMuted
-                font.pixelSize: 13
+            Item {
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 36
                 Layout.alignment: Qt.AlignHCenter
-                MouseArea {
+
+                Rectangle {
                     anchors.fill: parent
-                    cursorShape: Qt.ArrowCursor
-                    onClicked: strip.star()
+                    radius: 9
+                    color: Qt.rgba(1, 1, 1, 0.06)
+                    clip: true
+                    IconImage {
+                        anchors.centerIn: parent
+                        implicitSize: 24
+                        asynchronous: true
+                        source: strip.iconSrc
+                        visible: status === Image.Ready
+                    }
+                    Text {
+                        anchors.centerIn: parent
+                        visible: !strip.iconSrc || parent.children[0].status !== Image.Ready
+                        text: track.kind === "master" ? "󰕾" : "󰓃"
+                        color: root.colMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 16
+                    }
+                }
+
+                Text {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.rightMargin: -2
+                    anchors.topMargin: -2
+                    text: favorited ? "★" : "☆"
+                    color: favorited ? root.colAccent : root.colMuted
+                    font.pixelSize: 12
+                    z: 2
+                    MouseArea {
+                        anchors.fill: parent
+                        anchors.margins: -4
+                        cursorShape: Qt.ArrowCursor
+                        onClicked: strip.star()
+                    }
                 }
             }
 
             Text {
-                text: track.mute ? "M" : "m"
-                color: track.mute ? Theme.danger : root.colMuted
-                font.pixelSize: 11
+                text: String(strip.track.name || "Track")
+                color: root.colFg
+                font.family: Theme.fontFamily
+                font.pixelSize: 10
                 font.bold: true
+                elide: Text.ElideRight
                 Layout.alignment: Qt.AlignHCenter
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.ArrowCursor
-                    onClicked: strip.muteToggle()
-                }
+                Layout.preferredWidth: 66
+                horizontalAlignment: Text.AlignHCenter
+                maximumLineCount: 1
             }
 
             VSlider {
                 Layout.fillHeight: true
+                Layout.fillWidth: true
                 Layout.alignment: Qt.AlignHCenter
                 from: 0
                 to: 150
                 stepSize: 1
-                value: strip.dbToUi(strip.track.gain_db)
+                // UI 100 ↔ 0 dB
+                snapAt: 100
+                snapEpsilon: 5
+                value: strip.dbToUi(strip.gainDb)
+                valueText: strip.gainDb.toFixed(1) + "dB"
                 onMoved: strip.vol(strip.uiToDb(value))
             }
 
             Text {
-                text: (Number(strip.track.gain_db) || 0).toFixed(1) + "dB"
-                color: root.colFg
-                font.family: Theme.fontFamily
-                font.pixelSize: 9
+                text: "MUTE"
+                color: track.mute ? Theme.danger : root.colMuted
+                font.pixelSize: 10
+                font.bold: true
+                opacity: track.mute ? 1 : 0.75
                 Layout.alignment: Qt.AlignHCenter
-            }
-
-            Text {
-                text: String(strip.track.name || "Track").slice(0, 9)
-                color: root.colMuted
-                font.family: Theme.fontFamily
-                font.pixelSize: 9
-                elide: Text.ElideRight
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 56
-                horizontalAlignment: Text.AlignHCenter
+                MouseArea {
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    cursorShape: Qt.ArrowCursor
+                    onClicked: strip.muteToggle()
+                }
             }
         }
     }
