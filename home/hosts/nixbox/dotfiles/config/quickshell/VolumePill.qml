@@ -2,28 +2,17 @@ import Quickshell
 import Quickshell.Io
 import QtQuick
 import "theme.js" as Theme
+import "components"
 
-Rectangle {
+Pill {
     id: root
     implicitHeight: Theme.moduleHeight
     implicitWidth: Math.max(row.implicitWidth + 22, 64)
-    topLeftRadius: 20
-    topRightRadius: 12
-    bottomRightRadius: 20
-    bottomLeftRadius: 12
-    color: root.muted
-        ? Qt.rgba(0.45, 0.2, 0.2, 0.55)
-        : (ma.containsMouse ? Theme.pillHoverBg() : Theme.pillBg())
-    border.color: Qt.rgba(1, 1, 1, 0.10)
-    border.width: 1
+    hovered: ma.containsMouse || Globals.mixerOpen
 
     property int pct: Globals.hwVolPct
     property bool muted: Globals.hwVolMuted
     property real accum: 0
-
-    Behavior on color {
-        ColorAnimation { duration: Theme.animFast }
-    }
 
     Row {
         id: row
@@ -33,7 +22,7 @@ Rectangle {
         Text {
             id: icon
             text: root.muted ? "󰖁" : (root.pct < 34 ? "󰕿" : (root.pct < 67 ? "󰖀" : "󰕾"))
-            color: Theme.fg
+            color: root.muted ? Theme.danger : Theme.fg
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSize
             verticalAlignment: Text.AlignVCenter
@@ -49,7 +38,7 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.verticalCenterOffset: 1
                 text: root.pct + "%"
-                color: Theme.fg
+                color: root.muted ? Theme.danger : Theme.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSm
                 font.bold: true
@@ -62,7 +51,7 @@ Rectangle {
         id: ma
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: Qt.ArrowCursor
+        cursorShape: Qt.PointingHandCursor
         onClicked: Globals.toggleMixer()
         onWheel: event => {
             root.accum += event.angleDelta.y;

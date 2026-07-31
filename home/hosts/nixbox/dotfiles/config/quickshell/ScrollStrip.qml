@@ -84,7 +84,7 @@ Scope {
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton
-                cursorShape: Qt.ArrowCursor
+                cursorShape: Qt.PointingHandCursor
                 onClicked: Globals.toggleMixer()
                 onWheel: event => {
                     const n = root.notchesFromWheel(event.angleDelta.y);
