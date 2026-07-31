@@ -175,9 +175,9 @@ Scope {
         }
     }
 
-    function notifIconSource(n) {
-        if (n.image)
-            return n.image;
+    function notifAppIconSource(n) {
+        if (!n)
+            return "";
         const icon = n.appIcon || "";
         if (!icon)
             return "";
@@ -188,6 +188,12 @@ Scope {
         } catch (e) {
             return "";
         }
+    }
+
+    function notifIconSource(n) {
+        if (n.image)
+            return n.image;
+        return notifAppIconSource(n);
     }
 
     function fmtTime(secs) {
@@ -225,7 +231,7 @@ Scope {
             right: 12
         }
 
-        implicitWidth: 320
+        implicitWidth: 340
         implicitHeight: Math.max(1, toastCol.implicitHeight)
 
         Column {
@@ -773,7 +779,7 @@ Scope {
                 Text {
                     text: "Notifications"
                     color: root.colMuted
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyUi
                     font.pixelSize: 12
                     font.bold: true
                 }
@@ -807,7 +813,7 @@ Scope {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: "No notifications"
                             color: root.colMuted
-                            font.family: Theme.fontFamily
+                            font.family: Theme.fontFamilyUi
                             font.pixelSize: 13
                         }
                     }
@@ -864,9 +870,12 @@ Scope {
         id: card
         property var notif: null
         property bool toastMode: false
+        // Fixed size — never derive from height (binding loop → freeze)
+        // Toast + drawer share the same media chrome
+        readonly property int mediaSize: 52
 
-        height: Math.max(48, bodyRow.implicitHeight + 14)
-        radius: 10
+        height: Math.max(mediaSize + 16, textCol.implicitHeight + 16)
+        radius: toastMode ? 14 : 10
         color: toastMode ? root.colToast : (cardMa.containsMouse ? root.colCardHover : root.colCard)
         border.color: Qt.rgba(1, 1, 1, toastMode ? 0.14 : 0.10)
         border.width: 1
@@ -899,54 +908,104 @@ Scope {
             id: bodyRow
             anchors.fill: parent
             anchors.margins: 8
-            spacing: 8
+            spacing: 10
 
             Rectangle {
-                Layout.preferredWidth: 28
-                Layout.preferredHeight: 28
+                id: mediaBox
+                Layout.preferredWidth: card.mediaSize
+                Layout.preferredHeight: card.mediaSize
                 Layout.alignment: Qt.AlignTop
-                radius: 8
+                radius: 10
                 color: root.colCard
                 border.color: Qt.rgba(1, 1, 1, 0.08)
                 border.width: 1
                 clip: true
 
+                readonly property bool hasInlineImage: !!(card.notif && card.notif.image)
+                readonly property string appIconSrc: card.notif ? notifAppIconSource(card.notif) : ""
+                // Badge when a distinct notification image is shown (icon-only = main glyph)
+                readonly property bool showAppBadge: hasInlineImage && !!appIconSrc
+
+                Image {
+                    id: nImage
+                    anchors.fill: parent
+                    asynchronous: true
+                    fillMode: Image.PreserveAspectCrop
+                    source: {
+                        if (!card.notif)
+                            return "";
+                        const img = card.notif.image || "";
+                        if (!img)
+                            return "";
+                        return img.charAt(0) === "/" ? ("file://" + img) : img;
+                    }
+                    visible: mediaBox.hasInlineImage && status === Image.Ready
+                }
                 IconImage {
                     id: nIcon
-                    anchors.centerIn: parent
-                    implicitSize: 18
+                    anchors.fill: parent
+                    anchors.margins: 2
+                    implicitSize: 48
                     asynchronous: true
-                    source: card.notif ? notifIconSource(card.notif) : ""
-                    visible: status === Image.Ready && !!source
+                    source: (!card.notif || mediaBox.hasInlineImage) ? "" : notifIconSource(card.notif)
+                    visible: !mediaBox.hasInlineImage && status === Image.Ready && !!source
                 }
                 Text {
                     anchors.centerIn: parent
-                    visible: !nIcon.visible
+                    visible: !mediaBox.hasInlineImage && !nIcon.visible
                     text: "󰂚"
                     color: root.colMuted
-                    font.pixelSize: 12
+                    font.pixelSize: 22
+                }
+
+                // Small app icon, bottom-right of main image
+                Rectangle {
+                    visible: mediaBox.showAppBadge
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 2
+                    width: 18
+                    height: 18
+                    radius: 6
+                    color: Qt.rgba(0.08, 0.08, 0.1, 0.92)
+                    border.color: Qt.rgba(1, 1, 1, 0.18)
+                    border.width: 1
+                    clip: true
+                    z: 2
+
+                    IconImage {
+                        anchors.centerIn: parent
+                        implicitSize: 13
+                        asynchronous: true
+                        source: mediaBox.appIconSrc
+                    }
                 }
             }
 
             ColumnLayout {
+                id: textCol
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignTop
                 spacing: 2
 
+                // Title + dismiss flush to top (same for toast + drawer)
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 6
 
                     Text {
                         Layout.fillWidth: true
-                        text: (card.notif && (card.notif.appName || card.notif.summary)) || "Notification"
-                        color: root.colMuted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 11
+                        text: (card.notif && card.notif.summary) || "Notification"
+                        color: root.colFg
+                        font.family: Theme.fontFamilyUi
+                        font.pixelSize: 14
+                        font.bold: true
                         elide: Text.ElideRight
                     }
                     Text {
                         text: "✕"
                         color: root.colMuted
+                        font.family: Theme.fontFamilyUi
                         font.pixelSize: 11
                         opacity: 0.7
                         MouseArea {
@@ -960,26 +1019,15 @@ Scope {
                         }
                     }
                 }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: (card.notif && card.notif.summary) || "Notification"
-                    color: root.colFg
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 13
-                    font.bold: true
-                    elide: Text.ElideRight
-                    visible: !card.notif || !card.notif.appName || card.notif.appName !== card.notif.summary
-                }
                 Text {
                     Layout.fillWidth: true
                     visible: !!(card.notif && card.notif.body)
                     text: (card.notif && card.notif.body) || ""
                     color: root.colMuted
-                    font.family: Theme.fontFamily
+                    font.family: Theme.fontFamilyUi
                     font.pixelSize: 12
                     wrapMode: Text.Wrap
-                    maximumLineCount: card.toastMode ? 3 : 4
+                    maximumLineCount: card.toastMode ? 2 : 4
                 }
 
                 Flow {
@@ -1003,7 +1051,7 @@ Scope {
                                 anchors.centerIn: parent
                                 text: modelData.text || modelData.identifier || "Action"
                                 color: root.colFg
-                                font.family: Theme.fontFamily
+                                font.family: Theme.fontFamilyUi
                                 font.pixelSize: 11
                             }
                             MouseArea {

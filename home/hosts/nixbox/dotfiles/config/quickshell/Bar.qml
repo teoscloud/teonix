@@ -119,6 +119,7 @@ Scope {
                             Repeater {
                                 model: SystemTray.items
                                 delegate: Item {
+                                    id: trayItem
                                     required property var modelData
                                     // Hitbox slightly larger than glyph for easier clicks
                                     width: Theme.trayIcon + 2
@@ -138,19 +139,41 @@ Scope {
                                         backer.sourceSize.height: Math.round(Theme.trayIcon * Screen.devicePixelRatio * 2)
                                         backer.smooth: true
                                     }
+
+                                    QsMenuAnchor {
+                                        id: trayMenu
+                                        menu: trayItem.modelData.menu
+                                        anchor.window: bar
+                                        anchor.item: trayItem
+                                        anchor.edges: Edges.Bottom
+                                        anchor.gravity: Edges.Bottom
+                                    }
+
                                     MouseArea {
                                         anchors.fill: parent
                                         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                                         onClicked: mouse => {
-                                            if (mouse.button === Qt.LeftButton)
-                                                modelData.activate();
-                                            else if (mouse.button === Qt.MiddleButton)
-                                                modelData.secondaryActivate();
-                                            else if (modelData.hasMenu)
-                                                modelData.display(bar, width / 2, height);
+                                            if (mouse.button === Qt.LeftButton) {
+                                                if (trayItem.modelData.onlyMenu && trayItem.modelData.hasMenu)
+                                                    trayMenu.open();
+                                                else
+                                                    trayItem.modelData.activate();
+                                            } else if (mouse.button === Qt.MiddleButton) {
+                                                trayItem.modelData.secondaryActivate();
+                                            } else if (trayItem.modelData.hasMenu) {
+                                                // Prefer anchored menu under this icon; fall back to
+                                                // bar-mapped click coords (old code passed icon-local
+                                                // x/y into the full-width bar → menu at top-left).
+                                                if (trayItem.modelData.menu) {
+                                                    trayMenu.open();
+                                                } else {
+                                                    const p = mapToItem(barBg, mouse.x, mouse.y);
+                                                    trayItem.modelData.display(bar, Math.round(p.x), Math.round(p.y));
+                                                }
+                                            }
                                         }
                                         onWheel: event => {
-                                            modelData.scroll(-(event.angleDelta.y), false);
+                                            trayItem.modelData.scroll(-(event.angleDelta.y), false);
                                         }
                                     }
                                 }

@@ -19,6 +19,8 @@ function borderColor() {
 var border = "#3a3c40"
 
 var fontFamily = "FiraCode Nerd Font Mono"
+// Proportional UI copy (notifications, etc.) — not the bar mono
+var fontFamilyUi = "sans-serif"
 // Bar scale ~1.10 from compact 36px baseline (theme.js needs qs reload)
 var fontSize = 20
 var fontSizeSm = 18
