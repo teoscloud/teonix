@@ -1099,7 +1099,7 @@ Scope {
         }
 
         Timer {
-            interval: 6000
+            interval: 9000
             running: card.toastMode
             onTriggered: root.dropToast(card.notif)
         }
