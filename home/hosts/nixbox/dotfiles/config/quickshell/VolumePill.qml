@@ -12,17 +12,19 @@ Pill {
 
     property int pct: Globals.hwVolPct
     property bool muted: Globals.hwVolMuted
+    property bool online: Globals.hwVolOnline
     property real accum: 0
 
     Row {
         id: row
         anchors.centerIn: parent
         spacing: 6
+        opacity: root.online ? 1 : 0.85
 
         Text {
             id: icon
-            text: root.muted ? "󰖁" : (root.pct < 34 ? "󰕿" : (root.pct < 67 ? "󰖀" : "󰕾"))
-            color: root.muted ? Theme.danger : Theme.fg
+            text: !root.online ? "󰕦" : (root.muted ? "󰖁" : (root.pct < 34 ? "󰕿" : (root.pct < 67 ? "󰖀" : "󰕾")))
+            color: !root.online ? Theme.danger : (root.muted ? Theme.danger : Theme.fg)
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSize
             verticalAlignment: Text.AlignVCenter
@@ -37,14 +39,23 @@ Pill {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.verticalCenterOffset: 1
-                text: root.pct + "%"
-                color: root.muted ? Theme.danger : Theme.fg
+                text: root.online ? (root.pct + "%") : "—"
+                color: !root.online ? Theme.danger : (root.muted ? Theme.danger : Theme.fg)
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSm
                 font.bold: true
                 verticalAlignment: Text.AlignVCenter
             }
         }
+    }
+
+    // Soft danger wash when daemon is down
+    Rectangle {
+        anchors.fill: parent
+        radius: 12
+        visible: !root.online
+        color: Qt.rgba(0.55, 0.18, 0.18, 0.28)
+        z: -1
     }
 
     MouseArea {
@@ -54,6 +65,10 @@ Pill {
         cursorShape: Qt.PointingHandCursor
         onClicked: Globals.toggleMixer()
         onWheel: event => {
+            if (!root.online) {
+                event.accepted = true;
+                return;
+            }
             root.accum += event.angleDelta.y;
             let notches = 0;
             while (root.accum >= 120) {
@@ -84,12 +99,22 @@ Pill {
     function applyStatus(text) {
         try {
             const j = JSON.parse(String(text || "").trim());
+            const cls = String(j.class || "");
+            const online = cls === "online" || cls === "normal" || cls === "muted";
+            Globals.hwVolOnline = online;
+            if (!online) {
+                Globals.hwVolPct = 0;
+                Globals.hwVolMuted = false;
+                return;
+            }
             let p = parseInt(j.percentage ?? j.hw_volume_pct ?? 0, 10);
             if (isNaN(p))
                 p = 0;
             Globals.hwVolPct = Math.max(0, Math.min(100, p));
-            Globals.hwVolMuted = !!j.muted || !!j.hw_mute || j.class === "muted";
-        } catch (e) {}
+            Globals.hwVolMuted = !!j.muted || !!j.hw_mute || cls === "muted";
+        } catch (e) {
+            Globals.hwVolOnline = false;
+        }
     }
 
     Process {
@@ -99,6 +124,10 @@ Pill {
         stdout: StdioCollector {
             waitForEnd: true
             onStreamFinished: root.applyStatus(text)
+        }
+        onExited: code => {
+            if (code !== 0)
+                Globals.hwVolOnline = false;
         }
     }
 

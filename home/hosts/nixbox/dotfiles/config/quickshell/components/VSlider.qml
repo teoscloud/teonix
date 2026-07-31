@@ -124,8 +124,9 @@ Item {
                 root.setFromPos(mouse.y);
         }
         onWheel: event => {
+            // nudge() already applies stepSize once — do not multiply here (was 5×5=25)
             const dir = event.angleDelta.y > 0 ? 1 : -1;
-            root.nudge(dir * Math.max(1, Math.round(root.stepSize)));
+            root.nudge(dir);
             event.accepted = true;
         }
     }

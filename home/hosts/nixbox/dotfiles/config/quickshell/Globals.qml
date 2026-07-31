@@ -35,6 +35,7 @@ Singleton {
     // Shared Master HW status for VolumePill / ScrollStrip
     property int hwVolPct: 0
     property bool hwVolMuted: false
+    property bool hwVolOnline: false
     property int hwVolEpoch: 0
 
     // VolumePill geometry (updated from Bar.qml) — strip + mixer anchor

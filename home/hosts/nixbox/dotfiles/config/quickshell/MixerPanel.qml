@@ -18,6 +18,7 @@ Scope {
     readonly property color colCardHover: Qt.rgba(1, 1, 1, 0.13)
     readonly property color colBorder: Qt.rgba(1, 1, 1, 0.16)
     readonly property color colAccent: Theme.accentHot
+    readonly property color colDefaultBlue: "#7eb8ff"
 
     function iconFromName(name) {
         if (!name)
@@ -106,17 +107,22 @@ Scope {
             radius: 22
         }
 
-        // Sit under the bar VolumePill (left cluster)
+        // Center under the bar VolumePill (pill midpoint = panel midpoint)
+        readonly property int panelW: 400
         anchors {
             top: true
             left: true
         }
         margins {
-            top: Theme.barHeight + 8
-            left: Math.max(Theme.pad, Globals.volPillX)
+            // Layer top is already below the bar exclusive zone — don't add barHeight again
+            top: 2
+            left: Math.max(
+                Theme.pad,
+                Math.round(Globals.volPillX + Globals.volPillWidth / 2 - panelW / 2)
+            )
         }
-        implicitWidth: 400
-        implicitHeight: 560
+        implicitWidth: panelW
+        implicitHeight: 360
 
         property int tab: 0
         property int hwPct: 0
@@ -130,6 +136,23 @@ Scope {
         property string err: ""
         property string defaultSink: ""
         property string defaultSource: ""
+        // BusChain virtual track buses (Create virtual output) — on by default
+        property bool showVirtual: true
+
+        readonly property var visibleSinks: {
+            const all = sinks || [];
+            void showVirtual;
+            if (showVirtual)
+                return all;
+            return all.filter(d => !d.is_virtual);
+        }
+        readonly property var visibleSources: {
+            const all = sources || [];
+            void showVirtual;
+            if (showVirtual)
+                return all;
+            return all.filter(d => !d.is_virtual);
+        }
 
         function favTracks() {
             const out = [];
@@ -173,6 +196,7 @@ Scope {
                 hwDesc = j.status.master_hw_desc || j.status.master_hw || "Master HW";
                 Globals.hwVolPct = hwPct;
                 Globals.hwVolMuted = hwMute;
+                Globals.hwVolOnline = true;
             }
             streams = j.streams || [];
             tracks = j.tracks || [];
@@ -224,22 +248,49 @@ Scope {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Text {
-                        text: "Mixer"
-                        color: root.colFg
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 16
-                        font.bold: true
+                    spacing: 6
+
+                    Row {
+                        spacing: 5
                         Layout.fillWidth: true
+                        Repeater {
+                            model: ["Playback", "Tracks", "Output", "Input"]
+                            Rectangle {
+                                required property string modelData
+                                required property int index
+                                width: tabLab.implicitWidth + 14
+                                height: 26
+                                radius: 8
+                                color: mixerWin.tab === index ? root.colCardHover : root.colCard
+                                border.color: mixerWin.tab === index ? Qt.rgba(1, 1, 1, 0.18) : "transparent"
+                                border.width: 1
+                                Text {
+                                    id: tabLab
+                                    anchors.centerIn: parent
+                                    text: modelData
+                                    color: mixerWin.tab === index ? root.colFg : root.colMuted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 12
+                                    font.bold: mixerWin.tab === index
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: mixerWin.tab = index
+                                }
+                            }
+                        }
                     }
+
                     Text {
                         text: "✕"
                         color: root.colMuted
                         font.pixelSize: 12
+                        Layout.alignment: Qt.AlignVCenter
                         MouseArea {
                             anchors.fill: parent
                             anchors.margins: -6
-                            cursorShape: Qt.ArrowCursor
+                            cursorShape: Qt.PointingHandCursor
                             onClicked: Globals.closeMixer()
                         }
                     }
@@ -253,37 +304,6 @@ Scope {
                     font.pixelSize: 12
                     wrapMode: Text.Wrap
                     Layout.fillWidth: true
-                }
-
-                Row {
-                    spacing: 5
-                    Repeater {
-                        model: ["Playback", "Tracks", "Output", "Input"]
-                        Rectangle {
-                            required property string modelData
-                            required property int index
-                            width: tabLab.implicitWidth + 14
-                            height: 26
-                            radius: 8
-                            color: mixerWin.tab === index ? root.colCardHover : root.colCard
-                            border.color: mixerWin.tab === index ? Qt.rgba(1, 1, 1, 0.18) : "transparent"
-                            border.width: 1
-                            Text {
-                                id: tabLab
-                                anchors.centerIn: parent
-                                text: modelData
-                                color: mixerWin.tab === index ? root.colFg : root.colMuted
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 12
-                                font.bold: mixerWin.tab === index
-                            }
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.ArrowCursor
-                                onClicked: mixerWin.tab = index
-                            }
-                        }
-                    }
                 }
 
                 // Playback — same strip layout as Tracks; favorites leftmost, then apps
@@ -306,15 +326,22 @@ Scope {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
-                        Text {
-                            text: mixerWin.hwMute ? "MUTE" : "VOL"
-                            color: root.colFg
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 11
-                            font.bold: true
+                        Item {
+                            Layout.preferredWidth: 26
+                            Layout.preferredHeight: 22
+                            Layout.alignment: Qt.AlignVCenter
+                            z: 2
+                            Text {
+                                anchors.centerIn: parent
+                                text: mixerWin.hwMute ? "󰖁" : "󰕾"
+                                color: mixerWin.hwMute ? Theme.danger : root.colFg
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 16
+                            }
                             MouseArea {
                                 anchors.fill: parent
-                                cursorShape: Qt.ArrowCursor
+                                preventStealing: true
+                                cursorShape: Qt.PointingHandCursor
                                 onClicked: mixerWin.runCtl(["hw-vol", "mute", "toggle"])
                             }
                         }
@@ -322,10 +349,10 @@ Scope {
                             Layout.fillWidth: true
                             from: 0
                             to: 100
-                            stepSize: 1
+                            stepSize: 5
                             value: mixerWin.hwPct
                             onMoved: {
-                                mixerWin.hwPct = Math.round(value);
+                                mixerWin.hwPct = Math.round(value / 5) * 5;
                                 mixerWin.runCtl(["hw-vol", "set", String(mixerWin.hwPct)]);
                             }
                         }
@@ -438,48 +465,94 @@ Scope {
                 }
 
                 // Output
-                ListView {
+                ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: mixerWin.tab === 2
-                    clip: true
-                    spacing: 5
-                    model: mixerWin.sinks
-                    delegate: DeviceRow {
-                        required property var modelData
-                        width: ListView.view.width
-                        kind: "sink"
-                        device: modelData
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text {
+                            text: "Devices"
+                            color: root.colMuted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 11
+                            Layout.fillWidth: true
+                        }
+                        ChipBtn {
+                            label: mixerWin.showVirtual ? "Virtual: on" : "Virtual: off"
+                            selected: mixerWin.showVirtual
+                            accent: root.colDefaultBlue
+                            onActivated: mixerWin.showVirtual = !mixerWin.showVirtual
+                        }
                     }
-                    Text {
-                        anchors.centerIn: parent
-                        visible: mixerWin.sinks.length === 0
-                        text: "No sinks"
-                        color: root.colMuted
-                        font.pixelSize: 12
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 5
+                        model: mixerWin.visibleSinks
+                        delegate: DeviceRow {
+                            required property var modelData
+                            width: ListView.view.width
+                            kind: "sink"
+                            device: modelData
+                        }
+                        Text {
+                            anchors.centerIn: parent
+                            visible: mixerWin.visibleSinks.length === 0
+                            text: "No sinks"
+                            color: root.colMuted
+                            font.pixelSize: 12
+                        }
                     }
                 }
 
                 // Input
-                ListView {
+                ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: mixerWin.tab === 3
-                    clip: true
-                    spacing: 5
-                    model: mixerWin.sources
-                    delegate: DeviceRow {
-                        required property var modelData
-                        width: ListView.view.width
-                        kind: "source"
-                        device: modelData
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text {
+                            text: "Devices"
+                            color: root.colMuted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 11
+                            Layout.fillWidth: true
+                        }
+                        ChipBtn {
+                            label: mixerWin.showVirtual ? "Virtual: on" : "Virtual: off"
+                            selected: mixerWin.showVirtual
+                            accent: root.colDefaultBlue
+                            onActivated: mixerWin.showVirtual = !mixerWin.showVirtual
+                        }
                     }
-                    Text {
-                        anchors.centerIn: parent
-                        visible: mixerWin.sources.length === 0
-                        text: "No sources"
-                        color: root.colMuted
-                        font.pixelSize: 12
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 5
+                        model: mixerWin.visibleSources
+                        delegate: DeviceRow {
+                            required property var modelData
+                            width: ListView.view.width
+                            kind: "source"
+                            device: modelData
+                        }
+                        Text {
+                            anchors.centerIn: parent
+                            visible: mixerWin.visibleSources.length === 0
+                            text: "No sources"
+                            color: root.colMuted
+                            font.pixelSize: 12
+                        }
                     }
                 }
             }
@@ -575,10 +648,41 @@ Scope {
             target: Globals
             function onMixerOpenChanged() {
                 if (Globals.mixerOpen) {
+                    mixerWin.tab = 0; // always open on Playback
                     Globals.refreshWallpaperTint();
                     favLoad.running = true;
                 }
             }
+        }
+    }
+
+    component ChipBtn: Rectangle {
+        id: chip
+        property string label: ""
+        property bool selected: false
+        property color accent: root.colAccent
+        signal activated
+
+        implicitWidth: chipLab.implicitWidth + 12
+        implicitHeight: 20
+        radius: 7
+        color: selected ? Qt.rgba(chip.accent.r, chip.accent.g, chip.accent.b, 0.22) : Qt.rgba(1, 1, 1, 0.06)
+        border.color: selected ? Qt.rgba(chip.accent.r, chip.accent.g, chip.accent.b, 0.55) : Qt.rgba(1, 1, 1, 0.12)
+        border.width: 1
+
+        Text {
+            id: chipLab
+            anchors.centerIn: parent
+            text: chip.label
+            color: chip.selected ? chip.accent : root.colMuted
+            font.family: Theme.fontFamily
+            font.pixelSize: 10
+            font.bold: chip.selected
+        }
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: chip.activated()
         }
     }
 
@@ -593,9 +697,14 @@ Scope {
         border.width: 1
 
         readonly property bool isMaster: !!device.is_master
+        readonly property bool isVirtual: !!device.is_virtual
         readonly property bool isDefault: !!device.is_default
             || (kind === "sink" && device.name === mixerWin.defaultSink)
             || (kind === "source" && device.name === mixerWin.defaultSource)
+        // HW wins over default for title color when both apply
+        readonly property color titleColor: drow.isMaster
+            ? root.colAccent
+            : (drow.isDefault ? root.colDefaultBlue : (drow.isVirtual ? root.colDefaultBlue : root.colFg))
 
         ColumnLayout {
             anchors.fill: parent
@@ -610,6 +719,8 @@ Scope {
                     text: {
                         let t = device.desc || device.name || "Device";
                         const tags = [];
+                        if (drow.isVirtual)
+                            tags.push("Virtual");
                         if (drow.isMaster)
                             tags.push("Master HW");
                         if (drow.isDefault)
@@ -618,33 +729,30 @@ Scope {
                             t += " · " + tags.join(" · ");
                         return t;
                     }
-                    color: drow.isMaster ? root.colAccent : root.colFg
+                    color: drow.titleColor
                     font.family: Theme.fontFamily
                     font.pixelSize: 12
-                    font.bold: drow.isMaster || drow.isDefault
+                    font.bold: drow.isMaster || drow.isDefault || drow.isVirtual
                     elide: Text.ElideRight
                 }
-                Text {
-                    visible: kind === "sink" && !drow.isMaster
-                    text: "Set HW"
-                    color: root.colMuted
-                    font.pixelSize: 10
-                    MouseArea {
-                        anchors.fill: parent
-                        anchors.margins: -4
-                        cursorShape: Qt.ArrowCursor
-                        onClicked: mixerWin.runCtl(["master-hw", "set", String(device.name)])
+                ChipBtn {
+                    // Virtual track buses are not Master HW candidates
+                    visible: kind === "sink" && !drow.isVirtual
+                    label: drow.isMaster ? "Master HW" : "Set HW"
+                    selected: drow.isMaster
+                    accent: root.colAccent
+                    onActivated: {
+                        if (!drow.isMaster)
+                            mixerWin.runCtl(["master-hw", "set", String(device.name)]);
                     }
                 }
-                Text {
-                    text: drow.isDefault ? "Default" : "Set default"
-                    color: drow.isDefault ? root.colAccent : root.colMuted
-                    font.pixelSize: 10
-                    MouseArea {
-                        anchors.fill: parent
-                        anchors.margins: -4
-                        cursorShape: Qt.ArrowCursor
-                        onClicked: mixerWin.runCtl(["default", drow.kind, String(device.name)])
+                ChipBtn {
+                    label: drow.isDefault ? "Default" : "Set default"
+                    selected: drow.isDefault
+                    accent: root.colDefaultBlue
+                    onActivated: {
+                        if (!drow.isDefault)
+                            mixerWin.runCtl(["default", drow.kind, String(device.name)]);
                     }
                 }
             }
@@ -656,9 +764,9 @@ Scope {
                     Layout.fillWidth: true
                     from: 0
                     to: 100
-                    stepSize: 1
+                    stepSize: 5
                     value: Math.min(100, device.volume_pct || 0)
-                    onMoved: mixerWin.runCtl([drow.kind, "vol", String(device.name), String(Math.round(value))])
+                    onMoved: mixerWin.runCtl([drow.kind, "vol", String(device.name), String(Math.round(value / 5) * 5)])
                 }
                 Text {
                     text: Math.min(100, device.volume_pct || 0) + "%"
@@ -669,16 +777,22 @@ Scope {
                     horizontalAlignment: Text.AlignRight
                     verticalAlignment: Text.AlignVCenter
                 }
-                Text {
-                    text: "MUTE"
-                    color: device.mute ? Theme.danger : root.colMuted
-                    font.pixelSize: 10
-                    font.bold: true
+                Item {
+                    Layout.preferredWidth: 26
+                    Layout.preferredHeight: 22
                     Layout.alignment: Qt.AlignVCenter
+                    z: 2
+                    Text {
+                        anchors.centerIn: parent
+                        text: device.mute ? "󰖁" : "󰕾"
+                        color: device.mute ? Theme.danger : root.colMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 16
+                    }
                     MouseArea {
                         anchors.fill: parent
-                        anchors.margins: -4
-                        cursorShape: Qt.ArrowCursor
+                        preventStealing: true
+                        cursorShape: Qt.PointingHandCursor
                         onClicked: mixerWin.runCtl([drow.kind, "mute", String(device.name), "toggle"])
                     }
                 }
@@ -754,23 +868,22 @@ Scope {
                 Layout.alignment: Qt.AlignHCenter
                 from: 0
                 to: 100
-                stepSize: 1
+                stepSize: 5
                 value: sstrip.pct
                 valueText: sstrip.pct + "%"
-                onMoved: sstrip.vol(Math.round(value))
+                onMoved: sstrip.vol(Math.round(value / 5) * 5)
             }
 
             Text {
-                text: "MUTE"
+                text: stream.mute ? "󰖁" : "󰕾"
                 color: stream.mute ? Theme.danger : root.colMuted
-                font.pixelSize: 10
-                font.bold: true
-                opacity: stream.mute ? 1 : 0.75
+                font.family: Theme.fontFamily
+                font.pixelSize: 15
                 Layout.alignment: Qt.AlignHCenter
                 MouseArea {
                     anchors.fill: parent
                     anchors.margins: -4
-                    cursorShape: Qt.ArrowCursor
+                    cursorShape: Qt.PointingHandCursor
                     onClicked: sstrip.muteToggle()
                 }
             }
@@ -877,26 +990,25 @@ Scope {
                 Layout.alignment: Qt.AlignHCenter
                 from: 0
                 to: 150
-                stepSize: 1
+                stepSize: 5
                 // UI 100 ↔ 0 dB
                 snapAt: 100
                 snapEpsilon: 5
                 value: strip.dbToUi(strip.gainDb)
                 valueText: strip.gainDb.toFixed(1) + "dB"
-                onMoved: strip.vol(strip.uiToDb(value))
+                onMoved: strip.vol(strip.uiToDb(Math.round(value / 5) * 5))
             }
 
             Text {
-                text: "MUTE"
+                text: track.mute ? "󰖁" : "󰕾"
                 color: track.mute ? Theme.danger : root.colMuted
-                font.pixelSize: 10
-                font.bold: true
-                opacity: track.mute ? 1 : 0.75
+                font.family: Theme.fontFamily
+                font.pixelSize: 15
                 Layout.alignment: Qt.AlignHCenter
                 MouseArea {
                     anchors.fill: parent
                     anchors.margins: -4
-                    cursorShape: Qt.ArrowCursor
+                    cursorShape: Qt.PointingHandCursor
                     onClicked: strip.muteToggle()
                 }
             }

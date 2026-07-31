@@ -104,7 +104,8 @@ case "$cmd" in
         fi
       fi
     fi
-    pactl_master_hw_status
+    # Daemon down — do not fall back to pactl (pill should show offline rice)
+    printf '{"percentage":0,"muted":false,"class":"offline","tooltip":"buschain offline"}\n'
     ;;
   up)
     if [[ -n "${ctl:-}" ]]; then

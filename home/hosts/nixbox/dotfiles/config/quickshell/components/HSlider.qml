@@ -11,6 +11,8 @@ Item {
 
     implicitHeight: 18
     implicitWidth: 120
+    // Keep hit-testing inside the slider so mute icons beside it aren't stolen
+    clip: false
 
     function setFromPos(x) {
         const t = Math.max(0, Math.min(1, x / Math.max(1, track.width)));
@@ -58,10 +60,22 @@ Item {
 
     MouseArea {
         anchors.fill: parent
-        anchors.margins: -4
+        // Vertical forgiveness only — never spill into neighboring mute/% controls
+        anchors.topMargin: -4
+        anchors.bottomMargin: -4
+        anchors.leftMargin: 0
+        anchors.rightMargin: 0
         cursorShape: Qt.PointingHandCursor
-        onPressed: root.setFromPos(mouse.x)
-        onPositionChanged: if (pressed) root.setFromPos(mouse.x)
+        onPressed: mouse => {
+            const p = mapToItem(track, mouse.x, mouse.y);
+            root.setFromPos(p.x);
+        }
+        onPositionChanged: mouse => {
+            if (!pressed)
+                return;
+            const p = mapToItem(track, mouse.x, mouse.y);
+            root.setFromPos(p.x);
+        }
         onWheel: event => {
             const dir = event.angleDelta.y > 0 ? 1 : -1;
             root.value = Math.max(root.from, Math.min(root.to, root.value + dir * root.stepSize));

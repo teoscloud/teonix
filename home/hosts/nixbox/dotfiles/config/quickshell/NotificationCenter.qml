@@ -231,7 +231,7 @@ Scope {
             right: 12
         }
 
-        implicitWidth: 340
+        implicitWidth: 408 // ~20% over previous 340
         implicitHeight: Math.max(1, toastCol.implicitHeight)
 
         Column {
@@ -239,7 +239,7 @@ Scope {
             anchors.top: parent.top
             anchors.right: parent.right
             width: parent.width
-            spacing: 6
+            spacing: 8
 
             Repeater {
                 model: root.toastQueue
@@ -871,14 +871,20 @@ Scope {
         property var notif: null
         property bool toastMode: false
         // Fixed size — never derive from height (binding loop → freeze)
-        // Toast + drawer share the same media chrome
-        readonly property int mediaSize: 52
+        // Toast chrome ~20% larger; drawer keeps denser sizing
+        readonly property int mediaSize: toastMode ? 62 : 52
+        readonly property int pad: toastMode ? 10 : 8
+        readonly property int titlePx: toastMode ? 17 : 14
+        readonly property int bodyPx: toastMode ? 14 : 12
+        readonly property bool hasActions: !!(notif && notif.actions && notif.actions.length > 0)
 
-        height: Math.max(mediaSize + 16, textCol.implicitHeight + 16)
-        radius: toastMode ? 14 : 10
+        // Height from icon + text only — action chips overlay, never grow the card
+        height: Math.max(mediaSize + pad * 2, textCol.implicitHeight + pad * 2)
+        radius: toastMode ? 16 : 10
         color: toastMode ? root.colToast : (cardMa.containsMouse ? root.colCardHover : root.colCard)
         border.color: Qt.rgba(1, 1, 1, toastMode ? 0.14 : 0.10)
         border.width: 1
+        clip: true
 
         opacity: 0
         property real slideX: 24
@@ -907,15 +913,15 @@ Scope {
         RowLayout {
             id: bodyRow
             anchors.fill: parent
-            anchors.margins: 8
-            spacing: 10
+            anchors.margins: card.pad
+            spacing: toastMode ? 12 : 10
 
             Rectangle {
                 id: mediaBox
                 Layout.preferredWidth: card.mediaSize
                 Layout.preferredHeight: card.mediaSize
                 Layout.alignment: Qt.AlignTop
-                radius: 10
+                radius: toastMode ? 12 : 10
                 color: root.colCard
                 border.color: Qt.rgba(1, 1, 1, 0.08)
                 border.width: 1
@@ -945,7 +951,7 @@ Scope {
                     id: nIcon
                     anchors.fill: parent
                     anchors.margins: 2
-                    implicitSize: 48
+                    implicitSize: card.mediaSize - 4
                     asynchronous: true
                     source: (!card.notif || mediaBox.hasInlineImage) ? "" : notifIconSource(card.notif)
                     visible: !mediaBox.hasInlineImage && status === Image.Ready && !!source
@@ -955,7 +961,7 @@ Scope {
                     visible: !mediaBox.hasInlineImage && !nIcon.visible
                     text: "󰂚"
                     color: root.colMuted
-                    font.pixelSize: 22
+                    font.pixelSize: toastMode ? 26 : 22
                 }
 
                 // Small app icon, bottom-right of main image
@@ -964,8 +970,8 @@ Scope {
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     anchors.margins: 2
-                    width: 18
-                    height: 18
+                    width: toastMode ? 22 : 18
+                    height: toastMode ? 22 : 18
                     radius: 6
                     color: Qt.rgba(0.08, 0.08, 0.1, 0.92)
                     border.color: Qt.rgba(1, 1, 1, 0.18)
@@ -975,7 +981,7 @@ Scope {
 
                     IconImage {
                         anchors.centerIn: parent
-                        implicitSize: 13
+                        implicitSize: toastMode ? 15 : 13
                         asynchronous: true
                         source: mediaBox.appIconSrc
                     }
@@ -998,7 +1004,7 @@ Scope {
                         text: (card.notif && card.notif.summary) || "Notification"
                         color: root.colFg
                         font.family: Theme.fontFamilyUi
-                        font.pixelSize: 14
+                        font.pixelSize: card.titlePx
                         font.bold: true
                         elide: Text.ElideRight
                     }
@@ -1006,7 +1012,7 @@ Scope {
                         text: "✕"
                         color: root.colMuted
                         font.family: Theme.fontFamilyUi
-                        font.pixelSize: 11
+                        font.pixelSize: toastMode ? 13 : 11
                         opacity: 0.7
                         MouseArea {
                             anchors.fill: parent
@@ -1021,48 +1027,56 @@ Scope {
                 }
                 Text {
                     Layout.fillWidth: true
+                    // Keep body clear of bottom-right action chips
+                    Layout.rightMargin: card.hasActions ? (toastMode ? 72 : 64) : 0
                     visible: !!(card.notif && card.notif.body)
                     text: (card.notif && card.notif.body) || ""
                     color: root.colMuted
                     font.family: Theme.fontFamilyUi
-                    font.pixelSize: 12
+                    font.pixelSize: card.bodyPx
                     wrapMode: Text.Wrap
                     maximumLineCount: card.toastMode ? 2 : 4
                 }
+            }
+        }
 
-                Flow {
-                    Layout.fillWidth: true
-                    spacing: 4
-                    visible: card.notif && card.notif.actions && card.notif.actions.length > 0
+        // Action chips float bottom-right — toast + drawer; never add a layout row
+        Flow {
+            id: actionFlow
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: card.pad
+            spacing: 4
+            z: 3
+            visible: card.hasActions
+            layoutDirection: Qt.RightToLeft
 
-                    Repeater {
-                        model: card.notif ? card.notif.actions : []
-                        delegate: Rectangle {
-                            required property var modelData
-                            width: actionLabel.implicitWidth + 12
-                            height: 22
-                            radius: 6
-                            color: root.colCardHover
-                            border.color: Qt.rgba(1, 1, 1, 0.10)
-                            border.width: 1
+            Repeater {
+                model: card.notif ? card.notif.actions : []
+                delegate: Rectangle {
+                    required property var modelData
+                    width: actionLabel.implicitWidth + (toastMode ? 16 : 12)
+                    height: toastMode ? 26 : 22
+                    radius: toastMode ? 8 : 6
+                    color: Qt.rgba(0.12, 0.12, 0.14, 0.92)
+                    border.color: Qt.rgba(1, 1, 1, 0.14)
+                    border.width: 1
 
-                            Text {
-                                id: actionLabel
-                                anchors.centerIn: parent
-                                text: modelData.text || modelData.identifier || "Action"
-                                color: root.colFg
-                                font.family: Theme.fontFamilyUi
-                                font.pixelSize: 11
-                            }
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.ArrowCursor
-                                onClicked: mouse => {
-                                    mouse.accepted = true;
-                                    if (modelData.invoke)
-                                        modelData.invoke();
-                                }
-                            }
+                    Text {
+                        id: actionLabel
+                        anchors.centerIn: parent
+                        text: modelData.text || modelData.identifier || "Action"
+                        color: root.colFg
+                        font.family: Theme.fontFamilyUi
+                        font.pixelSize: toastMode ? 13 : 11
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.ArrowCursor
+                        onClicked: mouse => {
+                            mouse.accepted = true;
+                            if (modelData.invoke)
+                                modelData.invoke();
                         }
                     }
                 }
