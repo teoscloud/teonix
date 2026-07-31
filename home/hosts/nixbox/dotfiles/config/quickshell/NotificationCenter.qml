@@ -874,8 +874,8 @@ Scope {
         // Toast chrome ~20% larger; drawer keeps denser sizing
         readonly property int mediaSize: toastMode ? 62 : 52
         readonly property int pad: toastMode ? 10 : 8
-        readonly property int titlePx: toastMode ? 17 : 14
-        readonly property int bodyPx: toastMode ? 14 : 12
+        readonly property int titlePx: toastMode ? 19 : 14
+        readonly property int bodyPx: toastMode ? 15 : 12
         readonly property bool hasActions: !!(notif && notif.actions && notif.actions.length > 0)
 
         // Height from icon + text only — action chips overlay, never grow the card
@@ -1012,7 +1012,7 @@ Scope {
                         text: "✕"
                         color: root.colMuted
                         font.family: Theme.fontFamilyUi
-                        font.pixelSize: toastMode ? 13 : 11
+                        font.pixelSize: toastMode ? 14 : 11
                         opacity: 0.7
                         MouseArea {
                             anchors.fill: parent
@@ -1068,7 +1068,7 @@ Scope {
                         text: modelData.text || modelData.identifier || "Action"
                         color: root.colFg
                         font.family: Theme.fontFamilyUi
-                        font.pixelSize: toastMode ? 13 : 11
+                        font.pixelSize: toastMode ? 14 : 11
                     }
                     MouseArea {
                         anchors.fill: parent

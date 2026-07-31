@@ -6,14 +6,14 @@ import QtQuick
 import "theme.js" as Theme
 
 // Transparent Master HW hit target over the bar volume pill.
-// Geometry: BUSCHAIN_CONTROL_SCROLL_* env (see HANDOVER-QUICKSHELL.md).
+// Matches WorkspaceBar: full bar-height hitbox; forwards hover for pill gray.
 Scope {
     id: root
 
     // Prefer Bar-tracked pill geometry (Globals); env remains a fallback/override.
     readonly property int stripW: Math.max(40, Globals.volStripWidth || Number(Quickshell.env("BUSCHAIN_CONTROL_SCROLL_WIDTH") || 110))
-    readonly property int stripH: Math.max(24, Number(Quickshell.env("BUSCHAIN_CONTROL_SCROLL_HEIGHT") || 38))
-    readonly property int marginTop: Number(Quickshell.env("BUSCHAIN_CONTROL_SCROLL_MARGIN_TOP") || 1)
+    readonly property int stripH: Theme.barHeight
+    readonly property int marginTop: Number(Quickshell.env("BUSCHAIN_CONTROL_SCROLL_MARGIN_TOP") || 0)
     readonly property int marginX: Globals.volStripMarginX >= 0
         ? Globals.volStripMarginX
         : Number(Quickshell.env("BUSCHAIN_CONTROL_SCROLL_MARGIN_X") || 120)
@@ -41,6 +41,8 @@ Scope {
 
     function applyNotches(n) {
         if (n === 0)
+            return;
+        if (!Globals.hwVolOnline)
             return;
         const times = Math.abs(n);
         const dir = n > 0 ? "up" : "down";
@@ -82,9 +84,16 @@ Scope {
             }
 
             MouseArea {
+                id: stripMa
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton
+                hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
+                onContainsMouseChanged: Globals.volStripHovered = containsMouse
+                Component.onDestruction: {
+                    if (Globals.volStripHovered)
+                        Globals.volStripHovered = false;
+                }
                 onClicked: Globals.toggleMixer()
                 onWheel: event => {
                     const n = root.notchesFromWheel(event.angleDelta.y);

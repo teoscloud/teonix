@@ -4,62 +4,73 @@ import QtQuick
 import "theme.js" as Theme
 import "components"
 
-Pill {
+// Visual pill stays module-height; hitbox uses full bar height (same as WorkspaceBar).
+Item {
     id: root
-    implicitHeight: Theme.moduleHeight
-    implicitWidth: Math.max(row.implicitWidth + 22, 64)
-    hovered: ma.containsMouse || Globals.mixerOpen
+    implicitHeight: Theme.barHeight
+    implicitWidth: pill.width + 16
 
+    readonly property int pillW: pill.width
     property int pct: Globals.hwVolPct
     property bool muted: Globals.hwVolMuted
     property bool online: Globals.hwVolOnline
     property real accum: 0
 
-    Row {
-        id: row
+    Pill {
+        id: pill
         anchors.centerIn: parent
-        spacing: 6
-        opacity: root.online ? 1 : 0.85
+        implicitHeight: Theme.moduleHeight
+        implicitWidth: Math.max(row.implicitWidth + 22, 64)
+        // Strip layer sits above the bar and steals hover — include Globals.volStripHovered
+        hovered: hitMa.containsMouse || Globals.volStripHovered || Globals.mixerOpen
 
-        Text {
-            id: icon
-            text: !root.online ? "󰕦" : (root.muted ? "󰖁" : (root.pct < 34 ? "󰕿" : (root.pct < 67 ? "󰖀" : "󰕾")))
-            color: !root.online ? Theme.danger : (root.muted ? Theme.danger : Theme.fg)
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSize
-            verticalAlignment: Text.AlignVCenter
-        }
+        Row {
+            id: row
+            anchors.centerIn: parent
+            spacing: 6
+            opacity: root.online ? 1 : 0.85
 
-        // Digits sit high in FiraCode NF vs nerd icons — pin to icon line box + nudge down
-        Item {
-            width: pctLabel.implicitWidth
-            height: icon.height
             Text {
-                id: pctLabel
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.verticalCenterOffset: 1
-                text: root.online ? (root.pct + "%") : "—"
+                id: icon
+                text: !root.online ? "󰕦" : (root.muted ? "󰖁" : (root.pct < 34 ? "󰕿" : (root.pct < 67 ? "󰖀" : "󰕾")))
                 color: !root.online ? Theme.danger : (root.muted ? Theme.danger : Theme.fg)
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSm
-                font.bold: true
+                font.pixelSize: Theme.fontSize
                 verticalAlignment: Text.AlignVCenter
             }
+
+            // Digits sit high in FiraCode NF vs nerd icons — pin to icon line box + nudge down
+            Item {
+                width: pctLabel.implicitWidth
+                height: icon.height
+                Text {
+                    id: pctLabel
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: 1
+                    text: root.online ? (root.pct + "%") : "—"
+                    color: !root.online ? Theme.danger : (root.muted ? Theme.danger : Theme.fg)
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSm
+                    font.bold: true
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+        }
+
+        // Soft danger wash when daemon is down
+        Rectangle {
+            anchors.fill: parent
+            radius: 12
+            visible: !root.online
+            color: Qt.rgba(0.55, 0.18, 0.18, 0.28)
+            z: -1
         }
     }
 
-    // Soft danger wash when daemon is down
-    Rectangle {
-        anchors.fill: parent
-        radius: 12
-        visible: !root.online
-        color: Qt.rgba(0.55, 0.18, 0.18, 0.28)
-        z: -1
-    }
-
+    // Full bar-height click / wheel / hover target (extends past pill padding)
     MouseArea {
-        id: ma
+        id: hitMa
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor

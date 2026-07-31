@@ -44,6 +44,8 @@ Singleton {
     property int volStripWidth: 110
     property int volPillX: 120
     property int volPillWidth: 64
+    // ScrollStrip sits above the bar; forward hover so the pill can gray
+    property bool volStripHovered: false
 
     function bumpHwVol() {
         hwVolEpoch++;

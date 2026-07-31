@@ -51,7 +51,7 @@ Scope {
                     anchors.leftMargin: Theme.pad
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.max(0, workspaces.x - Theme.pad - Theme.spacing)
-                    height: Theme.moduleHeight
+                    height: Theme.barHeight
                     clip: true
 
                     Row {
@@ -59,9 +59,17 @@ Scope {
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: Theme.spacing
+                        height: Theme.barHeight
 
-                        ActiveWindow {
-                            id: activeWin
+                        // Center title pill in full bar-height row (VolumePill hitbox is barHeight)
+                        Item {
+                            id: activeWinSlot
+                            width: activeWin.width
+                            height: parent.height
+                            ActiveWindow {
+                                id: activeWin
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
                         }
 
                         VolumePill {
@@ -69,13 +77,14 @@ Scope {
                         }
 
                         function syncVolStrip() {
-                            // Screen-X of pill (bar left pad + title + gap)
-                            const x = Math.round(Theme.pad + activeWin.width + Theme.spacing);
-                            Globals.volPillX = Math.max(0, x);
-                            Globals.volPillWidth = Math.max(56, Math.round(volPill.width));
+                            // Outer hitbox (full bar height, like workspaces); visual pill centered inside
+                            const outerX = Math.round(Theme.pad + activeWinSlot.width + Theme.spacing);
+                            const padX = Math.max(0, Math.round((volPill.width - volPill.pillW) / 2));
+                            Globals.volPillX = Math.max(0, outerX + padX);
+                            Globals.volPillWidth = Math.max(56, Math.round(volPill.pillW));
                             Globals.volStripAnchor = "left";
-                            Globals.volStripMarginX = Math.max(0, x - 14);
-                            Globals.volStripWidth = Math.max(80, Math.round(volPill.width + 28));
+                            Globals.volStripMarginX = Math.max(0, outerX);
+                            Globals.volStripWidth = Math.max(80, Math.round(volPill.width));
                         }
 
                         Component.onCompleted: Qt.callLater(syncVolStrip)
@@ -83,7 +92,7 @@ Scope {
                     }
 
                     Connections {
-                        target: activeWin
+                        target: activeWinSlot
                         function onWidthChanged() { leftRow.syncVolStrip(); }
                     }
                     Connections {
