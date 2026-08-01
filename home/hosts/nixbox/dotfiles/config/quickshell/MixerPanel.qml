@@ -751,8 +751,9 @@ Scope {
                     selected: drow.isDefault
                     accent: root.colDefaultBlue
                     onActivated: {
-                        if (!drow.isDefault)
-                            mixerWin.runCtl(["default", drow.kind, String(device.name)]);
+                        // Always reassert — highlight can be true while streams / Master→HW
+                        // still need the SetDefault reclaim path after a BusChain restart.
+                        mixerWin.runCtl(["default", drow.kind, String(device.name)]);
                     }
                 }
             }
