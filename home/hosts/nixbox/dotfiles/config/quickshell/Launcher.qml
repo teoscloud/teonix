@@ -25,14 +25,19 @@ Scope {
     property string mathResult: ""
     property string mathExpr: ""
     property bool mathPending: false
+    property string pendingInsert: ""
+    property var appRecents: []
 
-    // Reactive results — ScriptModel re-runs when DesktopEntries / query / math change
+    readonly property string appRecentsPath: `${Quickshell.env("HOME")}/.config/qs-launcher-recents.json`
+
+    // Reactive results — ScriptModel re-runs when DesktopEntries / query / math / recents change
     ScriptModel {
         id: resultModel
         values: {
             const q = root.query.trim();
             const qLower = q.toLowerCase();
             const out = [];
+            const recentIds = root.appRecents || [];
 
             // Touch math props so calc rows stay reactive
             const mathRes = root.mathResult;
@@ -58,10 +63,42 @@ Scope {
 
             // Proven Quickshell pattern: spread ObjectModel.values into a real array
             const apps = [...DesktopEntries.applications.values];
+            const byId = {};
+            for (let i = 0; i < apps.length; i++) {
+                const e = apps[i];
+                if (e && e.id)
+                    byId[e.id] = e;
+            }
+
+            const used = {};
             const list = [];
+
+            // Empty query: surface recent apps first (preserve recency order)
+            if (!qLower) {
+                for (let r = 0; r < recentIds.length; r++) {
+                    const id = recentIds[r];
+                    const e = byId[id];
+                    if (!e || used[id])
+                        continue;
+                    used[id] = true;
+                    list.push({
+                        kind: "app",
+                        title: e.name || e.id || "App",
+                        subtitle: "Recent",
+                        entry: e,
+                        result: "",
+                        _rank: -1000 + r,
+                        _name: (e.name || "").toLowerCase()
+                    });
+                }
+            }
+
             for (let i = 0; i < apps.length; i++) {
                 const e = apps[i];
                 if (!e)
+                    continue;
+                const id = e.id || "";
+                if (used[id])
                     continue;
                 // DesktopEntries.applications already excludes NoDisplay/Hidden
                 const name = e.name || "";
@@ -78,16 +115,19 @@ Scope {
                 const hay = (name + " " + gen + " " + comment + " " + exec + " " + keys).toLowerCase();
                 if (qLower && hay.indexOf(qLower) < 0)
                     continue;
+                const recentBoost = 0;
                 const prefix = qLower && name.toLowerCase().indexOf(qLower) === 0 ? 0 : 1;
                 list.push({
                     kind: "app",
-                    title: name || e.id || "App",
+                    title: name || id || "App",
                     subtitle: comment || gen || exec,
                     entry: e,
                     result: "",
-                    _rank: prefix,
+                    _rank: recentBoost + prefix,
                     _name: name.toLowerCase()
                 });
+                if (id)
+                    used[id] = true;
             }
             list.sort((a, b) => {
                 if (a._rank !== b._rank)
@@ -176,14 +216,53 @@ Scope {
     function insertText(text) {
         if (!text)
             return;
-        insertProc.command = ["sh", "-c",
-            "printf %s " + shellQuote(text) + " | wl-copy && wtype -M ctrl -M shift v -m ctrl -m shift"
-        ];
-        insertProc.running = true;
+        root.pendingInsert = text;
+        insertDelay.restart();
     }
 
     function shellQuote(s) {
         return "'" + String(s).replace(/'/g, "'\\''") + "'";
+    }
+
+    function loadAppRecents() {
+        try {
+            const raw = appRecentsFile.text();
+            if (!raw || !raw.trim()) {
+                root.appRecents = [];
+                root.saveAppRecents();
+                return;
+            }
+            const parsed = JSON.parse(raw);
+            root.appRecents = Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            root.appRecents = [];
+            root.saveAppRecents();
+        }
+    }
+
+    function saveAppRecents() {
+        try {
+            appRecentsFile.setText(JSON.stringify(root.appRecents));
+        } catch (e) {
+            console.log("Launcher: failed to save app recents", e);
+        }
+    }
+
+    function pushAppRecent(entry) {
+        if (!entry)
+            return;
+        const id = entry.id || "";
+        if (!id)
+            return;
+        const next = [id];
+        for (let i = 0; i < root.appRecents.length; i++) {
+            if (root.appRecents[i] !== id)
+                next.push(root.appRecents[i]);
+            if (next.length >= 24)
+                break;
+        }
+        root.appRecents = next;
+        root.saveAppRecents();
     }
 
     function activateSelected() {
@@ -208,6 +287,7 @@ Scope {
             return;
         }
         if (item.kind === "app" && item.entry) {
+            root.pushAppRecent(item.entry);
             item.entry.execute();
             Globals.closeLauncher();
         }
@@ -258,6 +338,35 @@ Scope {
         interval: 180
         onTriggered: root.runQalc()
     }
+
+    Timer {
+        id: insertDelay
+        interval: 50
+        onTriggered: {
+            const text = root.pendingInsert;
+            root.pendingInsert = "";
+            if (!text)
+                return;
+            const script = Quickshell.shellPath("scripts/qs-insert-text.sh");
+            const args = ["bash", script, "--delay", "80"];
+            if (Globals.insertTargetAddress)
+                args.push("--focus", Globals.insertTargetAddress);
+            args.push("--", text);
+            insertProc.command = args;
+            insertProc.running = true;
+        }
+    }
+
+    FileView {
+        id: appRecentsFile
+        path: root.appRecentsPath
+        blockLoading: true
+        watchChanges: true
+        onLoaded: root.loadAppRecents()
+        onFileChanged: reload()
+    }
+
+    Component.onCompleted: appRecentsFile.reload()
 
     // Click-outside dismiss
     PanelWindow {
@@ -387,7 +496,7 @@ Scope {
                         Text {
                             anchors.fill: parent
                             verticalAlignment: Text.AlignVCenter
-                            text: "Search apps & calculate…"
+                            text: "Search apps & calculate… (recents when empty)"
                             color: root.colMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSize
@@ -516,6 +625,7 @@ Scope {
                 root.mathResult = "";
                 root.mathExpr = "";
                 root.mathPending = false;
+                root.loadAppRecents();
                 Qt.callLater(() => {
                     searchField.forceActiveFocus();
                     searchField.selectAll();

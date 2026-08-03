@@ -12,7 +12,6 @@ Scope {
 
     readonly property color colFg: "#f7f5ff"
     readonly property color colMuted: Qt.rgba(0.97, 0.96, 1.0, 0.72)
-    // Wallpaper-tinted frost (Hyprland blur shows through)
     readonly property color colPanel: Globals.glassColor(0.55)
     readonly property color colRow: Qt.rgba(1, 1, 1, 0.06)
     readonly property color colRowHover: Qt.rgba(1, 1, 1, 0.12)
@@ -21,11 +20,14 @@ Scope {
 
     readonly property string catalogPath: Quickshell.shellPath("data/emojis.json")
     readonly property string recentsPath: `${Quickshell.env("HOME")}/.config/qs-emoji-recents.json`
+    readonly property string insertScript: Quickshell.shellPath("scripts/qs-insert-text.sh")
 
     property var allEmojis: []
     property var recents: []
     property string search: ""
-    property string activeCategory: "Recents"
+    property string activeCategory: "Smileys"
+    property int selected: 0
+    property string pendingInsert: ""
     property var categoryOrder: [
         "Recents", "Smileys", "People", "Animals", "Nature",
         "Food", "Activity", "Travel", "Objects", "Symbols", "Flags"
@@ -66,6 +68,10 @@ Scope {
         return out;
     }
 
+    readonly property int displayCount: root.displayed.length
+
+    property bool applyCategoryOnLoad: false
+
     function loadCatalog() {
         try {
             const raw = catalogFile.text();
@@ -82,26 +88,37 @@ Scope {
     function loadRecents() {
         try {
             const raw = recentsFile.text();
-            if (!raw || !raw.trim()) {
-                root.recents = [];
-                // Seed empty file so FileView stops warning on missing path
-                root.saveRecents();
-                return;
+            if (raw && raw.trim()) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed))
+                    root.recents = parsed;
             }
-            const parsed = JSON.parse(raw);
-            root.recents = Array.isArray(parsed) ? parsed : [];
         } catch (e) {
-            root.recents = [];
-            root.saveRecents();
+            console.log("EmojiPicker: recents parse failed", e);
+        }
+        if (root.applyCategoryOnLoad) {
+            root.applyCategoryOnLoad = false;
+            root.activeCategory = root.recents.length > 0 ? "Recents" : "Smileys";
+            root.selected = 0;
         }
     }
 
+    // Prefer FileView.setText so the in-memory view stays in sync with disk
     function saveRecents() {
+        const json = JSON.stringify(root.recents);
         try {
-            recentsFile.setText(JSON.stringify(root.recents));
+            recentsFile.setText(json);
+            return;
         } catch (e) {
-            console.log("EmojiPicker: failed to save recents", e);
+            console.log("EmojiPicker: setText failed, falling back to shell write", e);
         }
+        saveProc.command = ["bash", "-c",
+            "umask 022; printf '%s' \"$1\" > \"$2\"",
+            "qs-emoji-save",
+            json,
+            root.recentsPath
+        ];
+        saveProc.running = true;
     }
 
     function pushRecent(emoji) {
@@ -118,25 +135,67 @@ Scope {
         root.saveRecents();
     }
 
-    function shellQuote(s) {
-        return "'" + String(s).replace(/'/g, "'\\''") + "'";
+    function clampSelected() {
+        if (root.displayCount <= 0) {
+            root.selected = 0;
+            return;
+        }
+        if (root.selected < 0)
+            root.selected = 0;
+        if (root.selected >= root.displayCount)
+            root.selected = root.displayCount - 1;
+    }
+
+    function colsForWidth(w) {
+        const cw = 52;
+        return Math.max(1, Math.floor(w / cw));
+    }
+
+    function moveSelection(delta) {
+        if (root.displayCount <= 0)
+            return;
+        root.selected = (root.selected + delta + root.displayCount) % root.displayCount;
+        grid.positionViewAtIndex(root.selected, GridView.Contain);
     }
 
     function insertEmoji(emoji) {
         if (!emoji)
             return;
         root.pushRecent(emoji);
-        insertProc.command = ["sh", "-c",
-            "printf %s " + shellQuote(emoji) + " | wl-copy && wtype -M ctrl -M shift v -m ctrl -m shift"
-        ];
-        insertProc.running = true;
+        root.pendingInsert = emoji;
         Globals.closeEmoji();
+        insertDelay.restart();
+    }
+
+    function insertSelected() {
+        const list = root.displayed;
+        if (!list || list.length === 0)
+            return;
+        root.clampSelected();
+        root.insertEmoji(list[root.selected].emoji);
     }
 
     function insertRecentIndex(idx) {
         if (idx < 0 || idx >= root.recents.length)
             return;
         root.insertEmoji(root.recents[idx]);
+    }
+
+    Timer {
+        id: insertDelay
+        interval: 50
+        onTriggered: {
+            const emoji = root.pendingInsert;
+            root.pendingInsert = "";
+            if (!emoji)
+                return;
+            const args = ["bash", root.insertScript, "--delay", "80"];
+            if (Globals.insertTargetAddress)
+                args.push("--focus", Globals.insertTargetAddress);
+            args.push("--", emoji);
+            insertProc.command = args;
+            insertProc.running = true;
+        }
     }
 
     FileView {
@@ -152,11 +211,19 @@ Scope {
         id: recentsFile
         path: root.recentsPath
         blockLoading: true
-        watchChanges: true
+        watchChanges: false
         onLoaded: root.loadRecents()
-        onFileChanged: reload()
     }
 
+    Process {
+        id: saveProc
+        onExited: code => {
+            if (code === 0)
+                recentsFile.reload();
+            else
+                console.log("EmojiPicker: shell save failed", code);
+        }
+    }
     Process { id: insertProc }
 
     Component.onCompleted: {
@@ -164,7 +231,7 @@ Scope {
         recentsFile.reload();
     }
 
-    // Click-outside
+    // Click-outside dismiss (separate layer under the panel)
     PanelWindow {
         visible: Globals.emojiOpen
         exclusiveZone: 0
@@ -192,8 +259,7 @@ Scope {
         visible: Globals.emojiOpen
         exclusiveZone: 0
         exclusionMode: ExclusionMode.Ignore
-        // Alpha on the layer surface — required for Hyprland blurls/layerrule frost
-        color: root.colPanel
+        color: "transparent"
         aboveWindows: true
         focusable: true
         WlrLayershell.namespace: "quickshell:emoji"
@@ -206,6 +272,7 @@ Scope {
             bottom: true
         }
 
+        // Only the panel captures input — rest passes through to dismiss layer
         HyprlandWindow.visibleMask: Region {
             item: panel
             radius: 22
@@ -219,23 +286,25 @@ Scope {
             width: 480
             height: 420
             radius: 22
-            color: "transparent"
+            color: root.colPanel
             border.color: root.colBorder
             border.width: 1
             clip: true
 
+            // Swallow clicks on chrome so they don't dismiss
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.AllButtons
-                onClicked: {}
+                onPressed: event => event.accepted = true
+                z: 0
             }
 
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 14
                 spacing: 10
+                z: 1
 
-                // Search
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
@@ -253,11 +322,34 @@ Scope {
                         font.pixelSize: Theme.fontSizeSm
                         focus: Globals.emojiOpen
                         text: root.search
-                        onTextChanged: root.search = text
+                        onTextChanged: {
+                            root.search = text;
+                            root.selected = 0;
+                        }
 
                         Keys.onPressed: event => {
-                            if (event.key === Qt.Key_Escape) {
+                            const cols = root.colsForWidth(grid.width);
+                            const key = event.key;
+                            const ctrl = !!(event.modifiers & Qt.ControlModifier);
+
+                            if (key === Qt.Key_Escape) {
                                 Globals.closeEmoji();
+                                event.accepted = true;
+                            } else if (key === Qt.Key_Return || key === Qt.Key_Enter
+                                       || (ctrl && key === Qt.Key_W)) {
+                                root.insertSelected();
+                                event.accepted = true;
+                            } else if (key === Qt.Key_Right || (ctrl && key === Qt.Key_E)) {
+                                root.moveSelection(1);
+                                event.accepted = true;
+                            } else if (key === Qt.Key_Left || (ctrl && key === Qt.Key_Q)) {
+                                root.moveSelection(-1);
+                                event.accepted = true;
+                            } else if (key === Qt.Key_Down || (ctrl && key === Qt.Key_F)) {
+                                root.moveSelection(cols);
+                                event.accepted = true;
+                            } else if (key === Qt.Key_Up || (ctrl && key === Qt.Key_R)) {
+                                root.moveSelection(-cols);
                                 event.accepted = true;
                             }
                         }
@@ -282,7 +374,6 @@ Scope {
                     }
                 }
 
-                // Category tabs — horizontal scroll
                 Flickable {
                     id: tabsFlick
                     Layout.fillWidth: true
@@ -304,7 +395,6 @@ Scope {
                             delegate: Rectangle {
                                 required property string modelData
                                 readonly property bool active: root.activeCategory === modelData
-                                // Hide Recents tab label still shown; empty recents ok
                                 width: tabLabel.implicitWidth + 18
                                 height: 32
                                 radius: 10
@@ -315,7 +405,9 @@ Scope {
                                 Text {
                                     id: tabLabel
                                     anchors.centerIn: parent
-                                    text: modelData
+                                    text: modelData === "Recents"
+                                        ? (root.recents.length ? ("Recents · " + root.recents.length) : "Recents")
+                                        : modelData
                                     color: active ? root.colFg : root.colMuted
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 13
@@ -323,15 +415,17 @@ Scope {
                                 }
                                 MouseArea {
                                     anchors.fill: parent
-                                    cursorShape: Qt.ArrowCursor
-                                    onClicked: root.activeCategory = modelData
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.activeCategory = modelData;
+                                        root.selected = 0;
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                // Grid
                 GridView {
                     id: grid
                     Layout.fillWidth: true
@@ -341,27 +435,45 @@ Scope {
                     cellHeight: 52
                     model: root.displayed
                     boundsBehavior: Flickable.StopAtBounds
+                    currentIndex: root.selected
+                    keyNavigationEnabled: false
+                    interactive: true
+
+                    onCountChanged: root.clampSelected()
 
                     delegate: Item {
+                        id: cell
                         required property var modelData
                         required property int index
                         width: grid.cellWidth
                         height: grid.cellHeight
+
+                        readonly property string emojiChar: {
+                            if (!modelData)
+                                return "";
+                            if (typeof modelData === "string")
+                                return modelData;
+                            return modelData.emoji || "";
+                        }
+                        readonly property bool isSelected: index === root.selected
 
                         Rectangle {
                             anchors.centerIn: parent
                             width: 44
                             height: 44
                             radius: 12
-                            color: cellMa.containsMouse ? root.colRowHover : "transparent"
+                            color: cell.isSelected || cellMa.containsMouse
+                                ? root.colRowHover
+                                : "transparent"
+                            border.color: cell.isSelected ? root.colAccent : "transparent"
+                            border.width: cell.isSelected ? 1 : 0
 
                             Text {
                                 anchors.centerIn: parent
-                                text: modelData.emoji || ""
+                                text: cell.emojiChar
                                 font.pixelSize: 26
                             }
 
-                            // Ctrl+1..5 badges on first five Recents when not searching
                             Rectangle {
                                 visible: root.search.trim() === ""
                                     && root.activeCategory === "Recents"
@@ -388,8 +500,13 @@ Scope {
                                 id: cellMa
                                 anchors.fill: parent
                                 hoverEnabled: true
-                                cursorShape: Qt.ArrowCursor
-                                onClicked: root.insertEmoji(modelData.emoji)
+                                cursorShape: Qt.PointingHandCursor
+                                preventStealing: true
+                                onEntered: root.selected = index
+                                onClicked: {
+                                    root.selected = index;
+                                    root.insertEmoji(cell.emojiChar);
+                                }
                             }
                         }
                     }
@@ -397,7 +514,11 @@ Scope {
                     Text {
                         anchors.centerIn: parent
                         visible: grid.count === 0
-                        text: root.search.trim() ? "No matches" : "No recent emoji yet"
+                        text: root.search.trim()
+                            ? "No matches"
+                            : (root.activeCategory === "Recents"
+                                ? "No recent emoji yet — pick from Smileys"
+                                : "Empty category")
                         color: root.colMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSm
@@ -406,9 +527,13 @@ Scope {
 
                 Text {
                     Layout.fillWidth: true
-                    text: root.search.trim()
-                        ? (grid.count + " matches")
-                        : "Ctrl+1…5 insert latest recents"
+                    text: {
+                        if (root.search.trim())
+                            return grid.count + " matches · Enter to insert";
+                        if (root.activeCategory === "Recents" && root.recents.length)
+                            return "Ctrl+Q/E ←→ · Ctrl+R/F ↑↓ · Ctrl+W/Enter paste";
+                        return "Ctrl+Q/E ←→ · Ctrl+R/F ↑↓ · Ctrl+W or Enter to paste";
+                    }
                     color: root.colMuted
                     font.family: Theme.fontFamily
                     font.pixelSize: 12
@@ -420,8 +545,10 @@ Scope {
         onVisibleChanged: {
             if (visible) {
                 root.search = "";
-                root.activeCategory = "Recents";
-                root.loadRecents();
+                root.selected = 0;
+                root.applyCategoryOnLoad = true;
+                // Reload from disk so Recents reflect the last save (FileView cache)
+                recentsFile.reload();
                 Qt.callLater(() => searchField.forceActiveFocus());
             }
         }

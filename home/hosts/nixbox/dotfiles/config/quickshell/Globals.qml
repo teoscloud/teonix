@@ -1,6 +1,7 @@
 pragma Singleton
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import QtQuick
 
 Singleton {
@@ -10,6 +11,8 @@ Singleton {
     property bool launcherOpen: false
     property bool emojiOpen: false
     property int notifCount: 0
+    // Window to receive insert/paste after overlays close (Hyprland address 0x…)
+    property string insertTargetAddress: ""
 
     // Bar + dock only on this Hyprland output (hyprctl monitors)
     property string shellMonitor: "DP-1"
@@ -173,7 +176,28 @@ Singleton {
         }
     }
 
+    function formatAddress(addr) {
+        if (addr === undefined || addr === null || addr === "")
+            return "";
+        let s = String(addr).trim();
+        if (s.indexOf("0x") === 0 || s.indexOf("0X") === 0)
+            return s;
+        if (/^[0-9]+$/.test(s))
+            return "0x" + Number(s).toString(16);
+        if (/^[0-9a-fA-F]+$/.test(s))
+            return "0x" + s;
+        return s;
+    }
+
+    // Capture the real client under focus BEFORE an overlay steals it
+    function captureInsertTarget() {
+        const t = Hyprland.activeToplevel || Hyprland.focusedToplevel;
+        insertTargetAddress = formatAddress(t?.address || t?.lastIpcObject?.address);
+    }
+
     function toggleLauncher() {
+        if (!launcherOpen)
+            captureInsertTarget();
         launcherOpen = !launcherOpen;
         if (launcherOpen) {
             mixerOpen = false;
@@ -184,6 +208,7 @@ Singleton {
     }
 
     function openLauncher() {
+        captureInsertTarget();
         launcherOpen = true;
         mixerOpen = false;
         notifDrawerOpen = false;
@@ -196,6 +221,8 @@ Singleton {
     }
 
     function toggleEmoji() {
+        if (!emojiOpen)
+            captureInsertTarget();
         emojiOpen = !emojiOpen;
         if (emojiOpen) {
             mixerOpen = false;
@@ -206,6 +233,7 @@ Singleton {
     }
 
     function openEmoji() {
+        captureInsertTarget();
         emojiOpen = true;
         mixerOpen = false;
         notifDrawerOpen = false;
