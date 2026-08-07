@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
-# Pick the best recent autosave (most windows) instead of stale `latest`.
-# `hyprflow restore --max-age 24h` alone skips when latest.json is old but autosaves exist.
+# Restore the richest recent autosave (or latest), after Hyprland + monitors settle.
+# Prefer autosave-* within MAX_AGE; fall back to latest.json.
 set -euo pipefail
 
-MAX_AGE_HOURS=24
-RESTORE_DELAY_SEC=2
+MAX_AGE_HOURS=36
+RESTORE_DELAY_SEC=3
 
-SESSIONS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/hyprflow/sessions"
+export PATH="/run/current-system/sw/bin:${HOME}/.nix-profile/bin:${PATH:-}"
+SESSIONS_DIR="${XDG_DATA_HOME:-$HOME}/.local/share/hyprflow/sessions"
 
+# Wait for Hyprland IPC + at least one monitor
+for _ in $(seq 1 30); do
+  if hyprctl monitors -j >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
 sleep "$RESTORE_DELAY_SEC"
 
 pick_best_autosave() {
@@ -53,15 +61,20 @@ if [[ ! -d "$SESSIONS_DIR" ]]; then
   exit 0
 fi
 
+if ! command -v hyprflow >/dev/null 2>&1; then
+  echo "hyprflow-restore: hyprflow not in PATH, skipping" >&2
+  exit 0
+fi
+
 session="$(pick_best_autosave || true)"
 if [[ -n "$session" ]]; then
   echo "hyprflow-restore: restoring '$session'" >&2
-  exec hyprflow restore "$session"
+  exec hyprflow restore "$session" --verbose
 fi
 
 if [[ -f "$SESSIONS_DIR/latest.json" ]]; then
   echo "hyprflow-restore: no recent autosave, trying latest" >&2
-  exec hyprflow restore latest --max-age "${MAX_AGE_HOURS}h"
+  exec hyprflow restore latest --max-age "${MAX_AGE_HOURS}h" --verbose
 fi
 
 echo "hyprflow-restore: nothing to restore" >&2

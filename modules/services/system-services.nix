@@ -66,6 +66,15 @@
           }
         ];
       };
+      # Permanent fix for Brave/Chromium/TikTok silent audio:
+      # WirePlumber was restoring per-app target.object to stale buschain_track_<uuid>
+      # (or dead easyeffects_sink) → Chromium NullAudioSink (decode OK, no Pulse stream).
+      # BusChain owns routing via preferred default + reclaim; do not pin apps to UUIDs.
+      wireplumber.extraConfig."99-no-stale-stream-targets" = {
+        "wireplumber.settings" = {
+          "node.stream.restore-target" = false;
+        };
+      };
     };
     
 

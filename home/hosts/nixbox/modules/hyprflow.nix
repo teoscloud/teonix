@@ -1,15 +1,12 @@
-{ unstable-pkgs, ... }:
+{ ... }:
 
+# Use the system package (`modules/apps/packages.nix`) — do not rebuild hyprflow here.
 let
-  hyprflow = import ../../../../modules/apps/hyprflow.nix {
-    lib = unstable-pkgs.lib;
-    rustPlatform = unstable-pkgs.rustPlatform;
-    fetchFromGitHub = unstable-pkgs.fetchFromGitHub;
-  };
+  hf = "/run/current-system/sw/bin/hyprflow";
 in
 {
   # Declarative autosave timer (replaces `hyprflow autosave --install`).
-  # HM uses Unit/Service/Timer/Install — not unitConfig/serviceConfig (those become invalid sections).
+  # IMPORTANT: systemd ExecStart cannot use shell `&&` — use ExecStart + ExecStartPost.
   systemd.user.services.hyprflow-autosave = {
     Unit = {
       Description = "Hyprflow autosave Hyprland session";
@@ -17,8 +14,9 @@ in
     };
     Service = {
       Type = "oneshot";
-      # Keep `latest` in sync so plain restore works; autosave-* alone is not the default session.
-      ExecStart = "${hyprflow}/bin/hyprflow autosave --now && ${hyprflow}/bin/hyprflow save --force";
+      # Rotate autosave-* then refresh `latest` (plain `hyprflow restore` default).
+      ExecStart = "${hf} autosave --now";
+      ExecStartPost = "${hf} save --force";
     };
   };
 
@@ -35,7 +33,7 @@ in
     };
     Service = {
       Type = "oneshot";
-      ExecStart = "${hyprflow}/bin/hyprflow save --force";
+      ExecStart = "${hf} save --force";
       TimeoutStartSec = 30;
     };
     Install = {
