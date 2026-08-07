@@ -16,9 +16,6 @@ in {
   # ✅ Hyprland scripts
   home.file.".config/hypr/cyclemon.sh".source = "${dotfilesPath}/config/hypr/cyclemon.sh";
 
-  # wlogout
-  home.file.".config/wlogout/*".source = "${dotfilesPath}/config/wlogout/*";
-
   # ✅ Symlink other application configurations
   home.file.".config/kitty/kitty.conf".source = "${dotfilesPath}/config/kitty/kitty.conf";
   home.file.".config/nwg-look/config".source = "${dotfilesPath}/config/nwg-look/config";

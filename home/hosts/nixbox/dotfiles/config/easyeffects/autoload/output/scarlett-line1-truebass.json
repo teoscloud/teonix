@@ -1,6 +1,0 @@
-{
-    "device": "alsa_output.usb-Focusrite_Scarlett_2i4_USB-00.HiFi__Line1__sink",
-    "device-description": "Scarlett 2i4 Line 1-2",
-    "device-profile": "[Out] Line1",
-    "preset-name": "truebass"
-}

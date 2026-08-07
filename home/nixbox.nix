@@ -38,24 +38,4 @@
     systemctl --user stop swaync.service 2>/dev/null || true
     systemctl --user mask swaync.service 2>/dev/null || true
   '';
-
-  # EasyEffects daemon — starts with graphical session (Hyprland login)
-  services.easyeffects = {
-    enable = true;
-    preset = "truebass";
-  };
-
-  # Upstream/--gapplication-service often ignores --load-preset; force after start.
-  systemd.user.services.easyeffects.Service.ExecStartPost =
-    "${pkgs.easyeffects}/bin/easyeffects --load-preset truebass";
-
-  # Ship preset + Scarlett autoload (force: replace previously unmanaged copies)
-  home.file.".local/share/easyeffects/output/truebass.json" = {
-    source = ./hosts/nixbox/dotfiles/config/easyeffects/output/truebass.json;
-    force = true;
-  };
-  home.file.".local/share/easyeffects/autoload/output/alsa_output.usb-Focusrite_Scarlett_2i4_USB-00.HiFi__Line1__sink:[Out] Line1.json" = {
-    source = ./hosts/nixbox/dotfiles/config/easyeffects/autoload/output/scarlett-line1-truebass.json;
-    force = true;
-  };
 }

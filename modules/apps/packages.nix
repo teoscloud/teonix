@@ -420,7 +420,7 @@ in {
     # Miscellaneous    #
     ####################
     
-        stress              # CPU stress testing tool
+    stress              # CPU stress testing tool
     
     winetricks           # Wine helper tool
 
@@ -430,7 +430,6 @@ in {
     ]))
 
     free42              # Calculator app
-    mangohud            # Gaming performance overlay
     prismlauncher       # Minecraft launcher
     mediawriter         # Fedora Media Writer
     piper               # Configure gaming mice
@@ -448,7 +447,6 @@ in {
       )
     )
     xivlauncher
-    wl-clipboard         # Wayland clipboard tools
     brightnessctl       # Adjust screen brightness
     tree                # Directory tree visualization
     neovide             # Neovim GUI client
@@ -503,78 +501,22 @@ in {
     steam-devices-udev-rules
     bridge-utils
     dnsmasq
-    powertop
-    docker-compose
-    zsh
-    apple-cursor
-    wl-clipboard
     clipman
-    pciutils
-    ffmpeg
-    socat
     cowsay
-    ripgrep
-    lshw
-    bat
-    pkg-config
-    meson
-    brightnessctl
-    swappy
-    appimage-run
-    yad
-    inxi
-    playerctl
-    pkgs.nixfmt
-    grim
-    slurp
-    swaynotificationcenter
-    imv
-    mpv
-    pavucontrol
-    tree
-    neovide
+    nixfmt
     tuigreet
-    killall
-    eza
-    cmatrix
-    lolcat
-    htop
     lxqt.lxqt-policykit
-    lm_sensors
-    unzip
-    unrar
     libnotify
     v4l-utils
     ydotool
-    duf
-    ncdu
-    jq
-    spotify
-    spotify-tray
-    wofi
     rofi
-    wofi-emoji
-    waybar
     wlogout
     nwg-look
-    pywal
-    material-icons
     distrobox
     firefox-esr
-    stress
-    btop
-    piper
-    whitesur-gtk-theme
-    mangohud
     protonup-ng
     
-    protontricks
-    prismlauncher
-    mediawriter
-    free42
     moonlight-qt
-    mousam
-    dolphin-emu
     fuse3
     zip
     awww                 # Wallpaper management for sway and Hyprland
@@ -584,7 +526,6 @@ in {
     file
 
     # build tools
-    ninja
     libgcc
     vcpkg
     gnumake
@@ -601,7 +542,6 @@ in {
     nix-index
     
     qbittorrent
-    easyeffects
     carla
     yabridge
     yabridgectl
@@ -647,7 +587,6 @@ in {
     
 
     pcsx2
-    fastfetch
     onlyoffice-desktopeditors
     tradingview
     wtype
@@ -661,7 +600,6 @@ in {
 
     kitty
 
-    lm_sensors
 
     #kdePackages.xwaylandvideobridge potentially needed
     whatsapp-electron

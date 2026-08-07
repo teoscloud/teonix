@@ -22,14 +22,13 @@
     # Freedesktop Secret Service for Mailspring, browsers, etc. (not KWallet).
     gnome.gnome-keyring.enable = true;
 
-    # Display Manager - GDM (GNOME); shows Plasma + GNOME + Hyprland sessions
-    # Note: Having both SDDM and GDM enabled can cause conflicts
+    # Display Manager - GDM; session picker includes Plasma + GNOME + Hyprland
     displayManager = {
       gdm.enable = true;
       defaultSession = "gnome";
     };
 
-    # Desktop Managers - KDE Plasma 6 + GNOME (SDDM shows both sessions)
+    # Desktop Managers - KDE Plasma 6 + GNOME (Hyprland is via programs.hyprland)
     desktopManager = {
       plasma6 = {
         enable = true;

@@ -1,4 +1,4 @@
-{ config, pkgs, username, ... }:
+{ config, pkgs, username, hostname ? "", lib, ... }:
 
 {
   virtualisation = {
@@ -15,8 +15,8 @@
       rootless = {
         enable = true;
         setSocketVariable = true;
-        # For rootless Docker, daemon settings must be under rootless.daemon.settings
-        daemon.settings = {
+        # Desktop docker data lives on the big disk; other hosts keep the default.
+        daemon.settings = lib.mkIf (hostname == "nixbox") {
           data-root = "/home/teodor/mnt/qvo870/dockerdata";
         };
       };

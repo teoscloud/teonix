@@ -12,7 +12,7 @@ Teonix is a modular and customized NixOS configuration designed for seamless por
 
 - 🔧 Pre-configured system with sensible defaults
 - 🏠 Integrated Home Manager setup
-- 🎨 Custom dotfiles (Hyprland, Kitty, Waybar, etc.)
+- 🎨 Custom dotfiles (Hyprland, Kitty, Quickshell on nixbox / Waybar elsewhere)
 - 📦 Curated package selection
 - 💻 Host-specific configurations (Desktop/Laptop)
 - 🔄 Easy synchronization between machines
@@ -38,9 +38,9 @@ This will create a `~/teonix` directory, which will be used by Home Manager and 
 
 The default installation provides the full Teonix experience, including:
 
-✨ Customized dotfiles (Hyprland, Kitty, Waybar, etc.)  
+✨ Customized dotfiles (Hyprland, Kitty, Waybar/Quickshell, etc.)  
 🔧 Pre-configured system settings  
-🏠 Home Manager for user configuration  
+🏠 Home Manager nested in the NixOS flake (standalone `homeConfigurations` also available)  
 🎮 No GPU passthrough or EDID patches required  
 
 ```bash
@@ -51,9 +51,8 @@ sudo nixos-generate-config
 # 3. Generate flake.lock
 nix flake update
 
-# 4. Apply Teonix configuration:
-sudo nixos-rebuild switch --flake "path:."#$HOST
-home-manager switch --flake "path:."#$HOST
+# 4. Apply Teonix (Home Manager is included — no separate switch required):
+sudo nixos-rebuild switch --flake "path:."#$HOST --impure
 ```
 
 #### 🖥️ Desktop Setup (Nixbox)
@@ -66,15 +65,14 @@ Perfect for desktop workstations with:
 
 ```bash
 # 1. Install EDID firmware first!
-cd ~/teonix/scripts
+cd ~/teonix/preinstallscripts
 sudo ./edidinstall.sh
 
 # 2. Generate flake.lock
 nix flake update
 
-# 3. Apply configuration:
+# 3. Apply configuration (HM is nested; --impure for EDID / HOSTNAME):
 sudo nixos-rebuild switch --flake "path:."#nixbox --impure
-home-manager switch --flake "path:."#nixbox
 ```
 
 #### 💻 Laptop Setup (Nixtop)
@@ -91,8 +89,7 @@ Optimized for portable devices with:
 nix flake update
 
 # 2. Apply configuration:
-sudo nixos-rebuild switch --flake "path:."#nixtop
-home-manager switch --flake "path:."#nixtop
+sudo nixos-rebuild switch --flake "path:."#nixtop --impure
 ```
 
 ## 🎨 Customization
@@ -102,7 +99,7 @@ home-manager switch --flake "path:."#nixtop
 Get the Apple emoji experience:
 
 ```bash
-cd ~/teonix/scripts
+cd ~/teonix/preinstallscripts
 ./iosemojis.sh
 ```
 
