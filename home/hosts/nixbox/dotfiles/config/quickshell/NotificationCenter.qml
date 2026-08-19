@@ -921,7 +921,8 @@ Scope {
                 Layout.preferredWidth: card.mediaSize
                 Layout.preferredHeight: card.mediaSize
                 Layout.alignment: Qt.AlignTop
-                radius: toastMode ? 12 : 10
+                // Always circular — square inline images must not bleed through as squares
+                radius: card.mediaSize / 2
                 color: root.colCard
                 border.color: Qt.rgba(1, 1, 1, 0.08)
                 border.width: 1
@@ -972,7 +973,7 @@ Scope {
                     anchors.margins: 2
                     width: toastMode ? 22 : 18
                     height: toastMode ? 22 : 18
-                    radius: 6
+                    radius: width / 2
                     color: Qt.rgba(0.08, 0.08, 0.1, 0.92)
                     border.color: Qt.rgba(1, 1, 1, 0.18)
                     border.width: 1

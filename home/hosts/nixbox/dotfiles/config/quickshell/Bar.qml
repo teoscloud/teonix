@@ -143,10 +143,20 @@ Scope {
                                         source: modelData.icon
                                         asynchronous: false
                                         mipmap: false
+                                        // Hide Qt's magenta/black missing-texture when SNI/theme icon fails
+                                        visible: status === Image.Ready && !!source
                                         // Ask SNI/provider for denser pixels, then display smaller
                                         backer.sourceSize.width: Math.round(Theme.trayIcon * Screen.devicePixelRatio * 2)
                                         backer.sourceSize.height: Math.round(Theme.trayIcon * Screen.devicePixelRatio * 2)
                                         backer.smooth: true
+                                    }
+                                    Text {
+                                        anchors.centerIn: parent
+                                        visible: !trayGlyph.visible
+                                        text: "●"
+                                        color: Theme.fg
+                                        font.pixelSize: Theme.trayIcon - 4
+                                        opacity: 0.55
                                     }
 
                                     QsMenuAnchor {
