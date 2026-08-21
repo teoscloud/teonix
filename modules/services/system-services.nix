@@ -66,14 +66,90 @@
           }
         ];
       };
-      # Permanent fix for Brave/Chromium/TikTok silent audio:
-      # WirePlumber was restoring per-app target.object to stale buschain_track_<uuid>
-      # (or dead easyeffects_sink) → Chromium NullAudioSink (decode OK, no Pulse stream).
-      # BusChain owns routing via preferred default + reclaim; do not pin apps to UUIDs.
+      # Chromium/Brave silent audio (NullAudioSink, no Pulse stream):
+      # 1) WP restoring per-app target.object to dead sink names
+      # 2) Session default sink at extreme rates (e.g. 384 kHz) — Chromium refuses to open
+      # Do not pin browser streams to saved targets; browsers follow a usable default / PULSE_SINK.
       wireplumber.extraConfig."99-no-stale-stream-targets" = {
         "wireplumber.settings" = {
           "node.stream.restore-target" = false;
         };
+        # Per-stream: never save/restore sink targets for browsers (follow default only).
+        "stream.rules" = [
+          {
+            matches = [ { "application.name" = "Brave"; } ];
+            actions = {
+              update-props = {
+                "state.restore-target" = false;
+              };
+            };
+          }
+          {
+            matches = [ { "application.name" = "Chromium"; } ];
+            actions = {
+              update-props = {
+                "state.restore-target" = false;
+              };
+            };
+          }
+          {
+            matches = [ { "application.name" = "Google Chrome"; } ];
+            actions = {
+              update-props = {
+                "state.restore-target" = false;
+              };
+            };
+          }
+          {
+            matches = [ { "application.name" = "firefox"; } ];
+            actions = {
+              update-props = {
+                "state.restore-target" = false;
+              };
+            };
+          }
+          # PipeWire match regex has no (?i); list binaries explicitly.
+          {
+            matches = [ { "application.process.binary" = "brave"; } ];
+            actions = {
+              update-props = {
+                "state.restore-target" = false;
+              };
+            };
+          }
+          {
+            matches = [ { "application.process.binary" = "chrome"; } ];
+            actions = {
+              update-props = {
+                "state.restore-target" = false;
+              };
+            };
+          }
+          {
+            matches = [ { "application.process.binary" = "chromium"; } ];
+            actions = {
+              update-props = {
+                "state.restore-target" = false;
+              };
+            };
+          }
+          {
+            matches = [ { "application.process.binary" = "firefox"; } ];
+            actions = {
+              update-props = {
+                "state.restore-target" = false;
+              };
+            };
+          }
+          {
+            matches = [ { "application.process.binary" = "zen"; } ];
+            actions = {
+              update-props = {
+                "state.restore-target" = false;
+              };
+            };
+          }
+        ];
       };
     };
     
