@@ -1,4 +1,4 @@
-{ config, pkgs, stable-pkgs, lib, inputs, ... }:
+{ config, pkgs, stable-pkgs, lib, inputs, system ? "x86_64-linux", ... }:
 
 {
   nix.settings = {
@@ -24,17 +24,27 @@
     # cache.nixos.org must be included explicitly.
     substituters = [
       "https://cache.nixos.org"
+    ]
+    ++ lib.optionals (system == "x86_64-linux") [
       "https://chaotic-nyx.cachix.org"
       "https://nyx-cache.chaotic.cx/"
       "https://hyprland.cachix.org"
       "https://nix-gaming.cachix.org"
+    ]
+    ++ lib.optionals (system == "aarch64-linux") [
+      "https://nix-community.cachix.org"
     ];
     trusted-public-keys = [
       "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+    ]
+    ++ lib.optionals (system == "x86_64-linux") [
       "chaotic-nyx.cachix.org-1:HfnXSw4pj95iI/n17rIDy40agHj12WfF+Gqk6SonIT8="
       "nyx-cache.chaotic.cx:dJxTrgMC3V3cFfyIiBQDQorG6k1LsqurH/srpMSq7qk="
       "hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc="
       "nix-gaming.cachix.org-1:nbjlureqMbRAxR1gJ/f3hxemL9svXaZF/Ees8vCUUs4="
+    ]
+    ++ lib.optionals (system == "aarch64-linux") [
+      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
     ];
   };
 
@@ -60,7 +70,7 @@
   # Chaotic only — do NOT add overrideAttrs overlays here that change
   # derivation hashes (e.g. doCheck = false). Those bust cache.nixos.org
   # and force massive local rebuilds of dependents (KDE, fwupd tree, etc.).
-  nixpkgs.overlays = [
+  nixpkgs.overlays = lib.optionals (system == "x86_64-linux") [
     inputs.chaotic.overlays.default
   ];
 }

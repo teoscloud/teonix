@@ -1,0 +1,85 @@
+[general]
+default_session = "latest"
+# Give Electron/Chromium windows time to map before movetoworkspace
+restore_delay_ms = 800
+window_detect_timeout_ms = 12000
+autosave_retain = 8
+
+[filters]
+# Hyprland shell / tray / layer-shell — not user apps to restore
+ignore_classes = [
+  "waybar",
+  "wofi",
+  "rofi",
+  "mako",
+  "swaync-control-center",
+  "swaync-client",
+  "nwg-dock-hyprland",
+  "gtk-layer-shell",
+  "quickshell",
+  "Quickshell",
+  "qs",
+  "polkit",
+  "nm-applet",
+  "blueman-tray",
+  "Blueman",
+  "xdg-desktop-portal",
+  "xdg-desktop-portal-gtk",
+  "org.gnome.NautilusPreviewer",
+  "hyprpaper",
+  "hypridle",
+  "gammastep",
+  "chrome_crashpad_handler",
+  "buschain-control-popup",
+  "buschain-mixer",
+  "buschain-control",
+]
+
+# Keys must match Hyprland `initialClass` / `class` from `hyprctl clients`
+[apps.kitty]
+binary = "kitty"
+capture_cwd = true
+capture_last_command = true
+hint_template = "# Last: {last_command}\n# Dir: {cwd}"
+
+[apps.brave-browser]
+binary = "brave"
+default_workspace = 1
+# `hyprflow config` lists profile directories; map each to a workspace
+profile_workspaces = { "Default" = 1, "Profile 1" = 1 }
+
+[apps.cursor]
+binary = "cursor"
+
+[apps.code-cursor]
+binary = "cursor"
+
+[apps.Mailspring]
+binary = "mailspring"
+
+[apps.signal]
+binary = "signal-desktop"
+
+[apps.equibop]
+binary = "equibop"
+
+[apps.google-chrome]
+binary = "google-chrome-stable"
+
+[apps.codium]
+binary = "codium"
+
+[apps.spotify]
+binary = "spotify"
+
+[apps.steam]
+binary = "steam"
+
+[apps.org.gnome.clocks]
+binary = "gnome-clocks"
+
+[apps.thehouse-trading]
+binary = "thehouse-trading"
+
+[apps.arrpc]
+binary = "arrpc"

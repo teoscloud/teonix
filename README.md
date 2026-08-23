@@ -14,7 +14,7 @@ Teonix is a modular and customized NixOS configuration designed for seamless por
 - 🏠 Integrated Home Manager setup
 - 🎨 Custom dotfiles (Hyprland, Kitty, Quickshell on nixbox / Waybar elsewhere)
 - 📦 Curated package selection
-- 💻 Host-specific configurations (Desktop/Laptop)
+- 💻 Host-specific configurations (Desktop/Laptop/MacBook)
 - 🔄 Easy synchronization between machines
 - 🛠️ Convenient shell aliases and scripts
 
@@ -92,6 +92,29 @@ nix flake update
 sudo nixos-rebuild switch --flake "path:."#nixtop --impure
 ```
 
+#### 🍎 MacBook Setup (applenix — Apple Silicon)
+
+Full nixbox-style Hyprland rice (Quickshell, hyprflow, PipeWire) on **aarch64-linux** via [nixos-apple-silicon](https://github.com/nix-community/nixos-apple-silicon):
+
+🔋 Battery charge limit (80%) · 🖥️ Built-in panel · 🚫 No PC GPU/VFIO/BusChain  
+
+See [`hosts/applenix/INSTALL.md`](hosts/applenix/INSTALL.md) for the fresh Asahi install runbook.
+
+```bash
+# After install + real hardware-configuration.nix:
+sudo nixos-rebuild switch --flake "path:."#applenix --impure
+home-manager switch --flake "path:."#applenix -b bak --impure
+```
+
+**`--impure`** is required until Asahi firmware under `/boot/asahi` is vendored into the flake (see INSTALL.md).
+
+| Host | System | Flake attribute |
+|------|--------|-----------------|
+| nixbox | x86_64-linux | `#nixbox` |
+| nixtop | x86_64-linux | `#nixtop` |
+| default | x86_64-linux | `#$HOST` |
+| applenix | aarch64-linux | `#applenix` |
+
 ## 🎨 Customization
 
 ### 🎯 Installing iOS Emojis
@@ -141,6 +164,7 @@ systemupdate
 
 - 📂 Always clone in `~` for proper alias functionality (might get fixed in the future)
 - 🖥️ Custom EDID users: Don't forget `--impure` flag
+- 🍎 applenix: `--impure` until Asahi firmware is in the flake (see `hosts/applenix/INSTALL.md`)
 - 🔧 Default install: Perfect for general use
 - 📚 Configs are modular (per host)
 

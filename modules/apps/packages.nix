@@ -1,4 +1,4 @@
-{ config, pkgs, stable-pkgs, unstable-pkgs, inputs, ... }:
+{ config, pkgs, stable-pkgs, unstable-pkgs, inputs, lib, ... }:
 
 let
   nwg-dock-scale-patch = pkgs.writeText "nwg-dock-scale-threshold.patch" ''
@@ -322,7 +322,8 @@ in {
 
   nixpkgs.config.allowUnfree = true;
 
-  environment.systemPackages = with unstable-pkgs; [
+  environment.systemPackages = lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
+    with unstable-pkgs; [
     home-manager
 
     ####################
@@ -400,8 +401,6 @@ in {
     # Gaming Tools #
     vkbasalt              # Vulkan post-processing layer for vibrance/saturation
     ################
-    dolphin-emu          # GameCube/Wii emulator
-    wowup-cf
     baobab
     
     ####################
@@ -446,7 +445,6 @@ in {
         ) (lib.attrValues cores)
       )
     )
-    xivlauncher
     brightnessctl       # Adjust screen brightness
     tree                # Directory tree visualization
     neovide             # Neovim GUI client
@@ -475,7 +473,6 @@ in {
 
     wireplumber
     wget
-    corectrl
     blueman
     wgnord
     vscodium
@@ -491,14 +488,11 @@ in {
     pfetch
     pear-desktop
     obsidian
-    amdgpu_top
     # Local override only (not a global overlay) — avoids cache-busting the whole qemu dep tree
     (qemu.override { cephSupport = false; })
     libvirt
-    OVMF
     virt-manager
     virt-viewer
-    steam-devices-udev-rules
     bridge-utils
     dnsmasq
     clipman
@@ -516,7 +510,6 @@ in {
     firefox-esr
     protonup-ng
     
-    moonlight-qt
     fuse3
     zip
     awww                 # Wallpaper management for sway and Hyprland
@@ -534,7 +527,6 @@ in {
 
 
     libglvnd
-    steam-run
     nix-ld
     samba
     
@@ -543,8 +535,6 @@ in {
     
     qbittorrent
     carla
-    yabridge
-    yabridgectl
 
     ghex
     obs-studio
@@ -562,7 +552,6 @@ in {
     google-chrome
 
     #lutris               # Gaming platform for Linux
-    davinci-resolve
     
     haskellPackages.asana
     geary
@@ -580,17 +569,13 @@ in {
     
     udiskie
 
-    looking-glass-client
-
     code-cursor
     nodejs
     
 
-    pcsx2
     onlyoffice-desktopeditors
     tradingview
     wtype
-    shadps4
     texliveFull
     glow
     bottles               # Wine/Proton GUI (patool checks skipped — see let binding)
@@ -625,7 +610,8 @@ in {
 
     chiaki-ng
 
-  ]) ++ [
+  ]) ++ lib.optionals (config.nixpkgs.hostPlatform.system == "x86_64-linux") [
     nwg-dock-hyprland
-  ];
+  ]
+  );
 }

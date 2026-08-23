@@ -1,32 +1,23 @@
-{ config, pkgs, ... }:
+{ config, pkgs, lib, system ? "x86_64-linux", ... }:
 
 {
-  # for cachy
-  #chaotic.mesa-git.enable = true;
-
   programs = {
     xwayland.enable = true;
     hyprlock.enable = true;
 
-    # Hyprland + xdg-desktop-portal-hyprland from nixos-unstable (matches wlroots/aquamarine in tree).
-    # Do not override with Hyprland git main unless you pin a known-good rev.
     hyprland = {
       enable = true;
       xwayland.enable = true;
     };
 
-    # gaming
-    steam = {
+    steam = lib.mkIf (system == "x86_64-linux") {
       enable = true;
-      remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
-      dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
-      localNetworkGameTransfers.openFirewall = true; # Open ports in the firewall for Steam Local Network Game Transfers
-
+      remotePlay.openFirewall = true;
+      dedicatedServer.openFirewall = true;
+      localNetworkGameTransfers.openFirewall = true;
       gamescopeSession.enable = true;
     };
-    gamemode.enable = true;
 
+    gamemode.enable = lib.mkIf (system == "x86_64-linux") true;
   };
 }
-
-

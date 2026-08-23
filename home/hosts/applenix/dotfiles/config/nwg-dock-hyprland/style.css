@@ -1,0 +1,101 @@
+/* macOS-style dock: gray instance dots; hover squircle */
+
+window {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+#box {
+  background: rgba(28, 28, 30, 0.78);
+  border-radius: 17px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  /* Extra bottom padding holds dot row; icons stay higher in the pill */
+  padding: 6px 9px 9px 9px;
+}
+
+button,
+image {
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: #f5f5f7;
+}
+
+button {
+  padding: 2px 3px;
+  margin: 0 2px;
+  border-radius: 13px;
+}
+
+/* Squircle highlight on hover (no size change) */
+button:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+/* Suppress hover tooltips (app name labels) */
+tooltip,
+tooltip.background {
+  opacity: 0;
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  box-shadow: none;
+}
+
+tooltip label {
+  opacity: 0;
+  font-size: 0;
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+}
+
+button:active,
+button:focus,
+button:focus:hover {
+  background: none;
+  box-shadow: none;
+  padding: 2px 3px;
+  margin: 0 2px;
+}
+
+#active {
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+
+/* Instance dot spacing (colors come from SVG files in ~/.local/share) */
+#box > box > image {
+  margin-top: -1px;
+  margin-bottom: -8px;
+  padding: 0;
+}
+
+
+/* Instance picker + right-click menus: 16px labels, minimal width padding */
+menu {
+  background-color: rgba(30, 30, 32, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 2px 0;
+}
+
+menuitem {
+  padding: 2px 4px;
+}
+
+menuitem label {
+  font-size: 16px;
+  padding: 0;
+  margin: 0;
+}
+
+menuitem image {
+  padding: 0;
+  margin: 0;
+}

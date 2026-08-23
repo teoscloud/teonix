@@ -1,0 +1,100 @@
+{ config, pkgs, lib, ... }:
+
+let
+  dotfilesPath = ../dotfiles;
+  cursorIconSrc = "${pkgs.code-cursor}/share/icons/hicolor/1024x1024/apps/cursor.png";
+  cursorIconSizes = [ 16 22 24 32 48 64 128 256 ];
+  cursorHicolorIcons = pkgs.runCommand "cursor-hicolor-menu-icons" {
+    nativeBuildInputs = [ pkgs.imagemagick ];
+  } ''
+    for size in ${lib.concatStringsSep " " (map toString cursorIconSizes)}; do
+      mkdir -p "$out/hicolor/''${size}x''${size}/apps"
+      magick ${cursorIconSrc} -resize "''${size}x''${size}" \
+        "$out/hicolor/''${size}x''${size}/apps/cursor.png"
+    done
+  '';
+  cursorHicolorIconFiles = lib.listToAttrs (map (size: {
+    name = "icons/hicolor/${toString size}x${toString size}/apps/cursor.png";
+    value = {
+      source = "${cursorHicolorIcons}/hicolor/${toString size}x${toString size}/apps/cursor.png";
+    };
+  }) cursorIconSizes);
+in {
+  home.file.".zshrc" = {
+    source = "${dotfilesPath}/shell/.zshrc";
+    force = true;
+  };
+  home.file.".p10k.zsh" = {
+    source = "${dotfilesPath}/shell/.p10k.zsh";
+    force = true;
+  };
+
+  home.file.".config/hypr/hyprland.conf".source = "${dotfilesPath}/config/hypr/hyprland.conf";
+  home.file.".config/hyprflow/config.toml".source = "${dotfilesPath}/config/hyprflow/config.toml";
+  home.file.".config/hypr/hyprlock.conf".source = "${dotfilesPath}/config/hypr/hyprlock.conf";
+  home.file.".config/hypr/hyprpaper.conf".source = "${dotfilesPath}/config/hypr/hyprpaper.conf";
+  home.file.".config/hypr/hypridle.conf".source = "${dotfilesPath}/config/hypr/hypridle.conf";
+
+  home.file.".config/hypr/cyclemon.sh".source = "${dotfilesPath}/config/hypr/cyclemon.sh";
+
+  home.file.".config/kitty/kitty.conf".source = "${dotfilesPath}/config/kitty/kitty.conf";
+  home.file.".config/nwg-look/config".source = "${dotfilesPath}/config/nwg-look/config";
+  home.file.".config/rofi/config.rasi".source = "${dotfilesPath}/config/rofi/config.rasi";
+  home.file.".config/rofi/rounded-common.rasi".source = "${dotfilesPath}/config/rofi/rounded-common.rasi";
+  home.file.".config/wofi/config".source = "${dotfilesPath}/config/wofi/config";
+  home.file.".config/wofi/style.css".source = "${dotfilesPath}/config/wofi/style.css";
+
+  home.file.".config/quickshell".source = config.lib.file.mkOutOfStoreSymlink
+    "${config.home.homeDirectory}/teonix/home/hosts/applenix/dotfiles/config/quickshell";
+
+  xdg.dataFile = cursorHicolorIconFiles;
+
+  home.activation.updateUserHicolorIconCache = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ -d "$HOME/.local/share/icons/hicolor" ] && command -v gtk-update-icon-cache >/dev/null; then
+      gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+    fi
+  '';
+
+  home.file.".config/wlogout/hibernate-hover.png".source = "${dotfilesPath}/config/wlogout/hibernate-hover.png";
+  home.file.".config/wlogout/hibernate.png".source = "${dotfilesPath}/config/wlogout/hibernate.png";
+  home.file.".config/wlogout/layout".source = "${dotfilesPath}/config/wlogout/layout";
+  home.file.".config/wlogout/lock-hover.png".source = "${dotfilesPath}/config/wlogout/lock-hover.png";
+  home.file.".config/wlogout/lock.png".source = "${dotfilesPath}/config/wlogout/lock.png";
+  home.file.".config/wlogout/logout-hover.png".source = "${dotfilesPath}/config/wlogout/logout-hover.png";
+  home.file.".config/wlogout/logout.png".source = "${dotfilesPath}/config/wlogout/logout.png";
+  home.file.".config/wlogout/power-hover.png".source = "${dotfilesPath}/config/wlogout/power-hover.png";
+  home.file.".config/wlogout/power.png".source = "${dotfilesPath}/config/wlogout/power.png";
+  home.file.".config/wlogout/restart-hover.png".source = "${dotfilesPath}/config/wlogout/restart-hover.png";
+  home.file.".config/wlogout/restart.png".source = "${dotfilesPath}/config/wlogout/restart.png";
+  home.file.".config/wlogout/sleep-hover.png".source = "${dotfilesPath}/config/wlogout/sleep-hover.png";
+  home.file.".config/wlogout/sleep.png".source = "${dotfilesPath}/config/wlogout/sleep.png";
+  home.file.".config/wlogout/style.css".source = "${dotfilesPath}/config/wlogout/style.css";
+
+  home.file.".config/hypr/wallpapers/cloudy.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/cloudy.jpg";
+  home.file.".config/hypr/wallpapers/darkmountain.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/darkmountain.jpg";
+  home.file.".config/hypr/wallpapers/pinkfield.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/pinkfield.jpg";
+  home.file.".config/hypr/wallpapers/re8.png".source = "${dotfilesPath}/config/hypr/wallpapers/re8.png";
+  home.file.".config/hypr/wallpapers/lightpurple.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/lightpurple.jpg";
+  home.file.".config/hypr/wallpapers/purplefloral.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/purplefloral.jpg";
+  home.file.".config/hypr/wallpapers/flowie.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/flowie.jpg";
+  home.file.".config/hypr/wallpapers/blisslsd.png".source = "${dotfilesPath}/config/hypr/wallpapers/blisslsd.png";
+  home.file.".config/hypr/wallpapers/brancastle.jpg".source = "${dotfilesPath}/config/hypr/wallpapers/brancastle.jpg";
+
+  home.file.".config/hypr/scripts/cssbackup.css".source = "${dotfilesPath}/config/hypr/scripts/cssbackup.css";
+  home.file.".config/hypr/scripts/mediaplayer.py".source = "${dotfilesPath}/config/hypr/scripts/mediaplayer.py";
+  home.file.".config/hypr/scripts/weather.py".source = "${dotfilesPath}/config/hypr/scripts/weather.py";
+  home.file.".config/hypr/scripts/scrolling-promote-new-window.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/scrolling-promote-new-window.sh";
+    executable = true;
+  };
+  home.file.".config/hypr/scripts/ro-type.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/ro-type.sh";
+    executable = true;
+  };
+  home.file.".config/hypr/scripts/hyprflow-restore-on-login.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/hyprflow-restore-on-login.sh";
+    executable = true;
+  };
+
+  home.file.".config/fontconfig/fonts.conf".source = "${dotfilesPath}/config/fontconfig/fonts.conf";
+}

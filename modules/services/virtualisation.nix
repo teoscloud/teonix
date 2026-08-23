@@ -1,4 +1,4 @@
-{ config, pkgs, username, hostname ? "", lib, ... }:
+{ config, pkgs, lib, system ? "x86_64-linux", username, hostname ? "", ... }:
 
 {
   virtualisation = {
@@ -49,7 +49,7 @@
     KERNEL=="event*", SUBSYSTEM=="input", GROUP="input", MODE="0666"
   '';
 
-  systemd.tmpfiles.rules = [
+  systemd.tmpfiles.rules = lib.optionals (system == "x86_64-linux") [
     "f /dev/shm/looking-glass 0660 ${username} qemu-libvirtd -"
   ];
 

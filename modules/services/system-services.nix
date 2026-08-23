@@ -1,4 +1,4 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, system ? "x86_64-linux", ... }:
 
 {
   # exFAT/vfat mount options for udisks2 (numeric uid/gid; $UID/$GID are not expanded by udisks2 in all contexts)
@@ -44,11 +44,11 @@
       enable = true;
       alsa = {
         enable = true;
-        support32Bit = true;
+        support32Bit = lib.mkIf (system == "x86_64-linux") true;
       };
       pulse.enable = true;
       # Keep USB interfaces hot (no auto-suspend) for low-latency audio work.
-      wireplumber.extraConfig."99-usb-audio-no-suspend" = {
+      wireplumber.extraConfig."99-usb-audio-no-suspend" = lib.mkIf (system == "x86_64-linux") {
         "monitor.alsa.rules" = [
           {
             matches = [
@@ -172,7 +172,7 @@
         layout = "us";
         variant = "";
       };
-      videoDrivers = [ "amdgpu" ];
+      videoDrivers = lib.mkIf (system == "x86_64-linux") [ "amdgpu" ];
     };
 
   };

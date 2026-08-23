@@ -1,15 +1,17 @@
-{ config, pkgs, ... }:
-let
-  pinnedZoomPkgs = import (builtins.fetchTarball {
-      url = "https://github.com/NixOS/nixpkgs/archive/0c19708cf035f50d28eb4b2b8e7a79d4dc52f6bb.tar.gz";
-      sha256 = "0ngw2shvl24swam5pzhcs9hvbwrgzsbcdlhpvzqc7nfk8lc28sp3";
-  }) {
-    system = "x86_64-linux";
-    config.allowUnfree = true;
-  };
+{ config, pkgs, lib, system ? "x86_64-linux", ... }:
 
-  pinnedZoom = pinnedZoomPkgs.zoom-us;
-in
 {
-  environment.systemPackages = [ pinnedZoom ];
+  environment.systemPackages =
+    if system == "x86_64-linux" then
+      let
+        pinnedZoomPkgs = import (builtins.fetchTarball {
+          url = "https://github.com/NixOS/nixpkgs/archive/0c19708cf035f50d28eb4b2b8e7a79d4dc52f6bb.tar.gz";
+          sha256 = "0ngw2shvl24swam5pzhcs9hvbwrgzsbcdlhpvzqc7nfk8lc28sp3";
+        }) {
+          system = "x86_64-linux";
+          config.allowUnfree = true;
+        };
+      in [ pinnedZoomPkgs.zoom-us ]
+    else
+      [ ];
 }
