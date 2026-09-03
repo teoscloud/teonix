@@ -171,25 +171,59 @@ in
     };
   };
 
-  # Same Exec for both names: a stock "Hyprland" entry is often `Exec=Hyprland`
-  # with no Nix on PATH, which returns to SDDM immediately.
+  # Stable Exec path — not a /nix/store hash. fedora.sh installs a trampoline
+  # at /usr/local/bin/hyprland-nix-session that execs the current HM generation.
+  # Greeter entries therefore never need to be recopied after updatehome.
   xdg.dataFile."wayland-sessions/hyprland-nix.desktop".text = ''
     [Desktop Entry]
     Name=Hyprland (Nix)
     Comment=Hyprland from teonix Home Manager
-    Exec=${hyprlandNixSession}/bin/hyprland-nix-session
-    TryExec=${hyprlandNixSession}/bin/hyprland-nix-session
+    Exec=/usr/local/bin/hyprland-nix-session
+    TryExec=/usr/local/bin/hyprland-nix-session
     Type=Application
     DesktopNames=Hyprland
   '';
   xdg.dataFile."wayland-sessions/hyprland.desktop".text = ''
     [Desktop Entry]
-    Name=Hyprland
-    Comment=Hyprland from teonix Home Manager
-    Exec=${hyprlandNixSession}/bin/hyprland-nix-session
-    TryExec=${hyprlandNixSession}/bin/hyprland-nix-session
+    Name=Hyprland (Nix)
+    Comment=Hyprland from teonix Home Manager — do not use Fedora's bare Hyprland
+    Exec=/usr/local/bin/hyprland-nix-session
+    TryExec=/usr/local/bin/hyprland-nix-session
     Type=Application
     DesktopNames=Hyprland
+  '';
+
+  home.activation.installHyprlandSessionTrampoline = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    trampoline=/usr/local/bin/hyprland-nix-session
+    session_dir=/usr/local/share/wayland-sessions
+    src="$HOME/.local/share/wayland-sessions"
+
+    write_trampoline() {
+      local dest=$1
+      mkdir -p "$(dirname "$dest")"
+      cat >"$dest" <<'TRAMPOLINE'
+    #!/bin/sh
+    for c in \
+      "$HOME/.nix-profile/bin/hyprland-nix-session" \
+      "/etc/profiles/per-user/$USER/bin/hyprland-nix-session"
+    do
+      if [ -x "$c" ]; then
+        exec "$c" "$@"
+      fi
+    done
+    echo "hyprland-nix-session not in the Home Manager profile — run updatehome" >&2
+    exit 1
+    TRAMPOLINE
+      chmod 755 "$dest"
+    }
+
+    if [ -w /usr/local/bin ] || [ -w "$trampoline" ]; then
+      write_trampoline "$trampoline"
+    fi
+    if [ -d "$session_dir" ] && [ -w "$session_dir" ]; then
+      [ -f "$src/hyprland-nix.desktop" ] && cp -f "$src/hyprland-nix.desktop" "$session_dir/"
+      [ -f "$src/hyprland.desktop" ] && cp -f "$src/hyprland.desktop" "$session_dir/"
+    fi
   '';
 
   # hyprland.conf still starts nixos-fake-graphical-session.target. On Fedora

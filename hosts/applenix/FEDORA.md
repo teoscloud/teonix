@@ -25,7 +25,7 @@ The NixOS USB path (`install.sh`, `#applenix`) is unchanged.
 | `repo` | clones or fast-forwards `~/teonix` |
 | `identity` | writes `local-identity.nix` from the current login (`$USER`) |
 | `switch` | `nix run nixpkgs#home-manager -- switch --flake path:.#applenix-fedora` |
-| `session` | copies the wayland session file to `/usr/share/wayland-sessions/` so GDM lists it |
+| `session` | one-time: trampoline at `/usr/local/bin/hyprland-nix-session` + SDDM session dir (no more `sudo cp`) |
 
 ```bash
 curl …/fedora.sh | bash -s status    # checklist
@@ -52,13 +52,17 @@ Do not replace Mesa or PipeWire with Nix copies. Everything else — Hyprland, Q
 
 ## After the first switch
 
-Later updates (in a shell that has sourced Nix, or a new login):
+Later updates, from any new zsh or bash login (aliases live in `~/.zshaliases.sh` and `~/.bashrc.d/teonix-aliases.sh`):
 
-```bash
-updatehome
-```
+| Command | Does |
+|---------|------|
+| `updatehome` / `rebuild` / `nixupgrade` | `home-manager switch --flake path:.#applenix-fedora` |
+| `nixupdate` | `nix flake update` only |
+| `systemupdate` | flake update + switch |
+| `hm-gens` / `hm-rollback` | Home Manager generations |
+| `nixclean` | drop old HM generations and GC |
 
-`systemupdate` here is `nix flake update` + the same Home Manager switch. There is no `nixos-rebuild`.
+There is no `nixos-rebuild`. Extra flags pass through (`updatehome --show-trace`). `path:.` means untracked files in the checkout are included.
 
 If you just installed Nix in this terminal and `nix` is missing, either open a new terminal or:
 
@@ -94,10 +98,10 @@ After pulling the fix:
 ```bash
 cd ~/teonix && git pull
 . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-updatehome
-# or: nix run nixpkgs#home-manager -- switch -b bak --flake path:.#applenix-fedora
-sudo cp ~/.local/share/wayland-sessions/hyprland-nix.desktop /usr/share/wayland-sessions/
-sudo cp ~/.local/share/wayland-sessions/hyprland.desktop /usr/share/wayland-sessions/
+# once: writable session dir + trampoline (fedora.sh session step)
+FORCE=1 bash ~/teonix/hosts/applenix/fedora.sh
 ```
 
-Then log in again. Either **Hyprland** or **Hyprland (Nix)** should start the same wrapper.
+`fedora.sh`’s `session` step is the only sudo. After that, `updatehome` refreshes `~/.nix-profile/bin/hyprland-nix-session`; the greeter always execs `/usr/local/bin/hyprland-nix-session`. No more `sudo cp` of `.desktop` files.
+
+Then log in again. Either **Hyprland** or **Hyprland (Nix)** starts the same wrapper.

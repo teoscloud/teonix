@@ -9,7 +9,7 @@
 # Idempotent: re-run after any failure; finished steps are skipped.
 set -Eeuo pipefail
 
-readonly VERSION=3
+readonly VERSION=4
 readonly SELF="applenix-fedora"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/fedora.sh | bash"
 readonly FLAKE_ATTR=applenix-fedora
@@ -86,8 +86,9 @@ probe_identity() {
 }
 probe_switch() { [[ -e $HOME/.local/state/home-manager/gcroots/current-home ]]; }
 probe_session() {
-  [[ -f $HOME/.local/share/wayland-sessions/hyprland-nix.desktop ]] \
-    || [[ -f /usr/share/wayland-sessions/hyprland-nix.desktop ]]
+  [[ -x /usr/local/bin/hyprland-nix-session ]] \
+    && [[ -f /usr/local/share/wayland-sessions/hyprland-nix.desktop ]] \
+    && [[ -f /etc/sddm.conf.d/10-teonix-hyprland.conf ]]
 }
 
 step_nix() {
@@ -159,20 +160,54 @@ step_switch() {
 }
 
 step_session() {
-  local src="$HOME/.local/share/wayland-sessions/hyprland-nix.desktop"
-  local dest_dir=/usr/share/wayland-sessions
+  local user="${TEONIX_USER:-${USER:-$(id -un)}}"
+  local trampoline=/usr/local/bin/hyprland-nix-session
+  local local_sessions=/usr/local/share/wayland-sessions
+  local system_sessions=/usr/share/wayland-sessions
+  local sddm_dropin=/etc/sddm.conf.d/10-teonix-hyprland.conf
+  local desktop
 
-  if [[ ! -f $src ]]; then
-    warn "no $src yet — home-manager should have written it; skip greeter copy"
-    return 0
+  runmsg "session — one-time greeter hook (stable Exec, no more sudo cp)"
+
+  sudo mkdir -p /usr/local/bin "$local_sessions" "$system_sessions" /etc/sddm.conf.d
+  sudo tee "$trampoline" >/dev/null <<'TRAMPOLINE'
+#!/bin/sh
+for c in \
+  "$HOME/.nix-profile/bin/hyprland-nix-session" \
+  "/etc/profiles/per-user/$USER/bin/hyprland-nix-session"
+do
+  if [ -x "$c" ]; then
+    exec "$c" "$@"
   fi
+done
+echo "hyprland-nix-session not in the Home Manager profile — run updatehome" >&2
+exit 1
+TRAMPOLINE
+  sudo chmod 755 "$trampoline"
+  sudo chown "$user:$user" "$trampoline" "$local_sessions"
 
-  runmsg "session — install greeter entries (Hyprland and Hyprland (Nix))"
-  sudo mkdir -p "$dest_dir"
-  sudo cp "$src" "$dest_dir/hyprland-nix.desktop"
-  sudo cp "$src" "$dest_dir/hyprland.desktop"
-  sudo sed -i 's/^Name=.*/Name=Hyprland/' "$dest_dir/hyprland.desktop"
-  ok "session — $dest_dir/hyprland-nix.desktop + hyprland.desktop"
+  desktop=$(cat <<'DESKTOP'
+[Desktop Entry]
+Name=Hyprland (Nix)
+Comment=Hyprland from teonix Home Manager
+Exec=/usr/local/bin/hyprland-nix-session
+TryExec=/usr/local/bin/hyprland-nix-session
+Type=Application
+DesktopNames=Hyprland
+DESKTOP
+)
+  printf '%s\n' "$desktop" | sudo tee "$local_sessions/hyprland-nix.desktop" >/dev/null
+  printf '%s\n' "$desktop" | sudo tee "$local_sessions/hyprland.desktop" >/dev/null
+  sudo cp "$local_sessions/hyprland-nix.desktop" "$system_sessions/hyprland-nix.desktop"
+  sudo cp "$local_sessions/hyprland.desktop" "$system_sessions/hyprland.desktop"
+  sudo chown "$user:$user" "$local_sessions/hyprland-nix.desktop" "$local_sessions/hyprland.desktop"
+
+  sudo tee "$sddm_dropin" >/dev/null <<'EOF'
+[Wayland]
+SessionDir=/usr/local/share/wayland-sessions,/usr/share/wayland-sessions
+EOF
+
+  ok "session — $trampoline + SDDM SessionDir (updatehome refreshes the wrapper, not the .desktop)"
 }
 
 run_step() {
