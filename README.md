@@ -98,18 +98,20 @@ Full nixbox-style Hyprland rice (Quickshell, hyprflow, PipeWire) on **aarch64-li
 
 🔋 Battery charge limit (80%) · 🖥️ Built-in panel · 🚫 No PC GPU/VFIO/BusChain  
 
-From the Asahi NixOS USB installer, do **not** install `#applenix` directly. Use the bootstrap, then switch:
-
-See [`hosts/applenix/INSTALL.md`](hosts/applenix/INSTALL.md) (USB prompt → flake).
+Two stages, because `nixos-install` can only reuse the ISO's Asahi kernel when the config matches the ISO — so stage 1 is a plain `configuration.nix`, not this flake. Full runbook in [`hosts/applenix/INSTALL.md`](hosts/applenix/INSTALL.md).
 
 ```bash
-# On the USB installer (as root), after Wi‑Fi:
-curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/bootstrap.sh -o /tmp/bootstrap.sh
-bash /tmp/bootstrap.sh
-# reboot, login teodor / teodor, then:
-cd ~/teonix
-sudo nixos-rebuild switch --flake path:.#applenix --impure
+# 1. On the USB installer (as root), after Wi‑Fi. That's the only USB step;
+#    it is idempotent, so just re-run it if anything fails.
+curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/install.sh | bash
+reboot
+
+# 2. On the booted Mac, login teodor / teodor:
+passwd
+/etc/applenix/stage2.sh
 ```
+
+Stage 2 clones teonix, copies this Mac's hardware config and Asahi firmware into the flake, and switches to `#applenix`. No `--impure` needed. The installer detects the disk, chassis, Touch Bar, displays and RAM at runtime, so it works on any Apple Silicon Mac.
 
 | Host | System | Flake attribute |
 |------|--------|-----------------|

@@ -3,15 +3,22 @@
 let
   shDate = "$(date -Iseconds)";
   shNixosVer = "$(nixos-version 2>/dev/null)";
-  impureFlag = "--impure";
+  # Was "--impure" while Asahi firmware still had to be read from /boot at eval
+  # time. /etc/applenix/stage2.sh now vendors firmware.cpio into
+  # hosts/applenix/firmware/, and `path:.` copies it (gitignored files included),
+  # so the flake evaluates purely. Set this back to "--impure" only if you
+  # deliberately drop that copy.
+  impureFlag = "";
 in
 {
   home.file.".zshaliases.sh".source = pkgs.writeText ".zshaliases.sh" ''
     # Desktop-friendly updates: low CPU/IO priority on the client. nix-daemon is also
     # capped (idle sched + max-jobs/cores) in modules/core/nix-settings.nix.
     _nix_nice() { nice -n 19 ionice -c3 "$@"; }
-    _nix_rebuild_opts=(--option max-jobs 2 --option cores 3)
-    # --impure: Asahi peripheral firmware lives under /boot/asahi until vendored into the flake.
+    # One derivation at a time, all cores to it: the Asahi kernel and its Rust
+    # drivers are memory-hungry, and two of them in parallel OOM an 8G Mac.
+    # Matches the aarch64 branch of modules/core/nix-settings.nix.
+    _nix_rebuild_opts=(--option max-jobs 1 --option cores 0)
     alias systemupdate='cd ${projectdir} && _nix_nice nix flake update && _nix_nice sudo nixos-rebuild switch --flake "path:."#${hostname} ${impureFlag} "''${_nix_rebuild_opts[@]}" && _nix_nice home-manager switch -b bak --flake "path:."#${hostname} ${impureFlag}'
     alias updatehome='cd ${projectdir} && _nix_nice home-manager switch -b bak --flake "path:."#${hostname} ${impureFlag}'
     alias nixupgrade='cd ${projectdir} && _nix_nice sudo nixos-rebuild switch --flake "path:."#${hostname} ${impureFlag} "''${_nix_rebuild_opts[@]}"'

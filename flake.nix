@@ -12,9 +12,8 @@
     hyprlux.inputs.nixpkgs.follows = "nixos-unstable";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixos-unstable";
-    # 2025-11-18 kernel config fails linux-config on nixpkgs 26.11 (unused
-    # options such as JITTERENTROPY) → linux-asahi → applenix-26.11.
-    # release-2026-07-30 ships a matching kernel; no ignoreConfigErrors override.
+    # Keep in step with the installer ISO you booted, or stage 2 rebuilds the
+    # Asahi kernel from scratch. See hosts/applenix/INSTALL.md.
     apple-silicon.url = "github:nix-community/nixos-apple-silicon/release-2026-07-30";
     apple-silicon.inputs.nixpkgs.follows = "nixos-unstable";
   };
@@ -184,16 +183,6 @@
         ];
       };
 
-      # Tiny first-boot system for the Asahi USB installer. See hosts/applenix/INSTALL.md
-      applenix-bootstrap = nixos-unstable.lib.nixosSystem {
-        system = "aarch64-linux";
-        specialArgs = mkCommonSpecialArgs "aarch64-linux" // { hostname = applenix_hostname; };
-        modules = [
-          ./hosts/applenix/asahi.nix
-          ./hosts/applenix/hardware-configuration.nix
-          ./hosts/applenix/bootstrap.nix
-        ];
-      };
     };
 
     homeConfigurations = {

@@ -6,12 +6,15 @@
     # Keep cache downloads moderate so they don't saturate disk/network during updates.
     max-substitution-jobs = 4;
 
-    # Conservative desktop-friendly parallelism (24-thread / 32G host):
-    # - max-jobs × cores ≈ 6 threads worst-case for local compiles
-    # - idle CPU/IO policy below still yields to interactive apps
-    # Tonable up later if updates feel too slow and the session stays smooth.
-    max-jobs = 2;
-    cores = 3;
+    # x86_64 (24-thread / 32G nixbox): conservative desktop-friendly
+    # parallelism, max-jobs × cores ≈ 6 threads worst-case for local compiles,
+    # and the idle CPU/IO policy below still yields to interactive apps.
+    #
+    # aarch64 (applenix): the Asahi kernel and its Rust drivers are the big
+    # local build and they are memory-hungry, so build one derivation at a time
+    # but let it use every core. Two parallel kernel-sized jobs OOM an 8G Mac.
+    max-jobs = if system == "x86_64-linux" then 2 else 1;
+    cores = if system == "x86_64-linux" then 3 else 0;
 
     experimental-features = [
       "nix-command"
@@ -55,13 +58,25 @@
   nix.daemonIOSchedPriority = 7;
 
   # Soft cgroup caps so a big local rebuild can't OOM / fully pin the machine.
-  # Leave ~half of 32G for the session (you often already sit ~12–16G used).
+  # Absolute values only make sense on the 32G desktop; applenix may be an 8G
+  # MacBook Air, where a 14G ceiling is no ceiling at all. systemd takes
+  # percentages of installed RAM, which stays correct on any Mac.
   systemd.services.nix-daemon.serviceConfig = {
     CPUWeight = 10; # default 100 — prefer desktop/apps
     IOWeight = 10;
-    MemoryHigh = "10G"; # start reclaiming early
-    MemoryMax = "14G"; # hard cap; keeps headroom for Hyprland/browsers
-  };
+  }
+  // (
+    if system == "x86_64-linux" then
+      {
+        MemoryHigh = "10G"; # start reclaiming early
+        MemoryMax = "14G"; # hard cap; keeps headroom for Hyprland/browsers
+      }
+    else
+      {
+        MemoryHigh = "70%";
+        MemoryMax = "85%";
+      }
+  );
 
   nixpkgs.config = {
     allowUnfree = true;
