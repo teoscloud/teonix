@@ -77,4 +77,27 @@ If you just installed Nix in this terminal and `nix` is missing, either open a n
 | Hyprland | greeter → Hyprland (Nix) |
 | Quickshell | bar on the built-in panel |
 
-If the compositor is software-rendered, Fedora Mesa is missing or the session did not export `LIBGL_DRIVERS_PATH`.
+If the compositor is software-rendered, Fedora Mesa is missing or the session did not wrap host libEGL.
+
+### Instant return to SDDM
+
+The session died before the first frame. On a TTY (Ctrl+Alt+F3):
+
+```bash
+cat ~/.local/state/hyprland-nix-session.log
+```
+
+Typical causes this config already guards: a hardcoded panel mode Asahi DCP rejects, Nix Mesa loading Fedora’s `asahi_dri.so` without Fedora’s libEGL, or picking a stock **Hyprland** entry whose `Exec=Hyprland` is not on SDDM’s PATH.
+
+After pulling the fix:
+
+```bash
+cd ~/teonix && git pull
+. /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+updatehome
+# or: nix run nixpkgs#home-manager -- switch -b bak --flake path:.#applenix-fedora
+sudo cp ~/.local/share/wayland-sessions/hyprland-nix.desktop /usr/share/wayland-sessions/
+sudo cp ~/.local/share/wayland-sessions/hyprland.desktop /usr/share/wayland-sessions/
+```
+
+Then log in again. Either **Hyprland** or **Hyprland (Nix)** should start the same wrapper.

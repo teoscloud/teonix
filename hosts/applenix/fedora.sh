@@ -9,7 +9,7 @@
 # Idempotent: re-run after any failure; finished steps are skipped.
 set -Eeuo pipefail
 
-readonly VERSION=2
+readonly VERSION=3
 readonly SELF="applenix-fedora"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/fedora.sh | bash"
 readonly FLAKE_ATTR=applenix-fedora
@@ -160,22 +160,19 @@ step_switch() {
 
 step_session() {
   local src="$HOME/.local/share/wayland-sessions/hyprland-nix.desktop"
-  local dest=/usr/share/wayland-sessions/hyprland-nix.desktop
+  local dest_dir=/usr/share/wayland-sessions
 
   if [[ ! -f $src ]]; then
     warn "no $src yet — home-manager should have written it; skip greeter copy"
     return 0
   fi
 
-  if [[ -f $dest ]] && cmp -s "$src" "$dest"; then
-    skip "session — greeter already has Hyprland (Nix)"
-    return 0
-  fi
-
-  runmsg "session — copy desktop file for GDM (it ignores ~/.local/share/wayland-sessions)"
-  sudo mkdir -p /usr/share/wayland-sessions
-  sudo cp "$src" "$dest"
-  ok "session — $dest"
+  runmsg "session — install greeter entries (Hyprland and Hyprland (Nix))"
+  sudo mkdir -p "$dest_dir"
+  sudo cp "$src" "$dest_dir/hyprland-nix.desktop"
+  sudo cp "$src" "$dest_dir/hyprland.desktop"
+  sudo sed -i 's/^Name=.*/Name=Hyprland/' "$dest_dir/hyprland.desktop"
+  ok "session — $dest_dir/hyprland-nix.desktop + hyprland.desktop"
 }
 
 run_step() {

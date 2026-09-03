@@ -44,10 +44,36 @@ let
     '';
   };
 
-  # Nix Hyprland links Nix Mesa, which cannot drive Asahi. Point GL/EGL/GBM
-  # at Fedora's userspace before exec; apps inherit the session.
+  # Nix Hyprland is linked against Nix Mesa, which has no Asahi driver.
+  # LIBGL_DRIVERS_PATH alone loads Fedora's asahi_dri.so into Nix libEGL and
+  # the compositor dies before the first frame (instant return to SDDM).
+  # Prepend only the host GL/EGL/GBM libs, then exec.
   hyprlandNixSession = pkgs.writeShellScriptBin "hyprland-nix-session" ''
-    set -euo pipefail
+    log="''${XDG_STATE_HOME:-$HOME/.local/state}/hyprland-nix-session.log"
+    mkdir -p "$(dirname "$log")"
+    exec >>"$log" 2>&1
+    echo "==== $(date -Iseconds) pid=$$ user=$USER ===="
+
+    set -u
+
+    for f in \
+      "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" \
+      "/etc/profiles/per-user/''${USER:-}/etc/profile.d/hm-session-vars.sh" \
+      /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+    do
+      [ -f "$f" ] && . "$f"
+    done
+
+    wrap="''${XDG_RUNTIME_DIR:-/tmp}/hyprland-host-gl"
+    mkdir -p "$wrap"
+    for lib in libEGL.so.1 libEGL.so libGLESv2.so.2 libGL.so.1 libgbm.so.1 \
+               libGLX.so.0 libOpenGL.so.0 libGLdispatch.so.0 \
+               libvulkan.so.1 libdrm.so.2; do
+      if [ -e "/usr/lib64/$lib" ]; then
+        ln -sfn "/usr/lib64/$lib" "$wrap/$lib"
+      fi
+    done
+    export LD_LIBRARY_PATH="$wrap''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
     if [ -d /usr/lib64/dri ]; then
       export LIBGL_DRIVERS_PATH="/usr/lib64/dri''${LIBGL_DRIVERS_PATH:+:$LIBGL_DRIVERS_PATH}"
@@ -61,20 +87,19 @@ let
     if [ -d /usr/lib64/gbm ]; then
       export GBM_BACKENDS_PATH="/usr/lib64/gbm''${GBM_BACKENDS_PATH:+:$GBM_BACKENDS_PATH}"
     fi
+    if [ -e /usr/lib64/dri/asahi_dri.so ]; then
+      export MESA_LOADER_DRIVER_OVERRIDE=asahi
+    fi
 
     export XDG_CURRENT_DESKTOP=Hyprland
     export XDG_SESSION_DESKTOP=Hyprland
     export XDG_SESSION_TYPE=wayland
+    export WLR_NO_HARDWARE_CURSORS="''${WLR_NO_HARDWARE_CURSORS:-1}"
 
-    if command -v systemctl >/dev/null; then
-      systemctl --user import-environment \
-        DISPLAY WAYLAND_DISPLAY \
-        XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP \
-        LIBGL_DRIVERS_PATH __EGL_VENDOR_LIBRARY_DIRS \
-        __EGL_VENDOR_LIBRARY_FILENAMES GBM_BACKENDS_PATH \
-        2>/dev/null || true
-      systemctl --user start graphical-session.target 2>/dev/null || true
-    fi
+    echo "Hyprland=${pkgs.hyprland}/bin/Hyprland"
+    echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+    echo "LIBGL_DRIVERS_PATH=''${LIBGL_DRIVERS_PATH:-}"
+    echo "wrap=$wrap -> $(ls -1 "$wrap" 2>/dev/null | tr '\n' ' ')"
 
     exec ${pkgs.hyprland}/bin/Hyprland "$@"
   '';
@@ -146,9 +171,20 @@ in
     };
   };
 
+  # Same Exec for both names: a stock "Hyprland" entry is often `Exec=Hyprland`
+  # with no Nix on PATH, which returns to SDDM immediately.
   xdg.dataFile."wayland-sessions/hyprland-nix.desktop".text = ''
     [Desktop Entry]
     Name=Hyprland (Nix)
+    Comment=Hyprland from teonix Home Manager
+    Exec=${hyprlandNixSession}/bin/hyprland-nix-session
+    TryExec=${hyprlandNixSession}/bin/hyprland-nix-session
+    Type=Application
+    DesktopNames=Hyprland
+  '';
+  xdg.dataFile."wayland-sessions/hyprland.desktop".text = ''
+    [Desktop Entry]
+    Name=Hyprland
     Comment=Hyprland from teonix Home Manager
     Exec=${hyprlandNixSession}/bin/hyprland-nix-session
     TryExec=${hyprlandNixSession}/bin/hyprland-nix-session
