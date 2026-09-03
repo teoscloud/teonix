@@ -291,7 +291,6 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
   ] ++ (with stable-pkgs; [
     cava
     whitesur-icon-theme
-    jetbrains.idea-ultimate
     gnome-extension-manager
     heroic
 
