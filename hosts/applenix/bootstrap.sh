@@ -1,19 +1,82 @@
 #!/usr/bin/env bash
-# Run as root from the Asahi NixOS USB installer.
-# Re-run is safe if /mnt is already mounted (skips partition/format).
+# applenix USB installer — modular, idempotent. Safe to re-run after any failure.
+# Run as root from the Asahi NixOS installer.
 set -euo pipefail
+
+readonly SCRIPT_VERSION=3
+readonly SCRIPT_PATH="${BASH_SOURCE[0]}"
+readonly SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
 REPO_URL="${TEONIX_REPO:-https://github.com/teoscloud/teonix.git}"
 FLAKE_DIR="${TEONIX_DIR:-/mnt/home/teodor/teonix}"
 NVME="${TEONIX_DISK:-/dev/nvme0n1}"
+APPLE_SILICON_PIN="${APPLE_SILICON_PIN:-release-2026-07-30}"
+STATE_DIR="${TEONIX_STATE_DIR:-/mnt/.teonix-bootstrap}"
+
+readonly STEPS=(
+  preflight
+  mount-root
+  mount-esp
+  git
+  clone
+  patch
+  hw-config
+  firmware
+  swap
+  chown
+  install
+)
 
 die() { echo "error: $*" >&2; exit 1; }
+
+log() { echo "== $*"; }
+
+step_ok() { echo "[ok]   $*"; }
+step_skip() { echo "[skip] $*"; }
+step_run() { echo "[run]  $*"; }
+
 need_root() { [[ $(id -u) -eq 0 ]] || die "run as root (sudo su)"; }
+
+auto_yes() { [[ ${YES:-}${NONINTERACTIVE:-} == *1* ]]; }
 
 confirm() {
   local q=$1
+  auto_yes && return 0
   read -r -p "$q [type YES]: " a
   [[ $a == YES ]] || die "aborted"
+}
+
+state_file() {
+  mkdir -p "$STATE_DIR"
+  echo "$STATE_DIR/completed"
+}
+
+state_mark() {
+  local step=$1
+  grep -qxF "$step" "$(state_file)" 2>/dev/null || echo "$step" >>"$(state_file)"
+}
+
+state_clear() {
+  local step=$1
+  [[ -f "$(state_file)" ]] || return 0
+  local tmp
+  tmp=$(mktemp)
+  grep -vxF "$step" "$(state_file)" >"$tmp" || true
+  mv "$tmp" "$(state_file)"
+}
+
+state_done() {
+  local step=$1
+  [[ -f "$(state_file)" ]] && grep -qxF "$step" "$(state_file)"
+}
+
+should_run() {
+  local step=$1 check_fn=$2
+  if [[ ${FORCE:-} == 1 ]]; then
+    return 0
+  fi
+  "$check_fn" && return 1
+  return 0
 }
 
 esp_dev() {
@@ -40,64 +103,66 @@ find_root_part() {
     | tail -n1
 }
 
-ensure_git() {
-  command -v git >/dev/null && return 0
-  echo "installer has no git; pulling it from nixpkgs…"
-  nix-env -iA nixos.git 2>/dev/null || nix-env -iA nixpkgs.git 2>/dev/null || true
-  command -v git >/dev/null && return 0
-  nix-shell -p git --run "true"
+require_mnt() {
+  findmnt /mnt >/dev/null 2>&1 || die "/mnt is not mounted — run: $SCRIPT_PATH mount-root"
 }
 
-git_clone() {
-  if command -v git >/dev/null; then
-    git clone "$REPO_URL" "$FLAKE_DIR"
-  else
-    nix-shell -p git --run "git clone '$REPO_URL' '$FLAKE_DIR'"
-  fi
+require_flake() {
+  require_mnt
+  [[ -d $FLAKE_DIR/.git || -f $FLAKE_DIR/flake.nix ]] \
+    || die "flake missing at $FLAKE_DIR — run: $SCRIPT_PATH clone"
 }
 
-copy_firmware() {
-  local dest="$FLAKE_DIR/hosts/applenix/firmware"
-  mkdir -p "$dest"
-  if [[ -f /mnt/boot/vendorfw/firmware.cpio ]]; then
-    cp -a /mnt/boot/vendorfw/. "$dest/"
-  elif [[ -d /mnt/boot/asahi ]]; then
-    cp -a /mnt/boot/asahi/. "$dest/"
-  else
-    echo "warn: no ESP firmware found; later rebuilds need --impure"
-    return 0
-  fi
-  echo "copied peripheral firmware -> $dest"
+# --- live checks (source of truth; state file is secondary) ---
+
+check_preflight() { false; }
+
+check_mount_root() {
+  findmnt /mnt >/dev/null 2>&1
 }
 
-write_hw_config() {
-  local out="$FLAKE_DIR/hosts/applenix/hardware-configuration.nix"
-  nixos-generate-config --root /mnt --show-hardware-config > "$out"
-  sed -i '/extractPeripheralFirmware/d' "$out"
-  echo "wrote $out"
+check_mount_esp() {
+  findmnt /mnt/boot >/dev/null 2>&1
 }
 
-ensure_swap() {
-  if grep -q '/mnt/swapfile' /proc/swaps 2>/dev/null; then
-    echo "swapfile already on"
-    return 0
-  fi
-  echo "adding 8G swap on /mnt for the Asahi kernel compile…"
-  if [[ ! -f /mnt/swapfile ]]; then
-    if ! fallocate -l 8G /mnt/swapfile 2>/dev/null; then
-      dd if=/dev/zero of=/mnt/swapfile bs=1M count=8192 status=progress
-    fi
-    chmod 600 /mnt/swapfile
-    mkswap /mnt/swapfile
-  fi
-  swapon /mnt/swapfile
+check_git() {
+  command -v git >/dev/null 2>&1
 }
 
-# Overwrite Asahi bits so a stale GitHub clone still builds on nixpkgs 26.11.
-apply_asahi_fix() {
-  echo "applying Asahi 2026-07-30 + linux-config fix in $FLAKE_DIR"
+check_clone() {
+  [[ -d $FLAKE_DIR/.git ]]
+}
 
-  cat > "$FLAKE_DIR/hosts/applenix/asahi.nix" <<'EOF'
+check_patch() {
+  [[ -d $FLAKE_DIR/.git || -f $FLAKE_DIR/flake.nix ]] || return 1
+  grep -q "nixos-apple-silicon/${APPLE_SILICON_PIN}" "$FLAKE_DIR/flake.nix" \
+    && grep -q 'applenix-bootstrap' "$FLAKE_DIR/flake.nix" \
+    && [[ -f $FLAKE_DIR/hosts/applenix/asahi.nix ]] \
+    && [[ -f $FLAKE_DIR/hosts/applenix/bootstrap.nix ]]
+}
+
+check_hw_config() {
+  [[ -f $FLAKE_DIR/hosts/applenix/hardware-configuration.nix ]]
+}
+
+check_firmware() {
+  [[ -f $FLAKE_DIR/hosts/applenix/firmware/firmware.cpio ]]
+}
+
+check_swap() {
+  grep -q '/mnt/swapfile' /proc/swaps 2>/dev/null
+}
+
+check_chown() { false; }
+
+check_install() {
+  [[ -L /mnt/nix/var/nix/profiles/system || -e /mnt/nix/var/nix/profiles/system ]]
+}
+
+# --- embedded fallbacks when only bootstrap.sh was curled to /tmp ---
+
+embed_asahi_nix() {
+  cat <<'EOF'
 { apple-silicon, lib, ... }:
 
 {
@@ -141,8 +206,10 @@ apply_asahi_fix() {
   boot.kernelParams = [ "appledrm.show_notch=1" ];
 }
 EOF
+}
 
-  cat > "$FLAKE_DIR/hosts/applenix/bootstrap.nix" <<'EOF'
+embed_bootstrap_nix() {
+  cat <<'EOF'
 { pkgs, username, ... }:
 
 {
@@ -191,25 +258,31 @@ EOF
   system.stateVersion = "24.05";
 }
 EOF
+}
 
-  sed -i \
-    's|github:nix-community/nixos-apple-silicon/release-[0-9][0-9-]*|github:nix-community/nixos-apple-silicon/release-2026-07-30|g' \
-    "$FLAKE_DIR/flake.nix"
-  echo "flake: apple-silicon -> release-2026-07-30"
-
-  if grep -q 'applenix-bootstrap' "$FLAKE_DIR/flake.nix"; then
-    echo "flake: #applenix-bootstrap already present"
+install_host_file() {
+  local name=$1
+  local dest="$FLAKE_DIR/hosts/applenix/$name"
+  mkdir -p "$(dirname "$dest")"
+  if [[ -f $SCRIPT_DIR/$name ]]; then
+    cp "$SCRIPT_DIR/$name" "$dest"
   else
-    die "flake.nix is too old — git pull teonix on nixbox, push, then re-clone on the Mac"
+    case $name in
+      asahi.nix) embed_asahi_nix >"$dest" ;;
+      bootstrap.nix) embed_bootstrap_nix >"$dest" ;;
+      *) die "no bundled copy of $name" ;;
+    esac
   fi
 }
 
-echo "== applenix bootstrap =="
-need_root
-command -v sgdisk >/dev/null || die "sgdisk missing (wrong ISO? use nixos-apple-silicon installer)"
+# --- step implementations ---
 
-if ! ping -c1 -W3 github.com >/dev/null 2>&1 && ! ping -c1 -W3 cache.nixos.org >/dev/null 2>&1; then
-  cat <<'EOF'
+step_preflight() {
+  need_root
+  command -v sgdisk >/dev/null || die "sgdisk missing (use nixos-apple-silicon installer ISO)"
+
+  if ! ping -c1 -W3 github.com >/dev/null 2>&1 && ! ping -c1 -W3 cache.nixos.org >/dev/null 2>&1; then
+    cat <<'EOF'
 No network. In this installer:
 
   iwctl
@@ -218,70 +291,340 @@ No network. In this installer:
   [iwd]# exit
 
 Then: systemctl restart systemd-timesyncd
-Re-run this script.
+Re-run: bootstrap.sh preflight
 EOF
-  exit 1
-fi
-
-systemctl restart systemd-timesyncd || true
-
-if ! findmnt /mnt >/dev/null 2>&1; then
-  echo
-  echo "Nothing is mounted on /mnt."
-  sgdisk "$NVME" -p || true
-  reread_pt
-  ROOT=$(find_root_part)
-
-  if [[ -n ${ROOT:-} && -b $ROOT ]]; then
-    echo "Found existing Linux partition $ROOT."
-    confirm "Format $ROOT as ext4 (erases that partition only) and mount /mnt?"
-  else
-    confirm "Create and format the NixOS root partition on $NVME?"
-    sgdisk "$NVME" -n 0:0:0 -t 0:8300 -c 0:nixos -s
-    reread_pt
-    ROOT=$(find_root_part)
-    [[ -n ${ROOT:-} && -b $ROOT ]] || die "no 8300 partition — use sgdisk -p and mount the Linux slice on /mnt, then re-run"
-    confirm "Format $ROOT as ext4 and mount /mnt?"
+    exit 1
   fi
 
-  echo "formatting $ROOT"
-  mkfs.ext4 -L nixos "$ROOT"
-  mount "$ROOT" /mnt
-fi
+  systemctl restart systemd-timesyncd || true
+  step_ok "preflight (network, root, tools)"
+}
 
-mkdir -p /mnt/boot
-if ! findmnt /mnt/boot >/dev/null 2>&1; then
+step_mount_root() {
+  need_root
+
+  if findmnt /mnt >/dev/null 2>&1; then
+    step_skip "mount-root — already mounted as $(findmnt -n -o SOURCE /mnt)"
+    return 0
+  fi
+
+  echo
+  sgdisk "$NVME" -p || true
+  reread_pt
+
+  local root
+  root=$(find_root_part)
+
+  if [[ -z ${root:-} || ! -b $root ]]; then
+    [[ ${CREATE_PARTITION:-} == 1 ]] || confirm "Create NixOS root partition (8300) on $NVME?"
+    sgdisk "$NVME" -n 0:0:0 -t 0:8300 -c 0:nixos -s
+    reread_pt
+    root=$(find_root_part)
+    [[ -n ${root:-} && -b $root ]] \
+      || die "no 8300 partition after create — check: sgdisk $NVME -p"
+  fi
+
+  local fstype
+  fstype=$(blkid -o value -s TYPE "$root" 2>/dev/null || true)
+
+  if [[ $fstype == ext4 ]]; then
+    step_skip "mount-root — $root already ext4, not formatting"
+  elif [[ -n $fstype && ${FORMAT:-} != 1 ]]; then
+    die "$root has filesystem type '$fstype' — mount manually or set FORMAT=1 to overwrite"
+  else
+    confirm "Format $root as ext4 (erases that partition only)?"
+    mkfs.ext4 -L nixos "$root"
+  fi
+
+  mount "$root" /mnt
+  step_ok "mount-root — $(findmnt -n -o SOURCE /mnt) on /mnt"
+}
+
+step_mount_esp() {
+  need_root
+  require_mnt
+
+  if findmnt /mnt/boot >/dev/null 2>&1; then
+    step_skip "mount-esp — already $(findmnt -n -o SOURCE /mnt/boot) on /mnt/boot"
+    return 0
+  fi
+
+  mkdir -p /mnt/boot
   mount "$(esp_dev)" /mnt/boot
-fi
+  step_ok "mount-esp — $(findmnt -n -o SOURCE /mnt/boot) on /mnt/boot"
+}
 
-echo "root: $(findmnt -n -o SOURCE /mnt)"
-echo "esp:  $(findmnt -n -o SOURCE /mnt/boot)"
+step_git() {
+  if command -v git >/dev/null 2>&1; then
+    step_skip "git — $(command -v git)"
+    return 0
+  fi
 
-ensure_git
-mkdir -p /mnt/home/teodor
-if [[ ! -d $FLAKE_DIR/.git ]]; then
+  echo "installer has no git; pulling from nixpkgs…"
+  nix-env -iA nixos.git 2>/dev/null || nix-env -iA nixpkgs.git 2>/dev/null || true
+  command -v git >/dev/null || nix-shell -p git --run "true"
+  step_ok "git — $(command -v git || echo nix-shell)"
+}
+
+step_clone() {
+  require_mnt
+  step_git
+
+  mkdir -p "$(dirname "$FLAKE_DIR")"
+
+  if [[ -d $FLAKE_DIR/.git ]]; then
+    step_skip "clone — repo at $FLAKE_DIR"
+    if [[ ${PULL:-} == 1 ]] && command -v git >/dev/null; then
+      echo "pulling latest…"
+      git -C "$FLAKE_DIR" pull --ff-only || echo "warn: git pull failed (offline or diverged)"
+    fi
+    return 0
+  fi
+
   echo "cloning $REPO_URL -> $FLAKE_DIR"
-  git_clone
-else
-  echo "flake already at $FLAKE_DIR"
-fi
+  if command -v git >/dev/null; then
+    git clone "$REPO_URL" "$FLAKE_DIR"
+  else
+    nix-shell -p git --run "git clone '$REPO_URL' '$FLAKE_DIR'"
+  fi
+  step_ok "clone — $FLAKE_DIR"
+}
 
-write_hw_config
-copy_firmware
-apply_asahi_fix
-ensure_swap
-chown -R 1000:1000 /mnt/home/teodor || true
+step_patch() {
+  require_flake
 
-echo
-echo "installing #applenix-bootstrap…"
-nixos-install \
-  --root /mnt \
-  --no-channel-copy \
-  --no-root-password \
-  --impure \
-  --flake "$FLAKE_DIR#applenix-bootstrap"
+  echo "patching Asahi pin + host modules in $FLAKE_DIR"
+  install_host_file asahi.nix
+  install_host_file bootstrap.nix
 
-echo
-echo "done. reboot, pick NixOS, login teodor / teodor"
-echo "then:  cd ~/teonix && sudo nixos-rebuild switch --flake path:.#applenix --impure"
-echo "then:  passwd"
+  sed -i \
+    "s|github:nix-community/nixos-apple-silicon/release-[0-9][0-9-]*|github:nix-community/nixos-apple-silicon/${APPLE_SILICON_PIN}|g" \
+    "$FLAKE_DIR/flake.nix"
+
+  grep -q "nixos-apple-silicon/${APPLE_SILICON_PIN}" "$FLAKE_DIR/flake.nix" \
+    || die "flake.nix still missing apple-silicon ${APPLE_SILICON_PIN} — repo too old?"
+
+  grep -q 'applenix-bootstrap' "$FLAKE_DIR/flake.nix" \
+    || die "flake.nix missing #applenix-bootstrap — push teonix from nixbox and re-clone"
+
+  step_ok "patch — apple-silicon ${APPLE_SILICON_PIN}, asahi.nix, bootstrap.nix"
+}
+
+step_hw_config() {
+  require_flake
+
+  local out="$FLAKE_DIR/hosts/applenix/hardware-configuration.nix"
+  nixos-generate-config --root /mnt --show-hardware-config >"$out"
+  sed -i '/extractPeripheralFirmware/d' "$out"
+  step_ok "hw-config — wrote $out"
+}
+
+step_firmware() {
+  require_flake
+  require_mnt
+  findmnt /mnt/boot >/dev/null 2>&1 || die "ESP not on /mnt/boot — run: $SCRIPT_PATH mount-esp"
+
+  local dest="$FLAKE_DIR/hosts/applenix/firmware"
+  mkdir -p "$dest"
+
+  if [[ -f $dest/firmware.cpio && ${FORCE:-} != 1 ]]; then
+    step_skip "firmware — $dest/firmware.cpio already present"
+    return 0
+  fi
+
+  if [[ -f /mnt/boot/vendorfw/firmware.cpio ]]; then
+    cp -a /mnt/boot/vendorfw/. "$dest/"
+  elif [[ -d /mnt/boot/asahi ]]; then
+    cp -a /mnt/boot/asahi/. "$dest/"
+  else
+    echo "warn: no ESP firmware at /mnt/boot — later rebuilds need --impure"
+    return 0
+  fi
+
+  step_ok "firmware — copied ESP firmware to $dest"
+}
+
+step_swap() {
+  require_mnt
+
+  if grep -q '/mnt/swapfile' /proc/swaps 2>/dev/null; then
+    step_skip "swap — /mnt/swapfile already active"
+    return 0
+  fi
+
+  echo "adding 8G swap on /mnt for the Asahi kernel compile…"
+  if [[ ! -f /mnt/swapfile ]]; then
+    if ! fallocate -l 8G /mnt/swapfile 2>/dev/null; then
+      dd if=/dev/zero of=/mnt/swapfile bs=1M count=8192 status=progress
+    fi
+    chmod 600 /mnt/swapfile
+    mkswap /mnt/swapfile
+  fi
+  swapon /mnt/swapfile
+  step_ok "swap — /mnt/swapfile"
+}
+
+step_chown() {
+  require_mnt
+  chown -R 1000:1000 /mnt/home/teodor 2>/dev/null || true
+  step_ok "chown — /mnt/home/teodor -> teodor (1000)"
+}
+
+step_install() {
+  require_flake
+
+  if check_install && [[ ${FORCE:-} != 1 ]]; then
+    step_skip "install — NixOS system profile already exists under /mnt/nix (FORCE=1 to reinstall)"
+    return 0
+  fi
+
+  if [[ ${SKIP_INSTALL:-} == 1 ]]; then
+    step_skip "install — SKIP_INSTALL=1"
+    return 0
+  fi
+
+  echo "installing #applenix-bootstrap (this takes a while)…"
+  nixos-install \
+    --root /mnt \
+    --no-channel-copy \
+    --no-root-password \
+    --impure \
+    --flake "$FLAKE_DIR#applenix-bootstrap"
+
+  step_ok "install — #applenix-bootstrap"
+}
+
+# --- dispatcher ---
+
+run_step() {
+  local step=$1
+  local fn="step_${step//-/_}"
+  [[ $(type -t "$fn") == function ]] || die "unknown step: $step"
+
+  if should_run "$step" "check_${step//-/_}"; then
+    step_run "$step"
+    "$fn"
+    state_mark "$step"
+  else
+    step_skip "$step — looks complete (FORCE=1 to redo)"
+  fi
+}
+
+cmd_status() {
+  local step detail
+  echo "applenix bootstrap v${SCRIPT_VERSION}"
+  echo "  script:  $SCRIPT_PATH"
+  echo "  flake:   $FLAKE_DIR"
+  echo "  disk:    $NVME"
+  echo "  state:   $(state_file 2>/dev/null || echo '(no /mnt yet)')"
+  echo
+  printf "%-12s %-8s %s\n" "STEP" "STATUS" "DETAIL"
+  for step in "${STEPS[@]}"; do
+    detail=""
+    case $step in
+      mount-root)
+        findmnt /mnt >/dev/null 2>&1 && detail="$(findmnt -n -o SOURCE /mnt) -> /mnt" || detail="not mounted"
+        ;;
+      mount-esp)
+        findmnt /mnt/boot >/dev/null 2>&1 && detail="$(findmnt -n -o SOURCE /mnt/boot) -> /mnt/boot" || detail="not mounted"
+        ;;
+      clone)
+        [[ -d $FLAKE_DIR/.git ]] && detail="$FLAKE_DIR" || detail="missing"
+        ;;
+      patch)
+        if [[ -f $FLAKE_DIR/flake.nix ]]; then
+          detail=$(grep -o 'release-[0-9-]*' "$FLAKE_DIR/flake.nix" | head -n1 || echo "?")
+        else
+          detail="no flake"
+        fi
+        ;;
+      firmware)
+        [[ -f $FLAKE_DIR/hosts/applenix/firmware/firmware.cpio ]] && detail="present" || detail="missing"
+        ;;
+      install)
+        check_install && detail="system profile exists" || detail="not installed"
+        ;;
+    esac
+    if "check_${step//-/_}" 2>/dev/null; then
+      printf "%-12s %-8s %s\n" "$step" "done" "$detail"
+    elif state_done "$step"; then
+      printf "%-12s %-8s %s\n" "$step" "stale?" "$detail"
+    else
+      printf "%-12s %-8s %s\n" "$step" "pending" "$detail"
+    fi
+  done
+}
+
+cmd_list() {
+  printf '%s\n' "${STEPS[@]}"
+}
+
+usage() {
+  cat <<EOF
+applenix bootstrap v${SCRIPT_VERSION} — modular USB installer
+
+Usage:
+  $(basename "$SCRIPT_PATH")              Run all pending steps (default)
+  $(basename "$SCRIPT_PATH") all          Same as above
+  $(basename "$SCRIPT_PATH") status       Show live step checklist
+  $(basename "$SCRIPT_PATH") list         List step names
+  $(basename "$SCRIPT_PATH") reset STEP   Forget STEP in state file (does not undo disk)
+  $(basename "$SCRIPT_PATH") STEP [...]   Run specific step(s) only
+
+Steps (in order):
+  preflight mount-root mount-esp git clone patch hw-config firmware swap chown install
+
+Environment:
+  YES=1 NONINTERACTIVE=1   Skip confirmation prompts
+  FORCE=1                  Redo steps even when they look complete
+  FORMAT=1                 Allow mkfs on a non-ext4 partition
+  CREATE_PARTITION=1       Create 8300 slice when missing (still asks unless YES=1)
+  SKIP_INSTALL=1           Prepare /mnt only, skip nixos-install
+  PULL=1                   git pull when clone already exists
+  TEONIX_REPO TEONIX_DIR TEONIX_DISK APPLE_SILICON_PIN
+
+After install:
+  reboot
+  login teodor / teodor, then:
+    cd ~/teonix && sudo nixos-rebuild switch --flake path:.#applenix --impure
+EOF
+}
+
+main() {
+  local cmd=${1:-all}
+
+  case $cmd in
+    -h | --help | help)
+      usage
+      ;;
+    status)
+      cmd_status
+      ;;
+    list)
+      cmd_list
+      ;;
+    reset)
+      [[ -n ${2:-} ]] || die "usage: $(basename "$SCRIPT_PATH") reset STEP"
+      state_clear "$2"
+      echo "cleared state for: $2"
+      ;;
+    all | "")
+      log "applenix bootstrap v${SCRIPT_VERSION}"
+      for step in "${STEPS[@]}"; do
+        run_step "$step"
+      done
+      echo
+      echo "done. reboot, pick NixOS, login teodor / teodor"
+      echo "then:  cd ~/teonix && sudo nixos-rebuild switch --flake path:.#applenix --impure"
+      echo "then:  passwd"
+      ;;
+    *)
+      need_root
+      for step in "$@"; do
+        run_step "$step"
+      done
+      ;;
+  esac
+}
+
+main "$@"

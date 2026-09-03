@@ -73,29 +73,49 @@ Ethernet works too if you have a dongle.
 
 ---
 
-## 2. One-shot bootstrap
+## 2. Bootstrap (modular, safe to re-run)
 
 Still as root:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/bootstrap.sh -o /tmp/bootstrap.sh
-bash /tmp/bootstrap.sh
+bash /tmp/bootstrap.sh          # all pending steps
 ```
+
+The script is **idempotent**. If it dies mid-way (OOM, network, old GitHub copy), fix the issue and run the same command again — completed steps are skipped automatically.
+
+```bash
+bash /tmp/bootstrap.sh status   # what is done vs pending
+bash /tmp/bootstrap.sh list       # step names
+bash /tmp/bootstrap.sh install    # only nixos-install (after prep steps)
+bash /tmp/bootstrap.sh patch      # re-apply Asahi pin + host modules only
+YES=1 bash /tmp/bootstrap.sh      # no YES prompts (partition/format still needs care)
+FORCE=1 bash /tmp/bootstrap.sh patch install   # redo even if they look complete
+```
+
+Steps (in order): `preflight` → `mount-root` → `mount-esp` → `git` → `clone` → `patch` → `hw-config` → `firmware` → `swap` → `chown` → `install`
 
 The script will:
 
-1. Refuse to run without network
-2. Ask you to type `YES`, then create **one** ext4 partition in the leftover free space on `/dev/nvme0n1` (does **not** touch iBoot, macOS, or Recovery)
-3. Mount root + the Asahi ESP (`/boot`)
-4. Clone this repo to `/mnt/home/teodor/teonix`
-5. Write a real `hosts/applenix/hardware-configuration.nix` (UUIDs from this machine)
-6. Copy ESP firmware into `hosts/applenix/firmware/` (gitignored)
-7. `nixos-install --flake …#applenix-bootstrap --impure`
+1. Refuse to run without network (`preflight`)
+2. Ask you to type `YES`, then create **one** ext4 partition in the leftover free space on `/dev/nvme0n1` (does **not** touch iBoot, macOS, or Recovery) — skipped if `/mnt` is already mounted or the slice is already ext4
+3. Mount root + the Asahi ESP (`/boot`) — skipped if already mounted
+4. Clone this repo to `/mnt/home/teodor/teonix` — skipped if `.git` exists
+5. Patch `asahi.nix`, `bootstrap.nix`, and the apple-silicon flake pin (no `python3`; works on the bare installer ISO)
+6. Write a real `hosts/applenix/hardware-configuration.nix`
+7. Copy ESP firmware into `hosts/applenix/firmware/` (gitignored)
+8. `nixos-install --flake …#applenix-bootstrap --impure` — skipped if a system profile already exists under `/mnt/nix`
 
 If the repo is private, clone it yourself first (token or `scp` from nixbox), then:
 
 ```bash
 TEONIX_DIR=/mnt/home/teodor/teonix bash /tmp/bootstrap.sh
+```
+
+If you already mounted and cloned manually, jump straight to the remaining steps:
+
+```bash
+bash /tmp/bootstrap.sh patch hw-config firmware swap install
 ```
 
 When it finishes:
@@ -206,8 +226,7 @@ sudo su
 mount /dev/disk/by-label/nixos /mnt
 mkdir -p /mnt/boot
 mount /dev/disk/by-partuuid/$(cat /proc/device-tree/chosen/asahi,efi-system-partition) /mnt/boot
-nixos-install --root /mnt --no-channel-copy --no-root-password --impure \
-  --flake /mnt/home/teodor/teonix#applenix-bootstrap
+FORCE=1 bash /tmp/bootstrap.sh install
 ```
 
 That only adds a generation. User data stays.
