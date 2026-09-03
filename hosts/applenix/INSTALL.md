@@ -222,7 +222,24 @@ That reproduces the exact derivation stage 1 installed, so the switch reuses the
 - **The kernel no longer tracks `nixos-unstable`.** Previously `apple-silicon.inputs.nixpkgs.follows = "nixos-unstable"` meant every `systemupdate` changed the kernel's hash and triggered a fresh multi-hour build. Now only bumping the `apple-silicon` input moves it, and that one build is unavoidable.
 - **Nothing is cross-compiled.** `pkgsSystem` is left at `aarch64-linux`, so every derivation in the closure is still natively buildable on the Mac. If a prebuilt path is ever missing the Mac compiles it — slow, but it cannot hard-fail the way a `localSystem = x86_64-linux` closure would.
 
-This is deterministic, not a lucky hash collision:
+There are **two** prebuilt kernels a release can produce, and they are different store paths:
+
+| ISO / stage 1 | `hardware.asahi.pkgsSystem` | kernel path |
+|---|---|---|
+| official native ISO | `aarch64-linux` | `fyrv4wlxlq966sf5j0a8jwvf9xavxna1-linux-asahi-7.1.5` |
+| cross-built ISO, or `PKGS_SYSTEM=x86_64-linux` in stage 1 | `x86_64-linux` | `5zgarn52876f6w4k61bc99shn3k64qdd-linux-asahi-aarch64-unknown-linux-gnu-7.1.5` |
+
+Asking for the wrong one means compiling from scratch, so stage 2 works out which is actually in the store — it asks the pinned `apple-silicon` input for both candidates and tests each with `nix path-info`, rather than guessing from kernel names (the target triple in a kernel's name is not a reliable cross-build tell; nixbox's own native kernel has one). It then writes the answer to `hosts/applenix/asahi-build-system.nix`, a one-line file that `asahi.nix` reads as plain data:
+
+```nix
+"x86_64-linux"
+```
+
+Read as plain data on purpose — going through `config` would make the `nixpkgs.overlays` in `asahi.nix` depend on the module system while it is still constructing `pkgs`. Like `firmware/`, this file only takes effect via `path:.`; a git flake reference would drop it while it is untracked.
+
+One consequence of the cross case: 1,077 derivations in that closure declare an x86_64 builder (the whole cross toolchain). They never get realised as long as the outputs we need are present, which is exactly why stage 1 could reuse the ISO's kernel without a cross compiler. If one *is* missing, Nix fails immediately with `cannot build on 'x86_64-linux'` rather than compiling for hours — a loud failure, not a slow one.
+
+The native case is deterministic, not a lucky hash collision:
 
 | Fact | Value |
 |---|---|

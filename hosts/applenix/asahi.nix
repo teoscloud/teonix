@@ -16,10 +16,32 @@ let
   # Consequence: the kernel tracks the apple-silicon input, not nixos-unstable,
   # so routine updates never rebuild it. Bumping the apple-silicon release is
   # what moves the kernel, and that single build is unavoidable.
-  asahiPkgs = import apple-silicon.inputs.nixpkgs {
-    system = "aarch64-linux";
-    overlays = [ apple-silicon.overlays.default ];
-  };
+  #
+  # Which build platform, though, depends on the ISO this Mac was installed
+  # from: an official native ISO leaves the aarch64-built kernel in the store,
+  # a cross-built one (or PKGS_SYSTEM=x86_64-linux during stage 1) leaves the
+  # x86_64-built one, and the two are different store paths. stage2.sh works
+  # out which is actually present and writes it here. Plain data on purpose —
+  # reading it through `config` would make nixpkgs.overlays below depend on the
+  # module system while it is still building `pkgs`.
+  buildSystem =
+    if builtins.pathExists ./asahi-build-system.nix then
+      import ./asahi-build-system.nix
+    else
+      "aarch64-linux";
+
+  asahiPkgs = import apple-silicon.inputs.nixpkgs (
+    { overlays = [ apple-silicon.overlays.default ]; }
+    // (
+      if buildSystem == "aarch64-linux" then
+        { system = "aarch64-linux"; }
+      else
+        {
+          crossSystem.system = "aarch64-linux";
+          localSystem.system = buildSystem;
+        }
+    )
+  );
 in
 
 {

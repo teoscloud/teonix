@@ -999,11 +999,41 @@ iso_layout=\$(fact ISO_LAYOUT 2>/dev/null || true)
 } >"\$HOST_DIR/detected.nix"
 ok "detected — wrote \$HOST_DIR/detected.nix"
 
+# --- which prebuilt Asahi kernel does this Mac have? -----------------------
+# The installer ISO is either native aarch64 or cross-built from x86_64, and
+# the two produce different store paths for the same kernel. Whichever one
+# nixos-install copied here is the one we must ask for; asking for the other
+# means compiling from scratch, because linux-asahi is in no binary cache.
+#
+# Rather than parse kernel names (the target triple in them is not a reliable
+# cross-build tell), ask the pinned apple-silicon input for both candidates and
+# see which is actually in the store.
+say "finding which prebuilt Asahi kernel is in the store"
+asahi_build_system=""
+for candidate in aarch64-linux x86_64-linux; do
+  candidate_path=\$(nix eval --impure --raw \\
+    --expr "(builtins.getFlake \\"path:\$DIR\\").inputs.apple-silicon.packages.\$candidate.linux-asahi.outPath" \\
+    2>/dev/null) || continue
+  [[ -n \$candidate_path ]] || continue
+  if nix path-info "\$candidate_path" >/dev/null 2>&1; then
+    asahi_build_system=\$candidate
+    ok "kernel — prebuilt for \$candidate: \${candidate_path##*/}"
+    break
+  fi
+  say "  not in store for \$candidate"
+done
+
+if [[ -n \$asahi_build_system ]]; then
+  printf '"%s"\\n' "\$asahi_build_system" >"\$HOST_DIR/asahi-build-system.nix"
+  ok "detected — wrote \$HOST_DIR/asahi-build-system.nix"
+else
+  warn "neither prebuilt kernel is in the store; the switch would compile one"
+  rm -f "\$HOST_DIR/asahi-build-system.nix"
+fi
+
 # --- kernel sanity ---------------------------------------------------------
-# linux-asahi is in no binary cache, so if its path is not already in the store
-# the switch silently turns into a 2h+ compile that OOMs small Macs. asahi.nix
-# pins it to apple-silicon's own nixpkgs precisely so it matches the kernel the
-# installer copied here; check that held before committing to a long run.
+# Belt and braces: confirm the path the flake actually resolves to is present,
+# so a switch never silently turns into a 2h+ compile that OOMs a small Mac.
 say "checking the Asahi kernel is prebuilt (this is the 2h trap)"
 kernel=\$(nix eval --raw "path:\$DIR#nixosConfigurations.applenix.config.boot.kernelPackages.kernel" 2>/dev/null || true)
 
