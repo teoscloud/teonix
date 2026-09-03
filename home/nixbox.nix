@@ -1,4 +1,4 @@
-{ config, pkgs, username, hostname, projectdir, ... }:
+{ config, pkgs, username, homeDirectory ? "/home/${username}", hostname, projectdir, ... }:
 
 let
   # Chromium/Brave refuse to open a Pulse stream when the session default sink
@@ -46,7 +46,7 @@ let
 in
 {
   home.username = username;
-  home.homeDirectory = "/home/${username}";
+  home.homeDirectory = homeDirectory;
   home.stateVersion = "25.05";
 
   # BusChain Control → Quickshell mixer / HW scroll strip

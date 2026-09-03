@@ -82,11 +82,11 @@
   "custom/buschain-control": {
     "format": "{}",
     "return-type": "json",
-    "exec": "/home/teodor/Projects/buschain-control/target/debug/buschain-ctl status",
+    "exec": "$HOME/Projects/buschain-control/target/debug/buschain-ctl status",
     "interval": 3,
     "signal": 9,
     "exec-on-event": false,
-    "on-click": "/home/teodor/Projects/buschain-control/packaging/waybar/buschain-waybar popup",
+    "on-click": "$HOME/Projects/buschain-control/packaging/waybar/buschain-waybar popup",
     "tooltip": true
   },
   "custom/exit": {
@@ -96,7 +96,7 @@
   },
   "custom/startmenu": {
     "tooltip": false,
-    "exec": "python3 /home/teodor/.config/hypr/scripts/weather.py",
+    "exec": "python3 $HOME/.config/hypr/scripts/weather.py",
     "restart-interval": 300,
     "return-type":"text",
     "format": "{}"

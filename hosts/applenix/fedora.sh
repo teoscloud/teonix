@@ -9,7 +9,7 @@
 # Idempotent: re-run after any failure; finished steps are skipped.
 set -Eeuo pipefail
 
-readonly VERSION=1
+readonly VERSION=2
 readonly SELF="applenix-fedora"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/fedora.sh | bash"
 readonly FLAKE_ATTR=applenix-fedora
@@ -17,7 +17,7 @@ readonly FLAKE_ATTR=applenix-fedora
 TEONIX_REPO="${TEONIX_REPO:-https://github.com/teoscloud/teonix.git}"
 TEONIX_DIR="${TEONIX_DIR:-$HOME/teonix}"
 
-readonly STEPS=(nix git repo switch session)
+readonly STEPS=(nix git repo identity switch session)
 
 say() { printf '%s\n' "$*"; }
 ok() { printf '[ ok ] %s\n' "$*"; }
@@ -54,9 +54,36 @@ load_nix() {
   export PATH="${PATH}:/nix/var/nix/profiles/default/bin${HOME:+:$HOME/.nix-profile/bin}"
 }
 
+nix_str() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  printf '"%s"' "$s"
+}
+
+write_identity() {
+  local user="${TEONIX_USER:-${USER:-$(id -un)}}"
+  local home="${HOME:-/home/${user}}"
+  [[ $user =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] \
+    || die "refusing username $(printf %q "$user") — set TEONIX_USER= to a simple POSIX name"
+  [[ -f $TEONIX_DIR/flake.nix ]] || die "$TEONIX_DIR/flake.nix is missing — run the repo step first"
+  cat >"$TEONIX_DIR/local-identity.nix" <<EOF
+{
+  username = $(nix_str "$user");
+  homeDirectory = $(nix_str "$home");
+  projectdir = $(nix_str "$TEONIX_DIR");
+}
+EOF
+}
+
 probe_nix() { have_nix && load_nix; }
 probe_git() { command -v git >/dev/null 2>&1; }
 probe_repo() { [[ -f $TEONIX_DIR/flake.nix ]]; }
+probe_identity() {
+  local user="${TEONIX_USER:-${USER:-$(id -un)}}"
+  [[ -f $TEONIX_DIR/local-identity.nix ]] \
+    && grep -q "username = \"${user}\"" "$TEONIX_DIR/local-identity.nix"
+}
 probe_switch() { [[ -e $HOME/.local/state/home-manager/gcroots/current-home ]]; }
 probe_session() {
   [[ -f $HOME/.local/share/wayland-sessions/hyprland-nix.desktop ]] \
@@ -112,6 +139,11 @@ step_repo() {
   mkdir -p "$(dirname "$TEONIX_DIR")"
   git clone "$TEONIX_REPO" "$TEONIX_DIR"
   ok "repo — cloned to $TEONIX_DIR"
+}
+
+step_identity() {
+  write_identity
+  ok "identity — $(tr -d '\n' <"$TEONIX_DIR/local-identity.nix" | tr -s ' ')"
 }
 
 step_switch() {
@@ -171,6 +203,7 @@ switches Home Manager to #${FLAKE_ATTR}. Re-run after any failure.
   … help
 
 Environment:
+  TEONIX_USER=…   Home Manager user (default \$USER — not hardcoded teodor)
   TEONIX_REPO=…   git remote (default ${TEONIX_REPO})
   TEONIX_DIR=…    checkout (default \$HOME/teonix)
   FORCE=1         redo steps that look finished
@@ -180,6 +213,7 @@ EOF
 cmd_status() {
   local step
   say "${SELF} v${VERSION}"
+  say "  user ${TEONIX_USER:-${USER:-$(id -un)}}"
   say "  dir  $TEONIX_DIR"
   say ""
   printf '%-10s %s\n' STEP STATE

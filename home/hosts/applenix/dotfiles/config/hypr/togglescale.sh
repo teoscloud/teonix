@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONFIG_FILE="/home/teodor/.config/hypr/hyprland.conf"
+CONFIG_FILE="${HOME}/.config/hypr/hyprland.conf"
 SEARCH_LINE="monitor = eDP-1, 2880x1800@60, 0x0, "
 CURRENT_SCALE=$(grep -oP "$SEARCH_LINE\K\d+\.?\d*" "$CONFIG_FILE")
 

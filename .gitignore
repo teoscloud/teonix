@@ -25,6 +25,9 @@ result
 # Ignore any files in directories named "secrets" at any depth.
 **/secrets/**
 
+# Per-machine user (username / home / teonix path). Default is teodor.
+local-identity.nix
+
 # Asahi peripheral firmware copied from the ESP (not redistributable).
 hosts/applenix/firmware/
 

@@ -23,6 +23,7 @@ The NixOS USB path (`install.sh`, `#applenix`) is unchanged.
 | `nix` | installs multi-user Nix with flakes if `nix` is not on the system |
 | `git` | `sudo dnf install -y git` if needed |
 | `repo` | clones or fast-forwards `~/teonix` |
+| `identity` | writes `local-identity.nix` from the current login (`$USER`) |
 | `switch` | `nix run nixpkgs#home-manager -- switch --flake path:.#applenix-fedora` |
 | `session` | copies the wayland session file to `/usr/share/wayland-sessions/` so GDM lists it |
 
@@ -31,7 +32,9 @@ curl …/fedora.sh | bash -s status    # checklist
 curl …/fedora.sh | bash -s help
 ```
 
-Overrides: `TEONIX_DIR=`, `TEONIX_REPO=`, `FORCE=1`.
+The login that runs the script is the Home Manager user. `teodor` is only the fallback when nothing is set (this machine). Override with `TEONIX_USER=` if needed. That writes gitignored `local-identity.nix` (`username`, `homeDirectory`, `projectdir`).
+
+Other overrides: `TEONIX_DIR=`, `TEONIX_REPO=`, `FORCE=1`.
 
 ---
 

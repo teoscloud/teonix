@@ -1,4 +1,4 @@
-{ config, pkgs, username, hostname, projectdir, ... }:
+{ config, pkgs, username, homeDirectory ? "/home/${username}", hostname, projectdir, ... }:
 
 let
   clearBrowserStreamTargets = pkgs.writeShellScript "clear-browser-stream-targets" ''
@@ -28,7 +28,7 @@ let
 in
 {
   home.username = username;
-  home.homeDirectory = "/home/${username}";
+  home.homeDirectory = homeDirectory;
   home.stateVersion = "25.05";
 
   home.file.".config/wireplumber/wireplumber.conf.d/99-browsers-no-stale-target.conf".text = ''

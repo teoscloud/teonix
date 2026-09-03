@@ -1,4 +1,4 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, projectdir, ... }:
 
 let
   dotfilesPath = ../dotfiles;
@@ -45,7 +45,7 @@ in {
   home.file.".config/wofi/style.css".source = "${dotfilesPath}/config/wofi/style.css";
 
   home.file.".config/quickshell".source = config.lib.file.mkOutOfStoreSymlink
-    "${config.home.homeDirectory}/teonix/home/hosts/applenix/dotfiles/config/quickshell";
+    "${projectdir}/home/hosts/applenix/dotfiles/config/quickshell";
 
   xdg.dataFile = cursorHicolorIconFiles;
 

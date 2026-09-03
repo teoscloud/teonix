@@ -915,6 +915,16 @@ fi
 [[ -f \$DIR/flake.nix ]] || die "\$DIR/flake.nix is missing — wrong repo?"
 mkdir -p "\$HOST_DIR"
 
+# So #applenix / home-manager use this login, not a hardcoded teodor.
+{
+  echo "{"
+  echo "  username = \"\$(id -un)\";"
+  echo "  homeDirectory = \"\${HOME}\";"
+  echo "  projectdir = \"\$DIR\";"
+  echo "}"
+} >"\$DIR/local-identity.nix"
+ok "identity — \$(id -un)"
+
 # Cheap guard against the class of failure that costs a whole kernel build:
 # linux-asahi dropped the ignoreConfigErrors argument in release-2026-07-30.
 #

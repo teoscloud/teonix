@@ -22,8 +22,26 @@
 
   outputs = { self, nixos-stable, nixos-unstable, chaotic, nix-gaming, home-manager, apple-silicon, ... } @ inputs:
   let
-    username = "teodor";
-    projectdir = "/home/${username}/teonix";
+    # Default is this machine. Override without editing the flake:
+    #   local-identity.nix (written by fedora.sh / stage 2, gitignored)
+    #   or TEONIX_USER (empty under a pure eval — prefer the file).
+    identity =
+      let
+        fromFile =
+          if builtins.pathExists ./local-identity.nix
+          then import ./local-identity.nix
+          else { };
+        envUser = builtins.getEnv "TEONIX_USER";
+        username =
+          if envUser != "" then envUser else fromFile.username or "teodor";
+        homeDirectory = fromFile.homeDirectory or "/home/${username}";
+        projectdir = fromFile.projectdir or "${homeDirectory}/teonix";
+      in
+      { inherit username homeDirectory projectdir; };
+
+    username = identity.username;
+    homeDirectory = identity.homeDirectory;
+    projectdir = identity.projectdir;
 
     nixbox_hostname = "nixbox";
     nixtop_hostname = "nixtop";
@@ -61,7 +79,7 @@
 
     mkCommonSpecialArgs = system:
       {
-        inherit username projectdir inputs system;
+        inherit username homeDirectory projectdir inputs system;
         unstable-pkgs = pkgsFor system;
         stable-pkgs = stableFor system;
         apple-silicon = apple-silicon;

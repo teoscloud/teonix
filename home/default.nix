@@ -1,8 +1,8 @@
-{ config, pkgs, username, hostname, projectdir, ... }:
+{ config, pkgs, username, homeDirectory ? "/home/${username}", hostname, projectdir, ... }:
 
 {
   home.username = username;
-  home.homeDirectory = "/home/${username}";
+  home.homeDirectory = homeDirectory;
   home.stateVersion = "25.05";
 
   # ✅ Export session variables
