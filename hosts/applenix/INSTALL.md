@@ -159,7 +159,8 @@ bash /tmp/install.sh
 | `ISO_LAYOUT=0\|1` | `hid_apple iso_layout`, if `` ` `` and `<` are swapped |
 | `M1N1_EXTRA=…` | `boot.m1n1ExtraOptions`, for [Mac mini display quirks](https://github.com/AsahiLinux/m1n1/issues/159) |
 | `SWAP_SIZE=MiB` | swapfile stage 2 creates (default from RAM) |
-| `BUILD_CORES=N` | cores per derivation in stage 2 (default from RAM); lower it if the kernel build is OOM-killed |
+| `BUILD_CORES=N` | cores per derivation in stage 2 (default from RAM); lower it if a build is OOM-killed |
+| `KERNEL_BUILD_OK=1` | let stage 2 compile the Asahi kernel instead of refusing (2h+; normally a sign the pin is wrong) |
 | `PKGS_SYSTEM=…` | set if the ISO was cross-built and the kernel still rebuilds |
 | `CHARGE_LIMIT=…` | battery ceiling on laptops (default 80) |
 | `TEONIX_REPO=` / `TEONIX_DIR=` | what stage 2 clones, and where |
@@ -194,11 +195,20 @@ Stage 2:
 
 ### Why the kernel is not rebuilt
 
-`linux-asahi` is in **no binary cache**. nixpkgs policy keeps vendor kernels out of the tree — the same reason the Raspberry Pi kernels moved to nixos-hardware — and upstream's own cache is [documented as non-functional](https://github.com/nix-community/nixos-apple-silicon/blob/main/docs/binary-cache.md) (their CI runners can't build it fast enough or can't sandbox). The plan is to share whatever Hydra nixos-hardware migrates to, tracked in [nixos-hardware#854](https://github.com/NixOS/nixos-hardware/issues/854).
+There is **no Asahi kernel binary to download.** Checked four ways, all agreeing:
 
-So nobody publishes a binary, and whoever evaluates the kernel compiles it — two hours plus, and it OOMs an 8 GiB Mac.
+- [`docs/binary-cache.md` on `main`](https://github.com/nix-community/nixos-apple-silicon/blob/main/docs/binary-cache.md): *"we do not currently have a working cache"* — their GH runners are too slow to build the kernel and the alternative runners can't sandbox
+- upstream's `flake.nix` declares no `nixConfig.extra-substituters`, so nothing is offered automatically
+- `nixos-apple-silicon.cachix.org` still resolves, but returns **404 for every candidate**: `main` and `release-2026-07-30`, native and cross-built alike. [Issue #431](https://github.com/nix-community/nixos-apple-silicon/issues/431) is Cachix having garbage-collected the old NARs
+- `cache.nixos.org` will never carry it: nixpkgs policy keeps vendor kernels out of the tree, the same reason the Raspberry Pi kernels moved to nixos-hardware. The long-term plan is to share that Hydra — [nixos-hardware#854](https://github.com/NixOS/nixos-hardware/issues/854)
 
-The way out is to stop asking for a kernel nobody has built. `hosts/applenix/asahi.nix` sets `hardware.asahi.pkgs` to apple-silicon's **own pinned nixpkgs** instead of ours:
+So whoever evaluates the kernel compiles it: two hours plus, and it OOMs an 8 GiB Mac.
+
+The documented way to avoid that is not to download it but to *not ask for a different one than you already have*. From upstream's [`uefi-standalone.md`](https://github.com/nix-community/nixos-apple-silicon/blob/main/docs/uefi-standalone.md):
+
+> If the installed NixOS version matches the version used by the installer […] and if the installer has not been cross-compiled (the default for official releases), the kernel will be copied over from the installer. Otherwise, the system will attempt to build the kernel in the installer environment which is generally not possible due to memory limitations.
+
+That is exactly what stage 1 relies on, and what `hosts/applenix/asahi.nix` extends to stage 2 by setting `hardware.asahi.pkgs` to apple-silicon's **own pinned nixpkgs** instead of ours:
 
 ```nix
 asahiPkgs = import apple-silicon.inputs.nixpkgs {
@@ -212,13 +222,25 @@ That reproduces the exact derivation stage 1 installed, so the switch reuses the
 - **The kernel no longer tracks `nixos-unstable`.** Previously `apple-silicon.inputs.nixpkgs.follows = "nixos-unstable"` meant every `systemupdate` changed the kernel's hash and triggered a fresh multi-hour build. Now only bumping the `apple-silicon` input moves it, and that one build is unavoidable.
 - **Nothing is cross-compiled.** `pkgsSystem` is left at `aarch64-linux`, so every derivation in the closure is still natively buildable on the Mac. If a prebuilt path is ever missing the Mac compiles it — slow, but it cannot hard-fail the way a `localSystem = x86_64-linux` closure would.
 
-To confirm the kernel will be reused before starting a switch:
+This is deterministic, not a lucky hash collision:
+
+| Fact | Value |
+|---|---|
+| `release-2026-07-30` is a git **tag**, not a branch | `66d8dd2c…`, cannot move |
+| its published ISO | `nixos-26.11.20260723.e2587ca-aarch64-linux.iso` |
+| ISO platform | `aarch64-linux` — native, not cross-built |
+| ISO's nixpkgs | `e2587ca…`, which is exactly what the apple-silicon flake pins |
+| resulting kernel | `fyrv4wlxlq966sf5j0a8jwvf9xavxna1-linux-asahi-7.1.5` |
+
+Because the tag is immutable and the ISO is native, `#applenix` resolves to the same kernel path the installer copied into the store. Since `flake.lock` is gitignored, pinning by tag rather than branch is what keeps this reproducible.
+
+Stage 2 verifies it before committing to a long run, and refuses to start a kernel build unless you pass `KERNEL_BUILD_OK=1`. To check by hand:
 
 ```bash
 nix path-info "$(nix eval --raw path:$HOME/teonix#nixosConfigurations.applenix.config.boot.kernelPackages.kernel)"
 ```
 
-A path means it's already in the store. `path does not exist` means it would be built.
+A path means it's already in the store. `path does not exist` means it would be built, which means the `apple-silicon` input no longer matches the ISO this Mac was installed from — fix the pin, don't sit through the build.
 
 This downloads and compiles a lot. Use `tmux` if you are over ssh.
 

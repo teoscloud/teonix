@@ -21,7 +21,7 @@
 # -E so the ERR trap below also fires for failures inside functions.
 set -Eeuo pipefail
 
-readonly VERSION=8
+readonly VERSION=9
 readonly SELF="applenix-install"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/install.sh | bash"
 
@@ -999,6 +999,32 @@ iso_layout=\$(fact ISO_LAYOUT 2>/dev/null || true)
 } >"\$HOST_DIR/detected.nix"
 ok "detected — wrote \$HOST_DIR/detected.nix"
 
+# --- kernel sanity ---------------------------------------------------------
+# linux-asahi is in no binary cache, so if its path is not already in the store
+# the switch silently turns into a 2h+ compile that OOMs small Macs. asahi.nix
+# pins it to apple-silicon's own nixpkgs precisely so it matches the kernel the
+# installer copied here; check that held before committing to a long run.
+say "checking the Asahi kernel is prebuilt (this is the 2h trap)"
+kernel=\$(nix eval --raw "path:\$DIR#nixosConfigurations.applenix.config.boot.kernelPackages.kernel" 2>/dev/null || true)
+
+if [[ -z \$kernel ]]; then
+  warn "could not evaluate the kernel path; continuing without the check"
+elif nix path-info "\$kernel" >/dev/null 2>&1; then
+  ok "kernel — \${kernel##*/} already in the store, nothing to compile"
+else
+  warn "the Asahi kernel is NOT in the store and no cache has it:"
+  warn "  \$kernel"
+  warn "Switching now would compile it: 2h+, and it OOMs an 8 GB Mac."
+  warn "This means the flake's apple-silicon input no longer matches the ISO"
+  warn "this Mac was installed from. Fix the pin rather than build the kernel."
+  warn "The kernel this Mac is actually running is:"
+  warn "  \$(readlink -f /run/current-system/kernel 2>/dev/null || echo unknown)"
+  if [[ \${KERNEL_BUILD_OK:-0} != 1 ]]; then
+    die "refusing to start a kernel build; re-run with KERNEL_BUILD_OK=1 to do it anyway"
+  fi
+  warn "KERNEL_BUILD_OK=1 set — building the kernel as requested"
+fi
+
 # --- switch ----------------------------------------------------------------
 # max-jobs 1 keeps two heavy derivations from running at once; cores bounds the
 # parallelism inside one, which is what actually sets peak memory. rustc in the
@@ -1121,6 +1147,7 @@ Environment:
   M1N1_EXTRA=…     boot.m1n1ExtraOptions, for Mac mini display quirks
   SWAP_SIZE=MiB    swap the stage 2 helper creates (default from RAM)
   BUILD_CORES=N    cores per derivation in stage 2; lower it if the build OOMs
+  KERNEL_BUILD_OK=1 let stage 2 compile the Asahi kernel instead of refusing
   PKGS_SYSTEM=…    set if the ISO was cross-built and the kernel rebuilds
   CHARGE_LIMIT=…   battery charge ceiling on laptops (default 80)
   TEONIX_REPO=…    repo stage 2 clones
