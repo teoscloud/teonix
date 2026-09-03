@@ -3,7 +3,7 @@
 # Run as root from the Asahi NixOS installer.
 set -euo pipefail
 
-readonly SCRIPT_VERSION=3
+readonly SCRIPT_VERSION=4
 readonly SCRIPT_PATH="${BASH_SOURCE[0]}"
 readonly SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
@@ -137,10 +137,14 @@ check_clone() {
 
 check_patch() {
   [[ -d $FLAKE_DIR/.git || -f $FLAKE_DIR/flake.nix ]] || return 1
-  grep -q "nixos-apple-silicon/${APPLE_SILICON_PIN}" "$FLAKE_DIR/flake.nix" \
-    && grep -q 'applenix-bootstrap' "$FLAKE_DIR/flake.nix" \
-    && [[ -f $FLAKE_DIR/hosts/applenix/asahi.nix ]] \
-    && [[ -f $FLAKE_DIR/hosts/applenix/bootstrap.nix ]]
+  [[ -f $FLAKE_DIR/hosts/applenix/asahi.nix ]] || return 1
+  [[ -f $FLAKE_DIR/hosts/applenix/bootstrap.nix ]] || return 1
+  grep -q "nixos-apple-silicon/${APPLE_SILICON_PIN}" "$FLAKE_DIR/flake.nix" || return 1
+  grep -q 'applenix-bootstrap' "$FLAKE_DIR/flake.nix" || return 1
+  grep -q 'ignoreConfigErrors' "$FLAKE_DIR/hosts/applenix/asahi.nix" && return 1
+  grep -Fq 'overlay = import "${apple-silicon}/apple-silicon-support/packages/overlay.nix"' \
+    "$FLAKE_DIR/hosts/applenix/asahi.nix" || return 1
+  return 0
 }
 
 check_hw_config() {
@@ -259,15 +263,19 @@ install_host_file() {
   local name=$1
   local dest="$FLAKE_DIR/hosts/applenix/$name"
   mkdir -p "$(dirname "$dest")"
-  if [[ -f $SCRIPT_DIR/$name ]]; then
-    cp "$SCRIPT_DIR/$name" "$dest"
-  else
-    case $name in
-      asahi.nix) embed_asahi_nix >"$dest" ;;
-      bootstrap.nix) embed_bootstrap_nix >"$dest" ;;
-      *) die "no bundled copy of $name" ;;
-    esac
-  fi
+  # Never copy asahi/bootstrap from the clone — it may be stale. This script's
+  # embedded copies are the installer bundle (v${SCRIPT_VERSION}).
+  case $name in
+    asahi.nix) embed_asahi_nix >"$dest" ;;
+    bootstrap.nix) embed_bootstrap_nix >"$dest" ;;
+    *)
+      if [[ -f $SCRIPT_DIR/$name ]]; then
+        cp "$SCRIPT_DIR/$name" "$dest"
+      else
+        die "no bundled copy of $name"
+      fi
+      ;;
+  esac
 }
 
 # --- step implementations ---
@@ -402,6 +410,9 @@ step_patch() {
   if ! grep -q 'applenix-bootstrap' "$FLAKE_DIR/flake.nix"; then
     die "flake.nix missing #applenix-bootstrap — on nixbox: git push, then here: PULL=1 bash $SCRIPT_PATH clone patch"
   fi
+
+  grep -q 'ignoreConfigErrors' "$FLAKE_DIR/hosts/applenix/asahi.nix" \
+    && die "asahi.nix still contains ignoreConfigErrors — re-curl bootstrap.sh v${SCRIPT_VERSION}+"
 
   step_ok "patch — apple-silicon ${APPLE_SILICON_PIN}, asahi.nix, bootstrap.nix"
 }
