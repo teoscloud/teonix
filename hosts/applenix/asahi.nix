@@ -3,8 +3,6 @@
 {
   imports = [ apple-silicon.nixosModules.apple-silicon-support ];
 
-  nixpkgs.overlays = [ apple-silicon.overlays.apple-silicon-overlay ];
-
   # Shared bootloader is x86-only. Asahi needs systemd-boot and must not
   # touch EFI variables (Apple firmware / U-Boot owns the boot picker).
   boot.loader.systemd-boot.enable = true;
@@ -20,11 +18,24 @@
       hasLocalFw = builtins.pathExists localFw;
     in
     {
+      enable = true;
       setupAsahiSound = true;
-      # Off-device / missing copy: do not stat /boot/asahi (breaks flake eval).
+      # Off-device / missing copy: do not stat /boot/vendorfw (breaks flake eval).
       # bootstrap.sh copies vendorfw into ./firmware (gitignored).
       extractPeripheralFirmware = hasLocalFw;
       peripheralFirmwareDirectory = lib.mkIf hasLocalFw ./firmware;
+      # Unstable's common-config still flags unused CRYPTO_* / JITTERENTROPY
+      # on the Asahi kernel. Do not fail linux-config for those.
+      overlay = final: prev:
+        let
+          base = import "${apple-silicon}/apple-silicon-support/packages/overlay.nix" final prev;
+        in
+        base
+        // {
+          linux-asahi = final.callPackage "${apple-silicon}/apple-silicon-support/packages/linux-asahi" {
+            ignoreConfigErrors = true;
+          };
+        };
     };
 
   services.power-profiles-daemon.enable = true;
@@ -33,5 +44,6 @@
     SUBSYSTEM=="power_supply", KERNEL=="macsmc-battery", ATTR{charge_control_end_threshold}="80"
   '';
 
-  boot.kernelParams = [ "apple_dcp.show_notch=1" ];
+  # 6.18+ renamed apple_dcp → appledrm (release-2026-07-30).
+  boot.kernelParams = [ "appledrm.show_notch=1" ];
 }

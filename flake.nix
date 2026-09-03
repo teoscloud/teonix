@@ -12,7 +12,9 @@
     hyprlux.inputs.nixpkgs.follows = "nixos-unstable";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixos-unstable";
-    apple-silicon.url = "github:nix-community/nixos-apple-silicon/release-2025-11-18";
+    # 2025-11-18 kernel config fails linux-config on nixpkgs 26.11 (unused
+    # options such as JITTERENTROPY) → linux-asahi → applenix-26.11.
+    apple-silicon.url = "github:nix-community/nixos-apple-silicon/release-2026-07-30";
     apple-silicon.inputs.nixpkgs.follows = "nixos-unstable";
   };
 

@@ -17,7 +17,7 @@ You need:
 
 - Apple Silicon Mac, macOS 12.3+, admin account, backups
 - USB stick ≥512 MB
-- [nixos-apple-silicon installer ISO](https://github.com/nix-community/nixos-apple-silicon/releases) — prefer a release that matches this flake’s pin (`apple-silicon` input = `release-2025-11-18`)
+- [nixos-apple-silicon installer ISO](https://github.com/nix-community/nixos-apple-silicon/releases) — prefer **release-2026-07-30** (matches this flake). Older ISOs still work; the kernel may compile once.
 - Free space for NixOS (Asahi will ask; leave macOS at least ~20 GB smaller)
 
 ### macOS → UEFI (Terminal.app)
