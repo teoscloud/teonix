@@ -1,0 +1,15 @@
+module qs
+singleton Globals 1.0 Globals.qml
+singleton Theme 1.0 Theme.qml
+TopStrip 1.0 TopStrip.qml
+SessionRail 1.0 SessionRail.qml
+NotificationCenter 1.0 NotificationCenter.qml
+PowerMenu 1.0 PowerMenu.qml
+StartMenu 1.0 StartMenu.qml
+Launcher 1.0 Launcher.qml
+EmojiPicker 1.0 EmojiPicker.qml
+NotifButton 1.0 NotifButton.qml
+PowerButton 1.0 PowerButton.qml
+MixerPanel 1.0 MixerPanel.qml
+VolumePill 1.0 VolumePill.qml
+ScrollStrip 1.0 ScrollStrip.qml

@@ -1,279 +1,6 @@
 { config, pkgs, stable-pkgs, unstable-pkgs, inputs, lib, ... }:
 
 let
-  nwg-dock-scale-patch = pkgs.writeText "nwg-dock-scale-threshold.patch" ''
-    diff --git a/main.go b/main.go
-    --- a/main.go
-    +++ b/main.go
-    @@ -144,17 +144,11 @@ func rebuild(position *string) {
-     		}
-     	}
-     
-    -	divider := 1
-    -	if len(allItems) > 0 {
-    -		divider = len(allItems)
-    -	}
-    -
-    -	// scale icons down when their number increases
-    -	if *imgSize*6/(divider) < *imgSize {
-    -		overflow := (len(allItems) - 6) / 3
-    +	// scale icons down only past 30 apps, one step every 5 apps
-    +	imgSizeScaled = *imgSize
-    +	if len(allItems) > 30 {
-    +		overflow := (len(allItems)-31)/5 + 1
-     		imgSizeScaled = *imgSize * 6 / (6 + overflow)
-    -	} else {
-    -		imgSizeScaled = *imgSize
-     	}
-     
-     	if *launcherPos == "start" {
-  '';
-
-  nwg-dock-scroll-patch = pkgs.writeText "nwg-dock-scroll-cycle.patch" ''
-    diff --git a/tools.go b/tools.go
-    --- a/tools.go
-    +++ b/tools.go
-    @@ -14,6 +14,9 @@ import (
-     	"os"
-     	"os/exec"
-     	"path/filepath"
-    +	"encoding/json"
-    +	"sort"
-    +	"time"
-     	"strings"
-     )
-     
-    @@ -27,6 +30,195 @@ func taskInstances(ID string) []client {
-     	return found
-     }
-     
-    +var lastInstanceCycleMs int64
-    +
-    +func absInt(x int) int {
-    +	if x < 0 {
-    +		return -x
-    +	}
-    +	return x
-    +}
-    +
-    +// scroll up = +1 (next / higher workspace), scroll down = -1 (previous / lower workspace)
-    +func scrollStepFromEvent(e *gdk.Event) int {
-    +	scroll := e.AsScroll()
-    +	if scroll == nil {
-    +		return 0
-    +	}
-    +	switch scroll.Direction() {
-    +	case gdk.ScrollUp:
-    +		return 1
-    +	case gdk.ScrollDown:
-    +		return -1
-    +	case gdk.ScrollSmooth:
-    +		if scroll.DeltaY() < 0 {
-    +			return 1
-    +		}
-    +		if scroll.DeltaY() > 0 {
-    +			return -1
-    +		}
-    +	}
-    +	return 0
-    +}
-    +
-    +func addressesEqual(a, b string) bool {
-    +	normalize := func(addr string) string {
-    +		addr = strings.TrimSpace(strings.ToLower(addr))
-    +		if addr == "" {
-    +			return ""
-    +		}
-    +		if !strings.HasPrefix(addr, "0x") {
-    +			addr = "0x" + addr
-    +		}
-    +		return addr
-    +	}
-    +	return normalize(a) == normalize(b)
-    +}
-    +
-    +func sortedInstances(instances []client) []client {
-    +	sorted := make([]client, len(instances))
-    +	copy(sorted, instances)
-    +	sort.Slice(sorted, func(i, j int) bool {
-    +		if sorted[i].Workspace.Id != sorted[j].Workspace.Id {
-    +			return sorted[i].Workspace.Id < sorted[j].Workspace.Id
-    +		}
-    +		return sorted[i].Address < sorted[j].Address
-    +	})
-    +	return sorted
-    +}
-    +
-    +func instanceIndex(instances []client, address string) int {
-    +	for i := range instances {
-    +		if addressesEqual(instances[i].Address, address) {
-    +			return i
-    +		}
-    +	}
-    +	return -1
-    +}
-    +
-    +func currentFocusedInstance(instances []client) *client {
-    +	aw, err := getActiveWindow()
-    +	if err == nil && aw != nil {
-    +		for i := range instances {
-    +			if addressesEqual(instances[i].Address, aw.Address) {
-    +				return &instances[i]
-    +			}
-    +		}
-    +	}
-    +	if activeClient != nil {
-    +		for i := range instances {
-    +			if addressesEqual(instances[i].Address, activeClient.Address) {
-    +				return &instances[i]
-    +			}
-    +		}
-    +	}
-    +	return nil
-    +}
-    +
-    +func bestInstanceForCurrentWorkspace(instances []client) *client {
-    +	sorted := sortedInstances(instances)
-    +	if len(sorted) == 0 {
-    +		return nil
-    +	}
-    +	aw, err := getActiveWindow()
-    +	if err != nil || aw == nil {
-    +		return &sorted[0]
-    +	}
-    +	currentWS := aw.Workspace.Id
-    +	bestDist := int(^uint(0) >> 1)
-    +	var onWS *client
-    +	var closest *client
-    +	for i := range sorted {
-    +		inst := &sorted[i]
-    +		if inst.Workspace.Id == currentWS && onWS == nil {
-    +			onWS = inst
-    +		}
-    +		dist := absInt(inst.Workspace.Id - currentWS)
-    +		if dist < bestDist {
-    +			bestDist = dist
-    +			closest = inst
-    +		}
-    +	}
-    +	if onWS != nil {
-    +		return onWS
-    +	}
-    +	return closest
-    +}
-    +
-    +func scrollBaseInstance(instances []client) *client {
-    +	if current := currentFocusedInstance(instances); current != nil {
-    +		return current
-    +	}
-    +	return bestInstanceForCurrentWorkspace(instances)
-    +}
-    +
-    +// Sorted by workspace (asc) then address; scroll up = next, scroll down = prev, wraps
-    +func instanceByStep(instances []client, current *client, step int) *client {
-    +	sorted := sortedInstances(instances)
-    +	idx := instanceIndex(sorted, current.Address)
-    +	if idx < 0 {
-    +		return bestInstanceForCurrentWorkspace(instances)
-    +	}
-    +	n := len(sorted)
-    +	next := (idx + step) % n
-    +	if next < 0 {
-    +		next += n
-    +	}
-    +	return &sorted[next]
-    +}
-    +
-    +func getCursorNoWarps() int {
-    +	reply, err := hyprctl("j/getoption cursor:no_warps")
-    +	if err != nil {
-    +		return 0
-    +	}
-    +	var opt struct {
-    +		Int int `json:"int"`
-    +	}
-    +	if json.Unmarshal(reply, &opt) != nil {
-    +		return 0
-    +	}
-    +	return opt.Int
-    +}
-    +
-    +func focusClientFromScroll(c client) {
-    +	prev := getCursorNoWarps()
-    +	hyprctl("keyword cursor:no_warps true")
-    +	focusClient(c)
-    +	if prev == 0 {
-    +		hyprctl("keyword cursor:no_warps false")
-    +	} else {
-    +		hyprctl(fmt.Sprintf("keyword cursor:no_warps %d", prev))
-    +	}
-    +}
-    +
-    +func handleInstanceScroll(class string, step int) bool {
-    +	if step == 0 {
-    +		return false
-    +	}
-    +	now := time.Now().UnixMilli()
-    +	instances := taskInstances(class)
-    +	if len(instances) <= 1 {
-    +		return false
-    +	}
-    +	base := scrollBaseInstance(instances)
-    +	if base == nil {
-    +		return false
-    +	}
-    +	inst := instanceByStep(instances, base, step)
-    +	if inst == nil {
-    +		return false
-    +	}
-    +	// Small debounce to coalesce the burst of sub-events one physical notch emits,
-    +	// while still letting deliberate consecutive scrolls each advance a step.
-    +	if now-lastInstanceCycleMs < 50 {
-    +		return true
-    +	}
-    +	focusClientFromScroll(*inst)
-    +	lastInstanceCycleMs = now
-    +	return true
-    +}
-    +
-     func pinnedButton(ID string, position *string) *gtk.Box {
-     	vertical = *position == "left" || *position == "right"
-     
-    @@ -290,6 +482,19 @@ func taskButton(t client, instances []client, position *string) *gtk.Box {
-     			return false
-     		})
-     	}
-    +
-    +	if len(instances) > 1 {
-    +		scrollMask := int(gdk.ScrollMask | gdk.SmoothScrollMask)
-    +		scrollClass := t.Class
-    +		button.AddEvents(scrollMask)
-    +		box.AddEvents(scrollMask)
-    +		button.Connect("scroll-event", func(_ *gtk.Button, e *gdk.Event) bool {
-    +			return handleInstanceScroll(scrollClass, scrollStepFromEvent(e))
-    +		})
-    +		box.Connect("scroll-event", func(_ *gtk.Box, e *gdk.Event) bool {
-    +			return handleInstanceScroll(scrollClass, scrollStepFromEvent(e))
-    +		})
-    +	}
-     
-     	return box
-     }
-  '';
-
-  # Go dock force-rebuilds the full GTK tree (and reloads every icon pixbuf) on
-  # every Hyprland activewindowv2 event. Destroy() does not promptly free those
-  # pixbufs, so RSS climbs without bound during normal focus switching.
-  # Only rebuild when the class multiset or active class actually changes.
-  nwg-dock-smart-rebuild-patch = ./nwg-dock-smart-rebuild.patch;
-  nwg-dock-hyprland = unstable-pkgs.nwg-dock-hyprland.overrideAttrs (old: {
-    patches = (old.patches or [ ]) ++ [
-      nwg-dock-scale-patch
-      nwg-dock-scroll-patch
-      nwg-dock-smart-rebuild-patch
-    ];
-  });
-
   # Wrap cached mailspring — do NOT overrideAttrs (that rebuilds the Electron app).
   mailspringDesktop = unstable-pkgs.makeDesktopItem {
     name = "mailspring";
@@ -314,6 +41,21 @@ let
       });
     });
   })).bottles;
+
+  # scheme-full depends on Asymptote → PyQt5. PyQt5 cannot target Python 3.14
+  # ABI v12, so keep TeX Live 2025 and drop only asy/xasy.
+  texliveFull = unstable-pkgs.texlive.combine {
+    inherit (unstable-pkgs.texlive) scheme-full;
+    extraName = "full-no-asymptote";
+    pkgFilter = pkg:
+      pkg.pname != "asymptote"
+      && (
+        pkg.tlType == "run"
+        || pkg.tlType == "bin"
+        || pkg.pname == "core"
+        || pkg.hasManpages or false
+      );
+  };
 in {
 
   nixpkgs.config.permittedInsecurePackages = [
@@ -534,7 +276,6 @@ in {
     nix-index
     
     qbittorrent
-    carla
 
     ghex
     obs-studio
@@ -576,7 +317,6 @@ in {
     onlyoffice-desktopeditors
     tradingview
     wtype
-    texliveFull
     glow
     bottles               # Wine/Proton GUI (patool checks skipped — see let binding)
 
@@ -592,6 +332,7 @@ in {
     vesktop
     discord-canary
     equibop
+    eden
 
   ] ++ (with stable-pkgs; [
     # potential stable:
@@ -610,8 +351,11 @@ in {
 
     chiaki-ng
 
-  ]) ++ lib.optionals (config.nixpkgs.hostPlatform.system == "x86_64-linux") [
-    nwg-dock-hyprland
-  ]
-  );
+    # Unstable Carla pulls PyQt5 against Python 3.14 (ABI v12) and fails to
+    # build. 24.05's 2.5.8 is cached and still uses 3.11.
+    carla
+
+  ]) ++ [
+    texliveFull
+  ]);
 }

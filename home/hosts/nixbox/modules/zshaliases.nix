@@ -120,6 +120,11 @@ in
     alias hflist='hyprflow list'
     alias hfstatus='systemctl --user status hyprflow-autosave.timer'
 
+    # Quickshell rice switch (mainframe vs glass) — does not change HM default symlink
+    alias qsmainframe='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qsmainframe.sh"'
+    alias qsglass='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qsglass.sh"'
+    alias qstheme='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qs-live-ipc.sh" theme toggle'
+
     # Mullvad VPN (GUI: mullvad-vpn | status: mvpn)
     alias mvpn='mullvad status'
     alias mvpnon='mullvad connect'

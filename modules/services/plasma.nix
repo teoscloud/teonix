@@ -35,13 +35,9 @@
       # Note: qtstyleplugins may not be available in this nixpkgs version
     ];
 
-    # Plasma-specific environment variables
-    # Note: XDG_SESSION_DESKTOP and XDG_CURRENT_DESKTOP are set automatically by KDE Plasma
-    # when you start a Plasma session, so we don't set them here to avoid conflicts with Hyprland
-    sessionVariables = {
-      # Qt platform theme for KDE applications (works in both Hyprland and Plasma)
-      QT_QPA_PLATFORMTHEME = "kde";
-    };
+    # Do not set QT_QPA_PLATFORMTHEME here — it is system-wide and would
+    # force KDE/Breeze onto Hyprland. Plasma sets its own theme in-session.
+    # Hyprland uses QT_QPA_PLATFORMTHEME=gtk3 in hyprland.conf.
   };
 
   # XDG portals: centralized in xdgportal.nix (hyprland+gtk for Hyprland, kde+gtk for Plasma)

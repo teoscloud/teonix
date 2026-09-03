@@ -2,10 +2,8 @@
 
 let
   dotfilesPath = ../dotfiles;
-  dockImages = "${dotfilesPath}/config/nwg-dock-hyprland/images";
-  dockShare = "${pkgs.nwg-dock-hyprland}/share/nwg-dock-hyprland";
 
-  # code-cursor only installs 1024x1024; GTK menus then blow up (nwg-dock instance picker).
+  # code-cursor only installs 1024x1024; GTK menus then blow up.
   cursorIconSrc = "${pkgs.code-cursor}/share/icons/hicolor/1024x1024/apps/cursor.png";
   cursorIconSizes = [ 16 22 24 32 48 64 128 256 ];
   cursorHicolorIcons = pkgs.runCommand "cursor-hicolor-menu-icons" {
@@ -44,6 +42,13 @@ in {
   # ✅ Hyprland scripts
   home.file.".config/hypr/cyclemon.sh".source = "${dotfilesPath}/config/hypr/cyclemon.sh";
   home.file.".config/hypr/listentomb.sh".source = "${dotfilesPath}/config/hypr/listentomb.sh";
+  home.file.".config/hypr/scripts/install-whitesur-system-icons.sh".source =
+    "${dotfilesPath}/config/hypr/scripts/install-whitesur-system-icons.sh";
+
+  home.activation.whitesurSystemIcons = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    PATH="${pkgs.python3}/bin:$PATH" \
+      bash ${dotfilesPath}/config/hypr/scripts/install-whitesur-system-icons.sh
+  '';
 
   # ✅ Symlink other application configurations
   home.file.".config/kitty/kitty.conf".source = "${dotfilesPath}/config/kitty/kitty.conf";
@@ -59,27 +64,28 @@ in {
   home.file.".config/quickshell".source = config.lib.file.mkOutOfStoreSymlink
     "${config.home.homeDirectory}/teonix/home/hosts/nixbox/dotfiles/config/quickshell";
 
-  # ✅ nwg-dock-hyprland (macOS-style dock + reserved exclusive zone)
-  home.file.".config/nwg-dock-hyprland/style.css" = {
-    source = "${dotfilesPath}/config/nwg-dock-hyprland/style.css";
-    force = true;
-  };
-  home.file.".config/nwg-dock-hyprland/launch.sh" = {
-    source = "${dotfilesPath}/config/nwg-dock-hyprland/launch.sh";
-    executable = true;
+  # Equibop / Equicord — live out-of-store so CSS edits apply without HM rebuild.
+  # Activation keeps the theme in enabledThemes after Equibop updates.
+  home.file.".config/equibop/themes/qsmainframe.theme.css" = {
+    source = config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/teonix/home/hosts/nixbox/dotfiles/config/equibop/themes/qsmainframe.theme.css";
     force = true;
   };
 
-  # Gray instance dots (SVG fill in ~/.local/share; GTK CSS cannot recolor pixbufs)
-  home.file.".local/share/nwg-dock-hyprland/images/task-single.svg".source = "${dockImages}/task-single.svg";
-  home.file.".local/share/nwg-dock-hyprland/images/task-multiple.svg".source = "${dockImages}/task-multiple.svg";
-  home.file.".local/share/nwg-dock-hyprland/images/task-empty.svg".source = "${dockImages}/task-empty.svg";
-  home.file.".local/share/nwg-dock-hyprland/images/task-single-vertical.svg".source = "${dockImages}/task-single-vertical.svg";
-  home.file.".local/share/nwg-dock-hyprland/images/task-multiple-vertical.svg".source = "${dockImages}/task-multiple-vertical.svg";
-  home.file.".local/share/nwg-dock-hyprland/images/task-empty-vertical.svg".source = "${dockImages}/task-empty-vertical.svg";
-  home.file.".local/share/nwg-dock-hyprland/images/icon-missing.svg".source = "${dockShare}/images/icon-missing.svg";
+  home.activation.equibopMainframeTheme = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    settings="$HOME/.config/equibop/settings/settings.json"
+    if [ -f "$settings" ]; then
+      ${pkgs.jq}/bin/jq '
+        .enabledThemes |= (
+          if type == "array" then
+            if index("qsmainframe.theme.css") then . else . + ["qsmainframe.theme.css"] end
+          else ["qsmainframe.theme.css"] end
+        )
+      ' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+    fi
+  '';
 
-  # Smaller cursor icons for GTK menus (dock multi-instance picker, app launchers, etc.)
+  # Smaller cursor icons for GTK menus (app launchers, etc.)
   xdg.dataFile = cursorHicolorIconFiles;
 
   home.activation.updateUserHicolorIconCache = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
@@ -147,6 +153,7 @@ in {
   };
   # ✅ Symlink ios font config
   home.file.".config/fontconfig/fonts.conf".source = "${dotfilesPath}/config/fontconfig/fonts.conf";
+  home.file.".config/fontconfig/conf.d/50-michroma.conf".source = "${dotfilesPath}/config/fontconfig/conf.d/50-michroma.conf";
 
   # ✅ Weather API (Only if present)
   #home.file.".config/hypr/scripts/secrets/weather_api_key.txt".source = "${dotfilesPath}/config/hypr/scripts/secrets/weather_api_key.txt";

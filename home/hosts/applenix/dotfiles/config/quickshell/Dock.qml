@@ -13,9 +13,25 @@ Scope {
     id: root
 
     property var pinned: []
+    // Bumped after Hyprland.refreshToplevels so DockIcon/extras rebind
+    property int toplevelEpoch: 0
 
     readonly property string syncScript: Quickshell.shellPath("scripts/sync-dock-pins.py")
     readonly property string appsPath: `${Quickshell.env("HOME")}/.config/qs-dock-apps.json`
+
+    // Known StartupWMClass / Hyprland class mismatches
+    readonly property var classAliases: ({
+        "cursor": ["code-cursor", "cursor"],
+        "code-cursor": ["cursor", "code-cursor"],
+        "brave-browser": ["brave-browser", "brave"],
+        "brave": ["brave-browser", "brave"],
+        "google-chrome": ["google-chrome", "chrome", "google-chrome-stable"],
+        "google-chrome-stable": ["google-chrome", "chrome"],
+        "chrome": ["google-chrome", "chrome"],
+        "mailspring": ["mailspring"],
+        "chromium": ["chromium", "chromium-browser"],
+        "chromium-browser": ["chromium", "chromium-browser"]
+    })
 
     function loadPinned() {
         try {
@@ -39,19 +55,72 @@ Scope {
         }
     }
 
+    function normalizeKey(v) {
+        let s = String(v || "").toLowerCase().trim();
+        if (!s)
+            return "";
+        if (s.endsWith(".desktop"))
+            s = s.slice(0, -8);
+        s = s.replace(/\s+/g, "").replace(/_/g, "-");
+        return s;
+    }
+
+    function pushKey(keys, v) {
+        const s = root.normalizeKey(v);
+        if (!s)
+            return;
+        if (keys.indexOf(s) < 0)
+            keys.push(s);
+        const noHyphen = s.replace(/-/g, "");
+        if (noHyphen && keys.indexOf(noHyphen) < 0)
+            keys.push(noHyphen);
+        const aliases = root.classAliases[s];
+        if (aliases) {
+            for (let i = 0; i < aliases.length; i++) {
+                const a = root.normalizeKey(aliases[i]);
+                if (a && keys.indexOf(a) < 0)
+                    keys.push(a);
+                const ah = a.replace(/-/g, "");
+                if (ah && keys.indexOf(ah) < 0)
+                    keys.push(ah);
+            }
+        }
+    }
+
     function matchKeys(app) {
         const keys = [];
-        const push = v => {
-            const s = String(v || "").toLowerCase();
-            if (s && keys.indexOf(s) < 0)
-                keys.push(s);
-        };
-        push(app.className);
-        push(app.desktopId);
-        push(app.id);
-        push(app.iconName);
-        push(String(app.className || "").replace(/-/g, ""));
+        // Do not use iconName — shared theme names cause false merges
+        root.pushKey(keys, app.className);
+        root.pushKey(keys, app.desktopId);
+        root.pushKey(keys, app.id);
         return keys;
+    }
+
+    function toplevelClass(t) {
+        const ipc = t?.lastIpcObject || {};
+        const raw = ipc.class || ipc.initialClass || t?.classname || t?.class || "";
+        return String(raw || "");
+    }
+
+    function toplevelClassKey(t) {
+        return root.normalizeKey(root.toplevelClass(t));
+    }
+
+    function classMatchesKeys(c, keys) {
+        const n = root.normalizeKey(c);
+        if (!n)
+            return false;
+        if (keys.indexOf(n) >= 0 || keys.indexOf(n.replace(/-/g, "")) >= 0)
+            return true;
+        const aliases = root.classAliases[n];
+        if (aliases) {
+            for (let i = 0; i < aliases.length; i++) {
+                const a = root.normalizeKey(aliases[i]);
+                if (a && (keys.indexOf(a) >= 0 || keys.indexOf(a.replace(/-/g, "")) >= 0))
+                    return true;
+            }
+        }
+        return false;
     }
 
     function launchCmdFor(app) {
@@ -86,10 +155,10 @@ Scope {
         const out = [];
         for (let i = 0; i < tops.length; i++) {
             const t = tops[i];
-            const c = (t.lastIpcObject?.class || t.classname || "").toLowerCase();
+            const c = root.toplevelClass(t);
             if (!c)
                 continue;
-            if (keys.indexOf(c) >= 0 || keys.indexOf(c.replace(/-/g, "")) >= 0)
+            if (root.classMatchesKeys(c, keys))
                 out.push(t);
         }
         out.sort((a, b) => {
@@ -108,6 +177,38 @@ Scope {
             return aa < ab ? -1 : (aa > ab ? 1 : 0);
         });
         return out;
+    }
+
+    function refreshToplevelState() {
+        try {
+            Hyprland.refreshToplevels();
+        } catch (e) {
+            // older QS builds may lack refreshToplevels
+        }
+        root.toplevelEpoch++;
+    }
+
+    function resolveExtraIcon(className) {
+        const c = String(className || "");
+        const stem = c.split(".").pop() || c;
+        const candidates = [c, stem, root.normalizeKey(c), root.normalizeKey(stem)];
+        const aliases = root.classAliases[root.normalizeKey(c)];
+        if (aliases) {
+            for (let i = 0; i < aliases.length; i++)
+                candidates.push(aliases[i]);
+        }
+        for (let i = 0; i < candidates.length; i++) {
+            const name = candidates[i];
+            if (!name)
+                continue;
+            try {
+                const path = Quickshell.iconPath(name, true);
+                if (path)
+                    return { iconName: name, iconPath: "" };
+            } catch (e) {
+            }
+        }
+        return { iconName: stem || c, iconPath: "" };
     }
 
     // Hyprland wants address:0x.... — QS often hands bare hex / decimal
@@ -129,7 +230,7 @@ Scope {
         if (!t)
             return;
         const addr = root.formatAddress(t.address || t.lastIpcObject?.address);
-        const cls = t.lastIpcObject?.class || t.classname;
+        const cls = root.toplevelClass(t);
         const focusCmd = addr
             ? ("hyprctl dispatch focuswindow address:" + addr)
             : (cls ? ("hyprctl dispatch focuswindow class:" + cls) : "");
@@ -161,6 +262,17 @@ Scope {
         }
     }
 
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            const name = event?.name || "";
+            if (["openwindow", "closewindow", "windowtitlev2", "activewindowv2", "movewindow", "movewindowv2"].indexOf(name) >= 0)
+                root.refreshToplevelState();
+        }
+    }
+
+    Component.onCompleted: Qt.callLater(() => root.refreshToplevelState())
+
     FileView {
         id: appsFile
         path: root.appsPath
@@ -177,6 +289,7 @@ Scope {
         onExited: code => {
             appsFile.reload();
             root.loadPinned();
+            root.refreshToplevelState();
         }
     }
 
@@ -210,10 +323,12 @@ Scope {
             }
 
             function isRunning(app) {
+                void root.toplevelEpoch;
                 return root.toplevelsFor(app).length > 0;
             }
 
             function activateApp(app) {
+                void root.toplevelEpoch;
                 const list = root.toplevelsFor(app);
                 if (list.length === 0) {
                     dock.launchApp(app);
@@ -280,6 +395,7 @@ Scope {
                     Repeater {
                         id: extrasRepeater
                         model: {
+                            void root.toplevelEpoch;
                             const pinnedKeys = [];
                             for (let i = 0; i < root.pinned.length; i++) {
                                 const keys = root.matchKeys(root.pinned[i]);
@@ -290,19 +406,22 @@ Scope {
                             const seen = {};
                             const extras = [];
                             for (let i = 0; i < tops.length; i++) {
-                                const c = (tops[i].lastIpcObject?.class || tops[i].classname || "");
-                                const key = c.toLowerCase();
-                                if (!key || pinnedKeys.indexOf(key) >= 0 || seen[key])
+                                const c = root.toplevelClass(tops[i]);
+                                const key = root.normalizeKey(c);
+                                if (!key || seen[key])
                                     continue;
                                 if (key.indexOf("quickshell") >= 0)
                                     continue;
+                                if (root.classMatchesKeys(c, pinnedKeys))
+                                    continue;
                                 seen[key] = true;
+                                const icons = root.resolveExtraIcon(c);
                                 extras.push({
                                     className: c,
                                     label: c.split(".").pop(),
                                     exec: c,
-                                    iconName: c,
-                                    iconPath: "",
+                                    iconName: icons.iconName,
+                                    iconPath: icons.iconPath,
                                     toplevel: tops[i]
                                 });
                             }
@@ -331,7 +450,10 @@ Scope {
         width: Theme.dockIcon + 6
         height: Theme.dockIcon + 6
 
-        property var instances: root.toplevelsFor(app)
+        property var instances: {
+            void root.toplevelEpoch;
+            return root.toplevelsFor(app);
+        }
         property int instanceCount: instances.length
         property int cycleIndex: 0
 
