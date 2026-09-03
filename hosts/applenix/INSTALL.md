@@ -159,6 +159,7 @@ bash /tmp/install.sh
 | `ISO_LAYOUT=0\|1` | `hid_apple iso_layout`, if `` ` `` and `<` are swapped |
 | `M1N1_EXTRA=…` | `boot.m1n1ExtraOptions`, for [Mac mini display quirks](https://github.com/AsahiLinux/m1n1/issues/159) |
 | `SWAP_SIZE=MiB` | swapfile stage 2 creates (default from RAM) |
+| `BUILD_CORES=N` | cores per derivation in stage 2 (default from RAM); lower it if the kernel build is OOM-killed |
 | `PKGS_SYSTEM=…` | set if the ISO was cross-built and the kernel still rebuilds |
 | `CHARGE_LIMIT=…` | battery ceiling on laptops (default 80) |
 | `TEONIX_REPO=` / `TEONIX_DIR=` | what stage 2 clones, and where |
@@ -184,12 +185,12 @@ passwd                          # change it now
 
 Stage 2:
 
-1. adds a swapfile sized from this Mac's RAM (the flake does rebuild the Asahi kernel)
+1. adds a swapfile sized from this Mac's RAM — 16 GiB on an 8 GiB Mac (the flake does rebuild the Asahi kernel), and switches zram off so those pages reach the disk instead of RAM
 2. clones teonix to `~/teonix`, or brings an existing checkout to exactly upstream — local edits to tracked files are stashed first, because a `pull` alone leaves clobbered files in place
 3. copies `/etc/nixos/hardware-configuration.nix` into `hosts/applenix/`, replacing the repo's placeholder UUIDs
 4. copies `firmware.cpio` into `hosts/applenix/firmware/`, which is what lets `#applenix` evaluate with **no `--impure`**
 5. writes `hosts/applenix/detected.nix` (Touch Bar, m1n1 options, keyboard layout, swap) — safe to commit
-6. `sudo nixos-rebuild switch --flake path:.#applenix`
+6. `sudo nixos-rebuild switch --flake path:.#applenix --option max-jobs 1 --option cores N`, with `N` from RAM (2 on an 8 GiB Mac)
 
 This downloads and compiles a lot. Use `tmux` if you are over ssh.
 
@@ -241,6 +242,29 @@ then `updatehome`.
 **`no firmware.cpio found`.** Boot macOS, run `curl https://alx.sh | sh`, choose *Rebuild vendor firmware package*, reboot into the installer and re-run `run firmware config`.
 
 **No Wi‑Fi after stage 2.** Confirm `hosts/applenix/firmware/firmware.cpio` exists and is non-empty, then rebuild.
+
+**`Out of memory: Killed process … (nix)` / `builder … died with signal SIGKILL` during stage 2.** `linux-asahi` is not in any binary cache, so stage 2 always compiles it, and the Rust parts are the memory-hungry ones. Three things caused this and all three are handled now:
+
+- the swapfile was 8 GiB; it is sized from RAM, 16 GiB on an 8 GiB Mac
+- `zram` sits at a higher swap priority than a file, so the build was compressing pages into the RAM it was short of instead of spilling to disk — stage 2 turns zram off first
+- the build used every core, and peak memory scales with that — stage 2 now passes `--option max-jobs 1 --option cores 2` on an 8 GiB Mac
+
+Nothing already built is lost. Refresh the helper and re-run; it picks up where it stopped:
+
+```bash
+cd ~/teonix
+git fetch origin && git reset --hard origin/main
+sudo TARGET=/ FORCE=1 bash hosts/applenix/install.sh run stage2   # rewrite /etc/applenix/stage2.sh
+/etc/applenix/stage2.sh
+```
+
+If it is still killed, drop to one core — slow, but it finishes:
+
+```bash
+BUILD_CORES=1 /etc/applenix/stage2.sh
+```
+
+Watch it with `watch -n5 free -h` in another TTY (Alt+F2). Swap filling up is normal and fine; swap *full* plus zero free RAM is the failure.
 
 **`function 'anonymous lambda' called with unexpected argument 'ignoreConfigErrors'`.** `~/teonix` is a stale checkout. The retired `bootstrap.sh` used to overwrite tracked files in place, and `git pull --ff-only` reports *"Already up to date."* without reverting them, so the build used the old `asahi.nix`. `linux-asahi` dropped that argument in `release-2026-07-30`.
 

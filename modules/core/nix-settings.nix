@@ -59,8 +59,12 @@
 
   # Soft cgroup caps so a big local rebuild can't OOM / fully pin the machine.
   # Absolute values only make sense on the 32G desktop; applenix may be an 8G
-  # MacBook Air, where a 14G ceiling is no ceiling at all. systemd takes
-  # percentages of installed RAM, which stays correct on any Mac.
+  # MacBook Air, where a 14G ceiling is no ceiling at all.
+  #
+  # aarch64 gets MemoryHigh only, deliberately no MemoryMax: the Asahi kernel
+  # is a mandatory local build (no upstream cache), and a hard cap on a small
+  # Mac turns "slow, swapping" into "SIGKILL near the end of the build".
+  # MemoryHigh throttles and pushes pages to swap instead of killing.
   systemd.services.nix-daemon.serviceConfig = {
     CPUWeight = 10; # default 100 — prefer desktop/apps
     IOWeight = 10;
@@ -73,8 +77,7 @@
       }
     else
       {
-        MemoryHigh = "70%";
-        MemoryMax = "85%";
+        MemoryHigh = "80%";
       }
   );
 

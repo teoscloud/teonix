@@ -21,7 +21,7 @@
 # -E so the ERR trap below also fires for failures inside functions.
 set -Eeuo pipefail
 
-readonly VERSION=6
+readonly VERSION=7
 readonly SELF="applenix-install"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/install.sh | bash"
 
@@ -231,16 +231,37 @@ derive_max_jobs() {
   fi
 }
 
+# The stage 2 kernel build wants far more than an 8 GB Mac has. Swap is cheap
+# on disk and is the difference between "slow" and "Killed".
 derive_swap_mb() {
   local gb=$1
   [[ -n ${SWAP_SIZE:-} ]] && {
     printf '%s\n' "$SWAP_SIZE"
     return 0
   }
-  if ((gb <= 16)); then
-    printf '8192\n'
+  if ((gb <= 8)); then
+    printf '16384\n'
+  elif ((gb <= 16)); then
+    printf '12288\n'
   else
-    printf '4096\n'
+    printf '8192\n'
+  fi
+}
+
+# Parallelism inside one derivation. Peak memory scales with this, and rustc on
+# the Asahi kernel is heavy, so a small Mac must not use every core.
+derive_build_cores() {
+  local gb=$1
+  [[ -n ${BUILD_CORES:-} ]] && {
+    printf '%s\n' "$BUILD_CORES"
+    return 0
+  }
+  if ((gb <= 8)); then
+    printf '2\n'
+  elif ((gb <= 16)); then
+    printf '4\n'
+  else
+    printf '0\n' # 0 = all cores
   fi
 }
 
@@ -357,6 +378,7 @@ step_detect() {
   fact_set CORES "$cores"
   fact_set MAX_JOBS "$(derive_max_jobs "$ram_gb")"
   fact_set SWAP_MB "$(derive_swap_mb "$ram_gb")"
+  fact_set BUILD_CORES "$(derive_build_cores "$ram_gb")"
   fact_set RELEASE "$release"
   fact_set TARGET_USER "$TARGET_USER"
   fact_set TARGET_HOST "$TARGET_HOST"
@@ -374,6 +396,7 @@ step_detect() {
   info "disk       $disk"
   info "esp        $esp"
   info "memory     ${ram_gb} GiB, ${cores} cores -> max-jobs $(fact_or MAX_JOBS 1)"
+  info "stage 2    swap $(fact_or SWAP_MB 8192) MiB, build cores $(fact_or BUILD_CORES 2)"
   info "touch bar  $touchbar"
   info "displays   ${displays:-unknown}"
   info "wifi       ${wifi:-none}"
@@ -782,24 +805,74 @@ fact() {
 [[ \$(id -u) -ne 0 ]] || die "run this as your normal user, not root; it calls sudo itself"
 command -v git >/dev/null || die "git is missing — 'nix-shell -p git' or fix stage 1 first"
 
+ram_gb=\$(awk '/^MemTotal:/ { printf "%d\\n", \$2 / 1048576 }' /proc/meminfo)
+
 # --- swap ------------------------------------------------------------------
 # The teonix flake pins its own nixpkgs and apple-silicon, so this switch does
 # rebuild the Asahi kernel. On disk that is fine; without swap an 8 GB Mac OOMs.
-swap_mb=\$(fact SWAP_MB 2>/dev/null || echo 8192)
-have_mb=\$(awk 'NR > 1 { total += \$3 } END { printf "%d\\n", total / 1024 }' /proc/swaps)
-
-if ((have_mb >= swap_mb)); then
-  skip "swap — \${have_mb} MiB already active"
+#
+# The floor is recomputed from RAM rather than trusted from the facts file, so
+# a machine written by an older installer still gets enough swap here.
+if ((ram_gb <= 8)); then
+  swap_floor=16384
+elif ((ram_gb <= 16)); then
+  swap_floor=12288
 else
-  say "adding a \${swap_mb} MiB swapfile at \$SWAPFILE for the kernel build"
-  if [[ ! -f \$SWAPFILE ]]; then
-    sudo fallocate -l "\${swap_mb}M" "\$SWAPFILE" 2>/dev/null \\
-      || sudo dd if=/dev/zero of="\$SWAPFILE" bs=1M count="\$swap_mb" status=progress
-    sudo chmod 600 "\$SWAPFILE"
-    sudo mkswap "\$SWAPFILE"
+  swap_floor=8192
+fi
+
+if [[ -n \${SWAP_MB:-} ]]; then
+  swap_mb=\$SWAP_MB
+else
+  swap_mb=\$(fact SWAP_MB 2>/dev/null || echo 0)
+  ((swap_mb >= swap_floor)) || swap_mb=\$swap_floor
+fi
+
+file_mb=0
+[[ -f \$SWAPFILE ]] && file_mb=\$(( \$(stat -c %s "\$SWAPFILE") / 1048576 ))
+
+if ((file_mb >= swap_mb)); then
+  skip "swap — \$SWAPFILE is already \${file_mb} MiB"
+else
+  # A too-small file from an earlier run is worse than none: it looks like swap
+  # exists while the build still dies. Replace it.
+  if ((file_mb > 0)); then
+    warn "\$SWAPFILE is only \${file_mb} MiB; growing it to \${swap_mb} MiB"
+    sudo swapoff "\$SWAPFILE" 2>/dev/null || true
+    sudo rm -f "\$SWAPFILE"
   fi
-  sudo swapon "\$SWAPFILE" || warn "swapon failed; continuing without it"
-  ok "swap — \$SWAPFILE"
+
+  free_mb=\$(df --output=avail -BM / | awk 'NR == 2 { gsub(/M/, ""); print }')
+  if ((free_mb < swap_mb + 20480)); then
+    swap_mb=\$(( free_mb > 25600 ? free_mb - 20480 : 0 ))
+    ((swap_mb > 0)) || die "not enough free space on / for a swapfile (\${free_mb} MiB free)"
+    warn "trimming the swapfile to \${swap_mb} MiB to leave room for /nix/store"
+  fi
+
+  say "creating a \${swap_mb} MiB swapfile at \$SWAPFILE for the kernel build"
+  sudo fallocate -l "\${swap_mb}M" "\$SWAPFILE" 2>/dev/null \\
+    || sudo dd if=/dev/zero of="\$SWAPFILE" bs=1M count="\$swap_mb" status=progress
+  sudo chmod 600 "\$SWAPFILE"
+  sudo mkswap "\$SWAPFILE"
+  sudo swapon "\$SWAPFILE" || die "swapon \$SWAPFILE failed; the build would OOM without it"
+  ok "swap — \${swap_mb} MiB at \$SWAPFILE"
+fi
+
+# /proc/swaps separates its columns with tabs, so compare fields, not a prefix.
+swap_active() {
+  awk -v want="\$1" 'NR > 1 && \$1 == want { hit = 1 } END { exit !hit }' /proc/swaps
+}
+swap_active "\$SWAPFILE" || sudo swapon "\$SWAPFILE" \\
+  || die "swapon \$SWAPFILE failed; the build would OOM without it"
+
+# zram sits at a higher swap priority than a file, so without this a big build
+# compresses its pages into RAM — the one place we are short — instead of
+# spilling to disk. #applenix does not enable zram, so this only affects the
+# stage 1 system we are building from.
+if grep -q '^/dev/zram' /proc/swaps; then
+  sudo swapoff /dev/zram0 2>/dev/null \\
+    && ok "zram — off for the build, so pages reach the real swapfile" \\
+    || warn "could not disable zram; the build may still OOM"
 fi
 
 # --- repo ------------------------------------------------------------------
@@ -914,12 +987,32 @@ iso_layout=\$(fact ISO_LAYOUT 2>/dev/null || true)
 ok "detected — wrote \$HOST_DIR/detected.nix"
 
 # --- switch ----------------------------------------------------------------
+# max-jobs 1 keeps two heavy derivations from running at once; cores bounds the
+# parallelism inside one, which is what actually sets peak memory. rustc in the
+# Asahi kernel is the expensive part, so a small Mac must not use every core.
+if [[ -n \${BUILD_CORES:-} ]]; then
+  cores=\$BUILD_CORES
+elif cores=\$(fact BUILD_CORES 2>/dev/null); then
+  :
+elif ((ram_gb <= 8)); then
+  cores=2
+elif ((ram_gb <= 16)); then
+  cores=4
+else
+  cores=0 # 0 = all
+fi
+swap_active_mb=\$(awk 'NR > 1 { total += \$3 } END { printf "%d\\n", total / 1024 }' /proc/swaps)
+
 say ""
 say "switching to #applenix; the Asahi kernel builds here, so expect a long run"
-say "(use tmux if you are over ssh)"
+say "  RAM \${ram_gb} GiB, swap \${swap_active_mb} MiB, max-jobs 1, cores \$cores"
+say "  if this still gets killed, re-run with: BUILD_CORES=1 \$0"
+say "  (use tmux if you are over ssh)"
 say ""
 cd "\$DIR"
-sudo nixos-rebuild switch --flake "path:.#applenix"
+sudo nixos-rebuild switch --flake "path:.#applenix" \\
+  --option max-jobs 1 \\
+  --option cores "\$cores"
 
 say ""
 ok "stage 2 complete"
@@ -1014,6 +1107,7 @@ Environment:
   ISO_LAYOUT=0|1   hid_apple iso_layout, if \` and < are swapped
   M1N1_EXTRA=…     boot.m1n1ExtraOptions, for Mac mini display quirks
   SWAP_SIZE=MiB    swap the stage 2 helper creates (default from RAM)
+  BUILD_CORES=N    cores per derivation in stage 2; lower it if the build OOMs
   PKGS_SYSTEM=…    set if the ISO was cross-built and the kernel rebuilds
   CHARGE_LIMIT=…   battery charge ceiling on laptops (default 80)
   TEONIX_REPO=…    repo stage 2 clones
