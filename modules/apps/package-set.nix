@@ -165,17 +165,6 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
     prismlauncher
     mediawriter
     piper
-    (
-      retroarch.withCores (
-        cores:
-        lib.filter (
-          c:
-          (c ? libretroCore)
-          && (lib.meta.availableOn stdenv.hostPlatform c)
-          && (!lib.strings.hasInfix "fbalpha2012" c.name)
-        ) (lib.attrValues cores)
-      )
-    )
     brightnessctl
     tree
     neovide
