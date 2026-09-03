@@ -211,6 +211,13 @@
         extraSpecialArgs = mkCommonSpecialArgs "aarch64-linux" // { hostname = applenix_hostname; };
         modules = [ ./home/applenix.nix ];
       };
+
+      # Standalone Home Manager on Asahi Fedora (kernel/GPU/audio stay Fedora).
+      applenix-fedora = home-manager.lib.homeManagerConfiguration {
+        pkgs = armPkgs;
+        extraSpecialArgs = mkCommonSpecialArgs "aarch64-linux" // { hostname = applenix_hostname; };
+        modules = [ ./home/applenix-fedora.nix ];
+      };
     };
   };
 }

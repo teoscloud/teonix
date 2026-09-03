@@ -94,11 +94,10 @@ sudo nixos-rebuild switch --flake "path:."#nixtop --impure
 
 #### 🍎 MacBook Setup (applenix — Apple Silicon)
 
-Full nixbox-style Hyprland rice (Quickshell, hyprflow, PipeWire) on **aarch64-linux** via [nixos-apple-silicon](https://github.com/nix-community/nixos-apple-silicon):
+Full nixbox-style Hyprland rice (Quickshell, hyprflow) on **aarch64-linux**. Two ways:
 
-🔋 Battery charge limit (80%) · 🖥️ Built-in panel · 🚫 No PC GPU/VFIO/BusChain  
-
-Two stages, because `nixos-install` can only reuse the ISO's Asahi kernel when the config matches the ISO — so stage 1 is a plain `configuration.nix`, not this flake. Full runbook in [`hosts/applenix/INSTALL.md`](hosts/applenix/INSTALL.md).
+- **Asahi Fedora + Nix userspace** (what you run): Fedora keeps kernel/GPU/PipeWire; Home Manager `#applenix-fedora` supplies the desktop and packages. See [`hosts/applenix/FEDORA.md`](hosts/applenix/FEDORA.md).
+- **NixOS on Asahi** (still in the flake): two-stage USB install. Runbook in [`hosts/applenix/INSTALL.md`](hosts/applenix/INSTALL.md).
 
 ```bash
 # 1. On the USB installer (as root), after Wi‑Fi. That's the only USB step;
@@ -118,7 +117,8 @@ Stage 2 clones teonix, copies this Mac's hardware config and Asahi firmware into
 | nixbox | x86_64-linux | `#nixbox` |
 | nixtop | x86_64-linux | `#nixtop` |
 | default | x86_64-linux | `#$HOST` |
-| applenix | aarch64-linux | `#applenix` |
+| applenix | aarch64-linux NixOS | `#applenix` |
+| applenix-fedora | aarch64-linux Home Manager on Fedora | `#applenix-fedora` |
 
 ## 🎨 Customization
 
