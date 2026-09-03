@@ -185,12 +185,40 @@ passwd                          # change it now
 
 Stage 2:
 
-1. adds a swapfile sized from this Mac's RAM — 16 GiB on an 8 GiB Mac (the flake does rebuild the Asahi kernel), and switches zram off so those pages reach the disk instead of RAM
+1. adds a swapfile sized from this Mac's RAM — 16 GiB on an 8 GiB Mac — and switches zram off so those pages reach the disk instead of RAM. Insurance only: the kernel should not rebuild (see below)
 2. clones teonix to `~/teonix`, or brings an existing checkout to exactly upstream — local edits to tracked files are stashed first, because a `pull` alone leaves clobbered files in place
 3. copies `/etc/nixos/hardware-configuration.nix` into `hosts/applenix/`, replacing the repo's placeholder UUIDs
 4. copies `firmware.cpio` into `hosts/applenix/firmware/`, which is what lets `#applenix` evaluate with **no `--impure`**
 5. writes `hosts/applenix/detected.nix` (Touch Bar, m1n1 options, keyboard layout, swap) — safe to commit
 6. `sudo nixos-rebuild switch --flake path:.#applenix --option max-jobs 1 --option cores N`, with `N` from RAM (2 on an 8 GiB Mac)
+
+### Why the kernel is not rebuilt
+
+`linux-asahi` is in **no binary cache**. nixpkgs policy keeps vendor kernels out of the tree — the same reason the Raspberry Pi kernels moved to nixos-hardware — and upstream's own cache is [documented as non-functional](https://github.com/nix-community/nixos-apple-silicon/blob/main/docs/binary-cache.md) (their CI runners can't build it fast enough or can't sandbox). The plan is to share whatever Hydra nixos-hardware migrates to, tracked in [nixos-hardware#854](https://github.com/NixOS/nixos-hardware/issues/854).
+
+So nobody publishes a binary, and whoever evaluates the kernel compiles it — two hours plus, and it OOMs an 8 GiB Mac.
+
+The way out is to stop asking for a kernel nobody has built. `hosts/applenix/asahi.nix` sets `hardware.asahi.pkgs` to apple-silicon's **own pinned nixpkgs** instead of ours:
+
+```nix
+asahiPkgs = import apple-silicon.inputs.nixpkgs {
+  system = "aarch64-linux";
+  overlays = [ apple-silicon.overlays.default ];
+};
+```
+
+That reproduces the exact derivation stage 1 installed, so the switch reuses the kernel already in the store and compiles nothing. Two consequences worth knowing:
+
+- **The kernel no longer tracks `nixos-unstable`.** Previously `apple-silicon.inputs.nixpkgs.follows = "nixos-unstable"` meant every `systemupdate` changed the kernel's hash and triggered a fresh multi-hour build. Now only bumping the `apple-silicon` input moves it, and that one build is unavoidable.
+- **Nothing is cross-compiled.** `pkgsSystem` is left at `aarch64-linux`, so every derivation in the closure is still natively buildable on the Mac. If a prebuilt path is ever missing the Mac compiles it — slow, but it cannot hard-fail the way a `localSystem = x86_64-linux` closure would.
+
+To confirm the kernel will be reused before starting a switch:
+
+```bash
+nix path-info "$(nix eval --raw path:$HOME/teonix#nixosConfigurations.applenix.config.boot.kernelPackages.kernel)"
+```
+
+A path means it's already in the store. `path does not exist` means it would be built.
 
 This downloads and compiles a lot. Use `tmux` if you are over ssh.
 
@@ -243,7 +271,7 @@ then `updatehome`.
 
 **No Wi‑Fi after stage 2.** Confirm `hosts/applenix/firmware/firmware.cpio` exists and is non-empty, then rebuild.
 
-**`Out of memory: Killed process … (nix)` / `builder … died with signal SIGKILL` during stage 2.** `linux-asahi` is not in any binary cache, so stage 2 always compiles it, and the Rust parts are the memory-hungry ones. Three things caused this and all three are handled now:
+**`Out of memory: Killed process … (nix)` / `builder … died with signal SIGKILL` during stage 2.** This was the Asahi kernel compiling, which should no longer happen at all — see [Why the kernel is not rebuilt](#why-the-kernel-is-not-rebuilt). If some other derivation is being killed, three mitigations are in place:
 
 - the swapfile was 8 GiB; it is sized from RAM, 16 GiB on an 8 GiB Mac
 - `zram` sits at a higher swap priority than a file, so the build was compressing pages into the RAM it was short of instead of spilling to disk — stage 2 turns zram off first

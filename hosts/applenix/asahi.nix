@@ -1,5 +1,27 @@
 { apple-silicon, lib, ... }:
 
+let
+  # linux-asahi exists in no binary cache: nixpkgs policy keeps vendor kernels
+  # out of the tree, and upstream's own cache is documented as non-functional
+  # (docs/binary-cache.md). So whoever evaluates the kernel also compiles it —
+  # hours on the laptop, and it OOMs on an 8 GB Mac.
+  #
+  # The way out is to stop asking for a kernel nobody has built. Building it
+  # from apple-silicon's *own* pinned nixpkgs rather than ours reproduces
+  # exactly the derivation the installer ISO used, which nixos-install already
+  # realised into this Mac's store, so the switch reuses it and compiles
+  # nothing. Following nixos-unstable here changes the hash and throws that
+  # away for no benefit — nothing in userspace links against the kernel.
+  #
+  # Consequence: the kernel tracks the apple-silicon input, not nixos-unstable,
+  # so routine updates never rebuild it. Bumping the apple-silicon release is
+  # what moves the kernel, and that single build is unavoidable.
+  asahiPkgs = import apple-silicon.inputs.nixpkgs {
+    system = "aarch64-linux";
+    overlays = [ apple-silicon.overlays.default ];
+  };
+in
+
 {
   # detected.nix is written by /etc/applenix/stage2.sh on the Mac itself
   # (Touch Bar, m1n1 quirks, keyboard layout, swapfile). Absent off-device.
@@ -7,6 +29,11 @@
     apple-silicon.nixosModules.apple-silicon-support
   ]
   ++ lib.optional (builtins.pathExists ./detected.nix) ./detected.nix;
+
+  # m1n1 is not an Asahi-overlay package, so it comes from the ambient set and
+  # feeds uboot-asahi. Taking it from the same pin keeps the bootloader
+  # prebuilt too, instead of rebuilding U-Boot for a one-hash difference.
+  nixpkgs.overlays = [ (final: prev: { inherit (asahiPkgs) m1n1; }) ];
 
   # Shared bootloader is x86-only. Asahi needs systemd-boot and must not
   # touch EFI variables (Apple firmware / U-Boot owns the boot picker).
@@ -29,6 +56,8 @@
     {
       enable = true;
       setupAsahiSound = true;
+      # mkForce: the module assigns this unconditionally from the ambient pkgs.
+      pkgs = lib.mkForce asahiPkgs;
       # install.sh / stage2.sh copy vendorfw into ./firmware (gitignored).
       # Must be null when absent: the upstream default stats /boot/vendorfw,
       # which fails pure flake eval off-device.

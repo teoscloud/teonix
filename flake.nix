@@ -12,10 +12,12 @@
     hyprlux.inputs.nixpkgs.follows = "nixos-unstable";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixos-unstable";
-    # Keep in step with the installer ISO you booted, or stage 2 rebuilds the
-    # Asahi kernel from scratch. See hosts/applenix/INSTALL.md.
+    # Deliberately NOT following nixos-unstable: hosts/applenix/asahi.nix builds
+    # linux-asahi from this input's own pinned nixpkgs so the result matches the
+    # kernel the installer ISO already put in the Mac's store. Following our
+    # nixpkgs changes the derivation hash and forces a multi-hour local build,
+    # because linux-asahi is in no binary cache. See hosts/applenix/INSTALL.md.
     apple-silicon.url = "github:nix-community/nixos-apple-silicon/release-2026-07-30";
-    apple-silicon.inputs.nixpkgs.follows = "nixos-unstable";
   };
 
   outputs = { self, nixos-stable, nixos-unstable, chaotic, nix-gaming, home-manager, apple-silicon, ... } @ inputs:
