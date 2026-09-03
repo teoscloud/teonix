@@ -192,42 +192,16 @@ EOF
 }
 EOF
 
-  python3 - "$FLAKE_DIR/flake.nix" <<'PY'
-from pathlib import Path
-import re
-import sys
+  sed -i \
+    's|github:nix-community/nixos-apple-silicon/release-[0-9][0-9-]*|github:nix-community/nixos-apple-silicon/release-2026-07-30|g' \
+    "$FLAKE_DIR/flake.nix"
+  echo "flake: apple-silicon -> release-2026-07-30"
 
-p = Path(sys.argv[1])
-t = p.read_text()
-t2, n = re.subn(
-    r"nixos-apple-silicon/release-[0-9-]+",
-    "nixos-apple-silicon/release-2026-07-30",
-    t,
-)
-if n:
-    print(f"flake: apple-silicon -> release-2026-07-30 ({n})")
-t = t2
-if "applenix-bootstrap" not in t:
-    old = "\n    };\n\n    homeConfigurations = {"
-    new = """
-      applenix-bootstrap = nixos-unstable.lib.nixosSystem {
-        system = "aarch64-linux";
-        specialArgs = mkCommonSpecialArgs "aarch64-linux" // { hostname = applenix_hostname; };
-        modules = [
-          ./hosts/applenix/asahi.nix
-          ./hosts/applenix/hardware-configuration.nix
-          ./hosts/applenix/bootstrap.nix
-        ];
-      };
-    };
-
-    homeConfigurations = {"""
-    if old not in t:
-        sys.exit("could not insert applenix-bootstrap into flake.nix")
-    t = t.replace(old, new, 1)
-    print("flake: added #applenix-bootstrap")
-p.write_text(t)
-PY
+  if grep -q 'applenix-bootstrap' "$FLAKE_DIR/flake.nix"; then
+    echo "flake: #applenix-bootstrap already present"
+  else
+    die "flake.nix is too old — git pull teonix on nixbox, push, then re-clone on the Mac"
+  fi
 }
 
 echo "== applenix bootstrap =="
