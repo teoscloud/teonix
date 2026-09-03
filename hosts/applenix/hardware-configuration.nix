@@ -30,7 +30,4 @@
   networking.useDHCP = lib.mkDefault true;
 
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
-
-  # Placeholder only — remove on the Mac so Wi‑Fi/BT firmware is extracted from ESP at boot.
-  hardware.asahi.extractPeripheralFirmware = lib.mkDefault false;
 }

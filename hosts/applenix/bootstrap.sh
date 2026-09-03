@@ -115,7 +115,9 @@ require_flake() {
 
 # --- live checks (source of truth; state file is secondary) ---
 
-check_preflight() { false; }
+check_preflight() {
+  ping -c1 -W3 cache.nixos.org >/dev/null 2>&1 || ping -c1 -W3 github.com >/dev/null 2>&1
+}
 
 check_mount_root() {
   findmnt /mnt >/dev/null 2>&1
@@ -153,7 +155,9 @@ check_swap() {
   grep -q '/mnt/swapfile' /proc/swaps 2>/dev/null
 }
 
-check_chown() { false; }
+check_chown() {
+  [[ -d /mnt/home/teodor ]] && [[ $(stat -c '%u' /mnt/home/teodor 2>/dev/null || echo '') == 1000 ]]
+}
 
 check_install() {
   [[ -L /mnt/nix/var/nix/profiles/system || -e /mnt/nix/var/nix/profiles/system ]]
@@ -184,17 +188,8 @@ embed_asahi_nix() {
       enable = true;
       setupAsahiSound = true;
       extractPeripheralFirmware = hasLocalFw;
-      peripheralFirmwareDirectory = lib.mkIf hasLocalFw ./firmware;
-      overlay = final: prev:
-        let
-          base = import "${apple-silicon}/apple-silicon-support/packages/overlay.nix" final prev;
-        in
-        base
-        // {
-          linux-asahi = final.callPackage "${apple-silicon}/apple-silicon-support/packages/linux-asahi" {
-            ignoreConfigErrors = true;
-          };
-        };
+      peripheralFirmwareDirectory = if hasLocalFw then ./firmware else null;
+      overlay = import "${apple-silicon}/apple-silicon-support/packages/overlay.nix";
     };
 
   services.power-profiles-daemon.enable = true;
@@ -404,8 +399,9 @@ step_patch() {
   grep -q "nixos-apple-silicon/${APPLE_SILICON_PIN}" "$FLAKE_DIR/flake.nix" \
     || die "flake.nix still missing apple-silicon ${APPLE_SILICON_PIN} — repo too old?"
 
-  grep -q 'applenix-bootstrap' "$FLAKE_DIR/flake.nix" \
-    || die "flake.nix missing #applenix-bootstrap — push teonix from nixbox and re-clone"
+  if ! grep -q 'applenix-bootstrap' "$FLAKE_DIR/flake.nix"; then
+    die "flake.nix missing #applenix-bootstrap — on nixbox: git push, then here: PULL=1 bash $SCRIPT_PATH clone patch"
+  fi
 
   step_ok "patch — apple-silicon ${APPLE_SILICON_PIN}, asahi.nix, bootstrap.nix"
 }

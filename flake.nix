@@ -14,6 +14,7 @@
     home-manager.inputs.nixpkgs.follows = "nixos-unstable";
     # 2025-11-18 kernel config fails linux-config on nixpkgs 26.11 (unused
     # options such as JITTERENTROPY) → linux-asahi → applenix-26.11.
+    # release-2026-07-30 ships a matching kernel; no ignoreConfigErrors override.
     apple-silicon.url = "github:nix-community/nixos-apple-silicon/release-2026-07-30";
     apple-silicon.inputs.nixpkgs.follows = "nixos-unstable";
   };
