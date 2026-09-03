@@ -180,6 +180,17 @@
           ./hosts/applenix/nixconfig.nix
         ];
       };
+
+      # Tiny first-boot system for the Asahi USB installer. See hosts/applenix/INSTALL.md
+      applenix-bootstrap = nixos-unstable.lib.nixosSystem {
+        system = "aarch64-linux";
+        specialArgs = mkCommonSpecialArgs "aarch64-linux" // { hostname = applenix_hostname; };
+        modules = [
+          ./hosts/applenix/asahi.nix
+          ./hosts/applenix/hardware-configuration.nix
+          ./hosts/applenix/bootstrap.nix
+        ];
+      };
     };
 
     homeConfigurations = {

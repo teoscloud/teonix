@@ -98,15 +98,18 @@ Full nixbox-style Hyprland rice (Quickshell, hyprflow, PipeWire) on **aarch64-li
 
 🔋 Battery charge limit (80%) · 🖥️ Built-in panel · 🚫 No PC GPU/VFIO/BusChain  
 
-See [`hosts/applenix/INSTALL.md`](hosts/applenix/INSTALL.md) for the fresh Asahi install runbook.
+From the Asahi NixOS USB installer, do **not** install `#applenix` directly. Use the bootstrap, then switch:
+
+See [`hosts/applenix/INSTALL.md`](hosts/applenix/INSTALL.md) (USB prompt → flake).
 
 ```bash
-# After install + real hardware-configuration.nix:
-sudo nixos-rebuild switch --flake "path:."#applenix --impure
-home-manager switch --flake "path:."#applenix -b bak --impure
+# On the USB installer (as root), after Wi‑Fi:
+curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/bootstrap.sh -o /tmp/bootstrap.sh
+bash /tmp/bootstrap.sh
+# reboot, login teodor / teodor, then:
+cd ~/teonix
+sudo nixos-rebuild switch --flake path:.#applenix --impure
 ```
-
-**`--impure`** is required until Asahi firmware under `/boot/asahi` is vendored into the flake (see INSTALL.md).
 
 | Host | System | Flake attribute |
 |------|--------|-----------------|

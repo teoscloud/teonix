@@ -25,6 +25,9 @@ result
 # Ignore any files in directories named "secrets" at any depth.
 **/secrets/**
 
+# Asahi peripheral firmware copied from the ESP (not redistributable).
+hosts/applenix/firmware/
+
 # If updatebuild is generated or transient, ignore it
 updatebuild/
 
