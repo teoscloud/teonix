@@ -1,44 +1,39 @@
 # applenix on Asahi Fedora
 
-Fedora owns the kernel, Mesa/Asahi GPU, firmware, PipeWire, and a display manager. Nix owns Hyprland, the rice, and almost every package.
+Fedora owns the kernel, Mesa/Asahi GPU, firmware, PipeWire, and a display manager. Nix owns Hyprland, the rice, and almost every package. **Fedora does not ship Nix** — the bootstrap installs it.
 
-The NixOS install path (`install.sh`, `#applenix`) is unchanged. This is the userspace target: `homeConfigurations.applenix-fedora`.
-
-## 1. Fedora
-
-Install [Asahi Fedora](https://asahilinux.org/fedora/) the usual way. Keep its GPU stack, PipeWire, and greeter (GDM or SDDM). Do not replace Mesa or PipeWire with Nix copies.
-
-## 2. Nix
-
-Multi-user Nix with flakes. Determinate or the official installer:
+One command as your normal user (not root):
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
-# or: https://nixos.org/download.html
+curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/fedora.sh | bash
 ```
 
-Confirm `experimental-features = nix-command flakes` in `/etc/nix/nix.conf` (Determinate sets this).
+That installs the Nix daemon (Determinate), `git` if missing, clones teonix, and switches Home Manager to `#applenix-fedora`. It is idempotent: if anything fails, run the same command again.
 
-## 3. Switch
+Then log out and pick **Hyprland (Nix)**.
+
+The NixOS USB path (`install.sh`, `#applenix`) is unchanged.
+
+---
+
+## What the script does
+
+| Step | Does |
+|------|------|
+| `nix` | installs multi-user Nix with flakes if `nix` is not on the system |
+| `git` | `sudo dnf install -y git` if needed |
+| `repo` | clones or fast-forwards `~/teonix` |
+| `switch` | `nix run nixpkgs#home-manager -- switch --flake path:.#applenix-fedora` |
+| `session` | copies the wayland session file to `/usr/share/wayland-sessions/` so GDM lists it |
 
 ```bash
-git clone https://github.com/teoscloud/teonix.git ~/teonix
-cd ~/teonix
-nix run nixpkgs#home-manager -- switch -b bak --flake path:.#applenix-fedora
+curl …/fedora.sh | bash -s status    # checklist
+curl …/fedora.sh | bash -s help
 ```
 
-Later updates are `updatehome` (or `systemupdate`, which is flake update + the same switch). There is no `nixos-rebuild`.
+Overrides: `TEONIX_DIR=`, `TEONIX_REPO=`, `FORCE=1`.
 
-## 4. Session
-
-Home Manager writes `~/.local/share/wayland-sessions/hyprland-nix.desktop`. SDDM usually lists **Hyprland (Nix)** from there. GDM often only looks in `/usr/share/wayland-sessions/`:
-
-```bash
-sudo mkdir -p /usr/share/wayland-sessions
-sudo cp ~/.local/share/wayland-sessions/hyprland-nix.desktop /usr/share/wayland-sessions/
-```
-
-Log out, pick **Hyprland (Nix)**. The session script points GL/EGL/GBM at Fedora’s `/usr/lib64` so Nix Hyprland can use the Asahi GPU.
+---
 
 ## Fedora keeps
 
@@ -48,15 +43,35 @@ Log out, pick **Hyprland (Nix)**. The session script points GL/EGL/GBM at Fedora
 - display manager
 - Wi-Fi / vendor firmware
 
-Everything else — Hyprland, Quickshell, hyprflow, browsers, fonts, portals — comes from Nix.
+Do not replace Mesa or PipeWire with Nix copies. Everything else — Hyprland, Quickshell, hyprflow, browsers, fonts, portals — comes from Nix.
+
+---
+
+## After the first switch
+
+Later updates (in a shell that has sourced Nix, or a new login):
+
+```bash
+updatehome
+```
+
+`systemupdate` here is `nix flake update` + the same Home Manager switch. There is no `nixos-rebuild`.
+
+If you just installed Nix in this terminal and `nix` is missing, either open a new terminal or:
+
+```bash
+. /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+```
+
+---
 
 ## Check
 
 | What | How |
 |------|-----|
-| GPU | `glxinfo \| grep renderer` or `vulkaninfo` — should name Apple/Asahi, not llvmpipe |
-| Audio | Fedora PipeWire; `pavucontrol` from Nix talks to `/run/user/$UID/pipewire-0` |
+| GPU | `glxinfo \| grep renderer` or `vulkaninfo` — Apple/Asahi, not llvmpipe |
+| Audio | Fedora PipeWire; Nix `pavucontrol` uses `/run/user/$UID/pipewire-0` |
 | Hyprland | greeter → Hyprland (Nix) |
 | Quickshell | bar on the built-in panel |
 
-If the compositor falls back to software rendering, Fedora Mesa is missing or the session did not export `LIBGL_DRIVERS_PATH`. Do not install Nix `mesa` into the session PATH ahead of `/usr`.
+If the compositor is software-rendered, Fedora Mesa is missing or the session did not export `LIBGL_DRIVERS_PATH`.

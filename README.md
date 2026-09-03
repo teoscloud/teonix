@@ -96,21 +96,17 @@ sudo nixos-rebuild switch --flake "path:."#nixtop --impure
 
 Full nixbox-style Hyprland rice (Quickshell, hyprflow) on **aarch64-linux**. Two ways:
 
-- **Asahi Fedora + Nix userspace** (what you run): Fedora keeps kernel/GPU/PipeWire; Home Manager `#applenix-fedora` supplies the desktop and packages. See [`hosts/applenix/FEDORA.md`](hosts/applenix/FEDORA.md).
-- **NixOS on Asahi** (still in the flake): two-stage USB install. Runbook in [`hosts/applenix/INSTALL.md`](hosts/applenix/INSTALL.md).
+- **Asahi Fedora + Nix userspace** (what you run): Fedora keeps kernel/GPU/PipeWire. Fedora does not include Nix — one command installs it and the desktop. [`hosts/applenix/FEDORA.md`](hosts/applenix/FEDORA.md).
+- **NixOS on Asahi** (still in the flake): two-stage USB install. [`hosts/applenix/INSTALL.md`](hosts/applenix/INSTALL.md).
 
 ```bash
-# 1. On the USB installer (as root), after Wi‑Fi. That's the only USB step;
-#    it is idempotent, so just re-run it if anything fails.
+# Fedora (normal user, after Asahi Fedora is installed):
+curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/fedora.sh | bash
+# log out → Hyprland (Nix)
+
+# NixOS USB path (root, on the apple-silicon installer ISO):
 curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/install.sh | bash
-reboot
-
-# 2. On the booted Mac, login teodor / teodor:
-passwd
-/etc/applenix/stage2.sh
 ```
-
-Stage 2 clones teonix, copies this Mac's hardware config and Asahi firmware into the flake, and switches to `#applenix`. No `--impure` needed. The installer detects the disk, chassis, Touch Bar, displays and RAM at runtime, so it works on any Apple Silicon Mac.
 
 | Host | System | Flake attribute |
 |------|--------|-----------------|
