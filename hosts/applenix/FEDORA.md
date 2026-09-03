@@ -25,6 +25,7 @@ The NixOS USB path (`install.sh`, `#applenix`) is unchanged.
 | `repo` | clones or fast-forwards `~/teonix` |
 | `identity` | writes `local-identity.nix` from the current login (`$USER`) |
 | `switch` | `nix run nixpkgs#home-manager -- switch --flake path:.#applenix-fedora` |
+| `gpu` | `sudo non-nixos-gpu-setup` — points `/run/opengl-driver` at Nix Mesa (see GPU below) |
 | `session` | one-time: trampoline at `/usr/local/bin/hyprland-nix-session` + SDDM session dir (no more `sudo cp`) |
 
 ```bash
@@ -38,15 +39,45 @@ Other overrides: `TEONIX_DIR=`, `TEONIX_REPO=`, `FORCE=1`.
 
 ---
 
+## GPU: Nix apps use Nix Mesa, not Fedora's
+
+This is the one thing to get right, and it is the opposite of what it looks like.
+
+Nix Hyprland, kitty and Quickshell are linked against **Nix** libglvnd/Mesa. Upstream Mesa ships the Asahi gallium driver, so Nix Mesa drives this GPU natively — `glxinfo`-equivalent reports `Mesa 26.x`, GL 4.6, hardware. Fedora's `/usr/lib64` copies are never needed by Nix apps.
+
+**Do not put `/usr/lib64` on `LD_LIBRARY_PATH` to "share" Fedora's drivers.** The Nix loader then picks host `libEGL`, which cannot resolve Nix `libexpat`, and Hyprland dies before the first frame (`error while loading shared libraries: libexpat.so.1`). Symptom: instant return to SDDM.
+
+Nix finds its drivers through `/run/opengl-driver`, created by the `gpu` step (Home Manager's `targets.genericLinux.gpu`, enabled by default here):
+
+```bash
+sudo ~/.nix-profile/bin/non-nixos-gpu-setup
+```
+
+It installs a `tmpfiles.d` entry, so the symlink returns on every boot. `updatehome` warns when it drifts:
+
+> GPU drivers require an update, run `sudo …/non-nixos-gpu-setup`
+
+Re-run `bash ~/teonix/hosts/applenix/fedora.sh` and the `gpu` step fixes it. Fedora's own apps are unaffected — nothing outside Nix looks at `/run/opengl-driver`.
+
+`hyprland-nix-session` additionally exports `LIBGL_DRIVERS_PATH`, `GBM_BACKENDS_PATH` and `__EGL_VENDOR_LIBRARY_FILENAMES` from the current generation's driver set, so the compositor comes up even before the `gpu` step has run.
+
+Two details worth knowing:
+
+- GBM backends live in `<mesa>/lib/gbm`, not `<mesa>/lib`. Pointing `GBM_BACKENDS_PATH` at `lib` gives `MESA-LOADER: failed to open dri: …/dri_gbm.so` followed by `CBackend::create() failed!`.
+- The greeter execs `Hyprland`, not `start-hyprland`. The latter hard-refuses on non-NixOS unless nixGL is installed, which is a black screen with only a line in the session log.
+
+This Mac splits render and display across two DRM devices — `card*` with the `asahi` driver is render-only (no connectors) and `apple-drm` is the KMS device holding `eDP-1`. Aquamarine picks the KMS one on its own; do not pin `AQ_DRM_DEVICES` to it, or rendering loses the GPU.
+
+---
+
 ## Fedora keeps
 
 - kernel + Asahi modules
-- Mesa / Asahi GPU userspace (`/usr/lib64/dri`)
 - PipeWire + WirePlumber
 - display manager
 - Wi-Fi / vendor firmware
 
-Do not replace Mesa or PipeWire with Nix copies. Everything else — Hyprland, Quickshell, hyprflow, browsers, fonts, portals — comes from Nix.
+Do not replace PipeWire with a Nix copy. Everything else — Hyprland, Quickshell, hyprflow, browsers, fonts, portals — comes from Nix, and Nix apps render with Nix Mesa (see GPU above), not Fedora's.
 
 ---
 
@@ -91,17 +122,26 @@ The session died before the first frame. On a TTY (Ctrl+Alt+F3):
 cat ~/.local/state/hyprland-nix-session.log
 ```
 
-Typical causes this config already guards: a hardcoded panel mode Asahi DCP rejects, Nix Mesa loading Fedora’s `asahi_dri.so` without Fedora’s libEGL, or picking a stock **Hyprland** entry whose `Exec=Hyprland` is not on SDDM’s PATH.
+The log always ends on the reason. Causes this config already guards, with the line each one prints:
+
+| Log line | Cause |
+|----------|-------|
+| `XCURSOR_PATH: unbound variable` | `set -u` while sourcing `hm-session-vars.sh`; the wrapper now sources it under `set +u` |
+| `libexpat.so.1: cannot open shared object file` | Fedora `libEGL` won via `LD_LIBRARY_PATH`; Nix apps must use Nix Mesa |
+| `failed to open dri: …/dri_gbm.so` + `CBackend::create() failed!` | `GBM_BACKENDS_PATH` missing the `/gbm` suffix |
+| `requires nixGL to be installed` | `start-hyprland` off NixOS; exec `Hyprland` directly |
+| nothing after `exec Hyprland` | genuine compositor problem — read `/run/user/$UID/hypr/*/hyprland.log` |
+
+A hardcoded panel mode Asahi DCP rejects does the same thing, which is why the monitor line is `monitor = , preferred, auto, 1`.
 
 After pulling the fix:
 
 ```bash
 cd ~/teonix && git pull
 . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-# once: writable session dir + trampoline (fedora.sh session step)
-FORCE=1 bash ~/teonix/hosts/applenix/fedora.sh
+bash ~/teonix/hosts/applenix/fedora.sh
 ```
 
-`fedora.sh`’s `session` step is the only sudo. After that, `updatehome` refreshes `~/.nix-profile/bin/hyprland-nix-session`; the greeter always execs `/usr/local/bin/hyprland-nix-session`. No more `sudo cp` of `.desktop` files.
+The `gpu` and `session` steps are the only sudo. After that, `updatehome` refreshes `~/.nix-profile/bin/hyprland-nix-session`; the greeter always execs `/usr/local/bin/hyprland-nix-session`. No more `sudo cp` of `.desktop` files.
 
 Then log in again. Either **Hyprland** or **Hyprland (Nix)** starts the same wrapper.

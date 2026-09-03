@@ -9,7 +9,7 @@
 # Idempotent: re-run after any failure; finished steps are skipped.
 set -Eeuo pipefail
 
-readonly VERSION=4
+readonly VERSION=5
 readonly SELF="applenix-fedora"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/fedora.sh | bash"
 readonly FLAKE_ATTR=applenix-fedora
@@ -17,7 +17,7 @@ readonly FLAKE_ATTR=applenix-fedora
 TEONIX_REPO="${TEONIX_REPO:-https://github.com/teoscloud/teonix.git}"
 TEONIX_DIR="${TEONIX_DIR:-$HOME/teonix}"
 
-readonly STEPS=(nix git repo identity switch session)
+readonly STEPS=(nix git repo identity switch gpu session)
 
 say() { printf '%s\n' "$*"; }
 ok() { printf '[ ok ] %s\n' "$*"; }
@@ -85,6 +85,13 @@ probe_identity() {
     && grep -q "username = \"${user}\"" "$TEONIX_DIR/local-identity.nix"
 }
 probe_switch() { [[ -e $HOME/.local/state/home-manager/gcroots/current-home ]]; }
+# /run/opengl-driver must point at the *current* generation's driver env, or
+# Nix GL apps fall back to Fedora Mesa they cannot link against.
+probe_gpu() {
+  local want
+  want=$(gpu_drivers_path) || return 1
+  [[ -n $want ]] && [[ "$(readlink /run/opengl-driver 2>/dev/null)" == "$want" ]]
+}
 probe_session() {
   [[ -x /usr/local/bin/hyprland-nix-session ]] \
     && [[ -f /usr/local/share/wayland-sessions/hyprland-nix.desktop ]] \
@@ -159,6 +166,38 @@ step_switch() {
   ok "switch — #${FLAKE_ATTR}"
 }
 
+gpu_setup_bin() {
+  local c
+  for c in "$HOME/.nix-profile/bin/non-nixos-gpu-setup" \
+           "/etc/profiles/per-user/${USER:-$(id -un)}/bin/non-nixos-gpu-setup"; do
+    [[ -x $c ]] && { printf '%s\n' "$(readlink -f "$c")"; return 0; }
+  done
+  return 1
+}
+
+# The setup script symlinks /run/opengl-driver at the driver env it was built
+# with; that target is the answer probe_gpu compares against.
+gpu_drivers_path() {
+  local bin
+  bin=$(gpu_setup_bin) || return 1
+  sed -n 's#^ln -sf \(/nix/store/[^ ]*\)/lib/tmpfiles.d/.*#\1#p' "$bin" \
+    | head -1 \
+    | { read -r pkg && [[ -n $pkg ]] && sed -n 's#^L+ /run/opengl-driver[[:space:]-]*\(/nix/store/[^ ]*\)$#\1#p' \
+        "$pkg/lib/tmpfiles.d/non-nixos-gpu.conf"; }
+}
+
+step_gpu() {
+  local bin
+  bin=$(gpu_setup_bin) || die "non-nixos-gpu-setup is missing — run the switch step first"
+
+  runmsg "gpu — pointing /run/opengl-driver at Nix Mesa (Asahi driver included)"
+  # Nix Hyprland/kitty link Nix libglvnd, which searches /run/opengl-driver.
+  # Without this, EGL cannot initialise and every Nix GL app dies.
+  sudo "$bin"
+  probe_gpu || warn "/run/opengl-driver is $(readlink /run/opengl-driver 2>/dev/null || echo unset) after setup"
+  ok "gpu — $(readlink /run/opengl-driver 2>/dev/null || echo '/run/opengl-driver')"
+}
+
 step_session() {
   local user="${TEONIX_USER:-${USER:-$(id -un)}}"
   local trampoline=/usr/local/bin/hyprland-nix-session
@@ -227,8 +266,9 @@ ${SELF} v${VERSION} — Nix + teonix desktop on Asahi Fedora
 
   ${CURL_CMD}
 
-Fedora does not include Nix. This script installs it, clones teonix, and
-switches Home Manager to #${FLAKE_ATTR}. Re-run after any failure.
+Fedora does not include Nix. This script installs it, clones teonix, points
+/run/opengl-driver at Nix Mesa, and switches Home Manager to #${FLAKE_ATTR}.
+Re-run after any failure.
 
   … all       every pending step (default)
   … status    checklist

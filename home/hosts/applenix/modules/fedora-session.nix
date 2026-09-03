@@ -44,18 +44,35 @@ let
     '';
   };
 
-  # Nix Hyprland is linked against Nix Mesa, which has no Asahi driver.
-  # LIBGL_DRIVERS_PATH alone loads Fedora's asahi_dri.so into Nix libEGL and
-  # the compositor dies before the first frame (instant return to SDDM).
-  # Prepend only the host GL/EGL/GBM libs, then exec.
+  # GPU on Fedora: Nix Mesa is what Nix apps must use. Upstream Mesa ships the
+  # Asahi gallium driver, so Nix Hyprland/kitty get hardware GL (Mesa 4.6) from
+  # it — Fedora's copies are never needed. Putting /usr/lib64 on
+  # LD_LIBRARY_PATH is actively harmful: the Nix loader then picks host libEGL,
+  # which cannot resolve Nix libexpat, and Hyprland dies before the first frame.
+  #
+  # The supported mechanism is targets.genericLinux.gpu (enabled by default
+  # here): `sudo non-nixos-gpu-setup` symlinks /run/opengl-driver at the driver
+  # env below, which Nix libglvnd/Mesa search with no env vars at all.
+  # fedora.sh's `gpu` step runs it. These exports are the belt-and-braces path
+  # for the compositor, so the session also works before that step has run and
+  # stays pinned to the drivers of the *current* generation.
+  gpuDrivers = config.targets.genericLinux.gpu.drivers;
+
+  gpuDriverExports = ''
+    export LIBGL_DRIVERS_PATH="${gpuDrivers}/lib/dri"
+    export GBM_BACKENDS_PATH="${gpuDrivers}/lib/gbm"
+    export __EGL_VENDOR_LIBRARY_FILENAMES="${gpuDrivers}/share/glvnd/egl_vendor.d/50_mesa.json"
+  '';
+
   hyprlandNixSession = pkgs.writeShellScriptBin "hyprland-nix-session" ''
     log="''${XDG_STATE_HOME:-$HOME/.local/state}/hyprland-nix-session.log"
     mkdir -p "$(dirname "$log")"
     exec >>"$log" 2>&1
     echo "==== $(date -Iseconds) pid=$$ user=$USER ===="
 
-    set -u
-
+    # hm-session-vars.sh appends $XCURSOR_PATH / $TERM. SDDM sets neither, and
+    # under `set -u` that aborts the script — black screen, Hyprland never execs.
+    set +u
     for f in \
       "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" \
       "/etc/profiles/per-user/''${USER:-}/etc/profile.d/hm-session-vars.sh" \
@@ -64,42 +81,21 @@ let
       [ -f "$f" ] && . "$f"
     done
 
-    wrap="''${XDG_RUNTIME_DIR:-/tmp}/hyprland-host-gl"
-    mkdir -p "$wrap"
-    for lib in libEGL.so.1 libEGL.so libGLESv2.so.2 libGL.so.1 libgbm.so.1 \
-               libGLX.so.0 libOpenGL.so.0 libGLdispatch.so.0 \
-               libvulkan.so.1 libdrm.so.2; do
-      if [ -e "/usr/lib64/$lib" ]; then
-        ln -sfn "/usr/lib64/$lib" "$wrap/$lib"
-      fi
-    done
-    export LD_LIBRARY_PATH="$wrap''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-
-    if [ -d /usr/lib64/dri ]; then
-      export LIBGL_DRIVERS_PATH="/usr/lib64/dri''${LIBGL_DRIVERS_PATH:+:$LIBGL_DRIVERS_PATH}"
-    fi
-    if [ -d /usr/share/glvnd/egl_vendor.d ]; then
-      export __EGL_VENDOR_LIBRARY_DIRS="/usr/share/glvnd/egl_vendor.d''${__EGL_VENDOR_LIBRARY_DIRS:+:$__EGL_VENDOR_LIBRARY_DIRS}"
-    fi
-    if [ -f /usr/share/glvnd/egl_vendor.d/50_mesa.json ]; then
-      export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
-    fi
-    if [ -d /usr/lib64/gbm ]; then
-      export GBM_BACKENDS_PATH="/usr/lib64/gbm''${GBM_BACKENDS_PATH:+:$GBM_BACKENDS_PATH}"
-    fi
-    if [ -e /usr/lib64/dri/asahi_dri.so ]; then
-      export MESA_LOADER_DRIVER_OVERRIDE=asahi
-    fi
+    ${gpuDriverExports}
 
     export XDG_CURRENT_DESKTOP=Hyprland
     export XDG_SESSION_DESKTOP=Hyprland
     export XDG_SESSION_TYPE=wayland
     export WLR_NO_HARDWARE_CURSORS="''${WLR_NO_HARDWARE_CURSORS:-1}"
 
+    # start-hyprland refuses to run off NixOS unless nixGL is installed, so the
+    # greeter gets Hyprland directly (its watchdog is a nicety, not a need).
     echo "Hyprland=${pkgs.hyprland}/bin/Hyprland"
-    echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+    echo "drivers=${gpuDrivers}"
+    echo "run-opengl-driver=$(readlink /run/opengl-driver || echo '<unset: run fedora.sh gpu step>')"
     echo "LIBGL_DRIVERS_PATH=''${LIBGL_DRIVERS_PATH:-}"
-    echo "wrap=$wrap -> $(ls -1 "$wrap" 2>/dev/null | tr '\n' ' ')"
+    echo "GBM_BACKENDS_PATH=''${GBM_BACKENDS_PATH:-}"
+    echo "exec Hyprland"
 
     exec ${pkgs.hyprland}/bin/Hyprland "$@"
   '';
@@ -125,6 +121,11 @@ in
     STEAM_EXTRA_COMPAT_TOOLS_PATHS = "/home/${username}/.steam/root/compatibilitytools.d";
     RUST_MIN_STACK = "16777216";
   };
+
+  # Drop the abandoned "link Fedora's libEGL into a wrap dir" experiment.
+  home.activation.removeStaleHostGlWrap = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    rm -rf "$HOME/.local/share/teonix/host-gl"
+  '';
 
   # NixOS-only extras: compositor and portals live in programs.* there.
   home.packages = [
