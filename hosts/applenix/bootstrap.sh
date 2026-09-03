@@ -24,9 +24,22 @@ esp_dev() {
   echo "/dev/disk/by-partuuid/$uuid"
 }
 
+reread_pt() {
+  partprobe "$NVME" 2>/dev/null || blockdev --rereadpt "$NVME" 2>/dev/null || true
+  udevadm settle 2>/dev/null || sleep 1
+}
+
+# Linux filesystem GPT type (sgdisk 8300).
 find_root_part() {
-  # Newest Linux (8300) partition on the NVMe, excluding Apple containers.
-  lsblk -npo NAME,PARTTYPE "$NVME" | awk 'tolower($2)=="0fc63daf-8483-4772-8e79-3d69d8477de4" {print $1}' | tail -n1
+  local n
+  n=$(sgdisk -p "$NVME" 2>/dev/null | awk '/[[:space:]]8300[[:space:]]/ {print $1}' | tail -n1)
+  if [[ -n $n ]]; then
+    echo "${NVME}p${n}"
+    return 0
+  fi
+  lsblk -npo NAME,PARTTYPE "$NVME" 2>/dev/null \
+    | awk 'tolower($2) ~ /0fc63daf-8483-4772-8e79-3d69d8477de4/ {print $1}' \
+    | tail -n1
 }
 
 copy_firmware() {
@@ -78,11 +91,26 @@ if ! findmnt /mnt >/dev/null 2>&1; then
   echo "This will ADD a Linux partition in the remaining free space on $NVME"
   echo "and format it ext4. It will NOT touch iBoot / macOS / Recovery."
   sgdisk "$NVME" -p || true
-  confirm "Create and format the NixOS root partition on $NVME?"
-
-  sgdisk "$NVME" -n 0:0 -t 0:8300 -s
+  reread_pt
   ROOT=$(find_root_part)
-  [[ -n $ROOT ]] || die "could not find the new 8300 partition"
+
+  if [[ -n ${ROOT:-} && -b $ROOT ]]; then
+    echo "Found existing Linux partition $ROOT (from a previous attempt)."
+    confirm "Format $ROOT as ext4 (THIS ERASES THAT PARTITION ONLY) and mount it on /mnt?"
+  else
+    confirm "Create and format the NixOS root partition on $NVME?"
+    sgdisk "$NVME" -n 0:0:0 -t 0:8300 -c 0:nixos -s
+    reread_pt
+    ROOT=$(find_root_part)
+    if [[ -z ${ROOT:-} || ! -b $ROOT ]]; then
+      echo "partition table after sgdisk:"
+      sgdisk "$NVME" -p || true
+      lsblk "$NVME" || true
+      die "could not find the new 8300 partition — pick the Linux row from the table above and: mkfs.ext4 -L nixos /dev/nvme0n1pN && mount /dev/disk/by-label/nixos /mnt && re-run this script"
+    fi
+    confirm "Format $ROOT as ext4 and mount it on /mnt?"
+  fi
+
   echo "formatting $ROOT"
   mkfs.ext4 -L nixos "$ROOT"
   mount "$ROOT" /mnt
