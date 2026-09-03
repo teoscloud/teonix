@@ -185,7 +185,7 @@ passwd                          # change it now
 Stage 2:
 
 1. adds a swapfile sized from this Mac's RAM (the flake does rebuild the Asahi kernel)
-2. clones teonix to `~/teonix`, or pulls if it is already there
+2. clones teonix to `~/teonix`, or brings an existing checkout to exactly upstream — local edits to tracked files are stashed first, because a `pull` alone leaves clobbered files in place
 3. copies `/etc/nixos/hardware-configuration.nix` into `hosts/applenix/`, replacing the repo's placeholder UUIDs
 4. copies `firmware.cpio` into `hosts/applenix/firmware/`, which is what lets `#applenix` evaluate with **no `--impure`**
 5. writes `hosts/applenix/detected.nix` (Touch Bar, m1n1 options, keyboard layout, swap) — safe to commit
@@ -241,6 +241,22 @@ then `updatehome`.
 **`no firmware.cpio found`.** Boot macOS, run `curl https://alx.sh | sh`, choose *Rebuild vendor firmware package*, reboot into the installer and re-run `run firmware config`.
 
 **No Wi‑Fi after stage 2.** Confirm `hosts/applenix/firmware/firmware.cpio` exists and is non-empty, then rebuild.
+
+**`function 'anonymous lambda' called with unexpected argument 'ignoreConfigErrors'`.** `~/teonix` is a stale checkout. The retired `bootstrap.sh` used to overwrite tracked files in place, and `git pull --ff-only` reports *"Already up to date."* without reverting them, so the build used the old `asahi.nix`. `linux-asahi` dropped that argument in `release-2026-07-30`.
+
+```bash
+cd ~/teonix
+git status --short                       # shows the clobbered files
+git fetch origin
+git reset --hard origin/main
+/etc/applenix/stage2.sh
+```
+
+Stage 2 does this itself now: it stashes local edits to tracked files, hard-resets to upstream, and refuses to start a build if `ignoreConfigErrors` is still anywhere in `hosts/applenix/`. To refresh the helper on an already-booted Mac:
+
+```bash
+sudo TARGET=/ FORCE=1 bash ~/teonix/hosts/applenix/install.sh run stage2
+```
 
 ---
 
