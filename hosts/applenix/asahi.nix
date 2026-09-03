@@ -1,47 +1,19 @@
 { apple-silicon, lib, ... }:
 
 let
-  # linux-asahi exists in no binary cache: nixpkgs policy keeps vendor kernels
-  # out of the tree, and upstream's own cache is documented as non-functional
-  # (docs/binary-cache.md). So whoever evaluates the kernel also compiles it —
-  # hours on the laptop, and it OOMs on an 8 GB Mac.
+  # linux-asahi is not in cache.nixos.org (vendor kernels stay out of nixpkgs)
+  # and upstream's own cache is documented as dead. Nix substitutes the
+  # latest-release kernel if that store path is already present (official ISO
+  # matching the apple-silicon pin); otherwise the Mac compiles it.
   #
-  # The way out is to stop asking for a kernel nobody has built. Building it
-  # from apple-silicon's *own* pinned nixpkgs rather than ours reproduces
-  # exactly the derivation the installer ISO used, which nixos-install already
-  # realised into this Mac's store, so the switch reuses it and compiles
-  # nothing. Following nixos-unstable here changes the hash and throws that
-  # away for no benefit — nothing in userspace links against the kernel.
-  #
-  # Consequence: the kernel tracks the apple-silicon input, not nixos-unstable,
-  # so routine updates never rebuild it. Bumping the apple-silicon release is
-  # what moves the kernel, and that single build is unavoidable.
-  #
-  # Which build platform, though, depends on the ISO this Mac was installed
-  # from: an official native ISO leaves the aarch64-built kernel in the store,
-  # a cross-built one (or PKGS_SYSTEM=x86_64-linux during stage 1) leaves the
-  # x86_64-built one, and the two are different store paths. stage2.sh works
-  # out which is actually present and writes it here. Plain data on purpose —
-  # reading it through `config` would make nixpkgs.overlays below depend on the
-  # module system while it is still building `pkgs`.
-  buildSystem =
-    if builtins.pathExists ./asahi-build-system.nix then
-      import ./asahi-build-system.nix
-    else
-      "aarch64-linux";
-
-  asahiPkgs = import apple-silicon.inputs.nixpkgs (
-    { overlays = [ apple-silicon.overlays.default ]; }
-    // (
-      if buildSystem == "aarch64-linux" then
-        { system = "aarch64-linux"; }
-      else
-        {
-          crossSystem.system = "aarch64-linux";
-          localSystem.system = buildSystem;
-        }
-    )
-  );
+  # Built from apple-silicon's *own* pinned nixpkgs, not nixos-unstable:
+  # following ours changes the hash and forces a rebuild on every
+  # systemupdate, for no userspace benefit. The kernel only moves when the
+  # apple-silicon input is bumped.
+  asahiPkgs = import apple-silicon.inputs.nixpkgs {
+    system = "aarch64-linux";
+    overlays = [ apple-silicon.overlays.default ];
+  };
 in
 
 {

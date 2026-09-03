@@ -21,7 +21,7 @@
 # -E so the ERR trap below also fires for failures inside functions.
 set -Eeuo pipefail
 
-readonly VERSION=9
+readonly VERSION=10
 readonly SELF="applenix-install"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/install.sh | bash"
 
@@ -999,62 +999,6 @@ iso_layout=\$(fact ISO_LAYOUT 2>/dev/null || true)
 } >"\$HOST_DIR/detected.nix"
 ok "detected — wrote \$HOST_DIR/detected.nix"
 
-# --- which prebuilt Asahi kernel does this Mac have? -----------------------
-# The installer ISO is either native aarch64 or cross-built from x86_64, and
-# the two produce different store paths for the same kernel. Whichever one
-# nixos-install copied here is the one we must ask for; asking for the other
-# means compiling from scratch, because linux-asahi is in no binary cache.
-#
-# Rather than parse kernel names (the target triple in them is not a reliable
-# cross-build tell), ask the pinned apple-silicon input for both candidates and
-# see which is actually in the store.
-say "finding which prebuilt Asahi kernel is in the store"
-asahi_build_system=""
-for candidate in aarch64-linux x86_64-linux; do
-  candidate_path=\$(nix eval --impure --raw \\
-    --expr "(builtins.getFlake \\"path:\$DIR\\").inputs.apple-silicon.packages.\$candidate.linux-asahi.outPath" \\
-    2>/dev/null) || continue
-  [[ -n \$candidate_path ]] || continue
-  if nix path-info "\$candidate_path" >/dev/null 2>&1; then
-    asahi_build_system=\$candidate
-    ok "kernel — prebuilt for \$candidate: \${candidate_path##*/}"
-    break
-  fi
-  say "  not in store for \$candidate"
-done
-
-if [[ -n \$asahi_build_system ]]; then
-  printf '"%s"\\n' "\$asahi_build_system" >"\$HOST_DIR/asahi-build-system.nix"
-  ok "detected — wrote \$HOST_DIR/asahi-build-system.nix"
-else
-  warn "neither prebuilt kernel is in the store; the switch would compile one"
-  rm -f "\$HOST_DIR/asahi-build-system.nix"
-fi
-
-# --- kernel sanity ---------------------------------------------------------
-# Belt and braces: confirm the path the flake actually resolves to is present,
-# so a switch never silently turns into a 2h+ compile that OOMs a small Mac.
-say "checking the Asahi kernel is prebuilt (this is the 2h trap)"
-kernel=\$(nix eval --raw "path:\$DIR#nixosConfigurations.applenix.config.boot.kernelPackages.kernel" 2>/dev/null || true)
-
-if [[ -z \$kernel ]]; then
-  warn "could not evaluate the kernel path; continuing without the check"
-elif nix path-info "\$kernel" >/dev/null 2>&1; then
-  ok "kernel — \${kernel##*/} already in the store, nothing to compile"
-else
-  warn "the Asahi kernel is NOT in the store and no cache has it:"
-  warn "  \$kernel"
-  warn "Switching now would compile it: 2h+, and it OOMs an 8 GB Mac."
-  warn "This means the flake's apple-silicon input no longer matches the ISO"
-  warn "this Mac was installed from. Fix the pin rather than build the kernel."
-  warn "The kernel this Mac is actually running is:"
-  warn "  \$(readlink -f /run/current-system/kernel 2>/dev/null || echo unknown)"
-  if [[ \${KERNEL_BUILD_OK:-0} != 1 ]]; then
-    die "refusing to start a kernel build; re-run with KERNEL_BUILD_OK=1 to do it anyway"
-  fi
-  warn "KERNEL_BUILD_OK=1 set — building the kernel as requested"
-fi
-
 # --- switch ----------------------------------------------------------------
 # max-jobs 1 keeps two heavy derivations from running at once; cores bounds the
 # parallelism inside one, which is what actually sets peak memory. rustc in the
@@ -1073,7 +1017,8 @@ fi
 swap_active_mb=\$(awk 'NR > 1 { total += \$3 } END { printf "%d\\n", total / 1024 }' /proc/swaps)
 
 say ""
-say "switching to #applenix; the Asahi kernel builds here, so expect a long run"
+say "switching to #applenix; Nix reuses the Asahi kernel if it is already in"
+say "the store, otherwise the Mac compiles it (hours; swap and cores are set)"
 say "  RAM \${ram_gb} GiB, swap \${swap_active_mb} MiB, max-jobs 1, cores \$cores"
 say "  if this still gets killed, re-run with: BUILD_CORES=1 \$0"
 say "  (use tmux if you are over ssh)"
@@ -1177,7 +1122,6 @@ Environment:
   M1N1_EXTRA=…     boot.m1n1ExtraOptions, for Mac mini display quirks
   SWAP_SIZE=MiB    swap the stage 2 helper creates (default from RAM)
   BUILD_CORES=N    cores per derivation in stage 2; lower it if the build OOMs
-  KERNEL_BUILD_OK=1 let stage 2 compile the Asahi kernel instead of refusing
   PKGS_SYSTEM=…    set if the ISO was cross-built and the kernel rebuilds
   CHARGE_LIMIT=…   battery charge ceiling on laptops (default 80)
   TEONIX_REPO=…    repo stage 2 clones
