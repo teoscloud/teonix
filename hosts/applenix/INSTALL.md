@@ -276,7 +276,7 @@ git reset --hard origin/main
 /etc/applenix/stage2.sh
 ```
 
-Stage 2 does this itself now: it stashes local edits to tracked files, hard-resets to upstream, and refuses to start a build if `ignoreConfigErrors` is still anywhere in `hosts/applenix/`. To refresh the helper on an already-booted Mac:
+Stage 2 does this itself now: it stashes local edits to tracked files, hard-resets to upstream, and refuses to start a build if any `.nix` file in `hosts/applenix/` still passes `ignoreConfigErrors`. That check looks at `.nix` files only and strips comments first — the word also appears in `install.sh`, in this document, and in a comment in `asahi.nix`, so a plain recursive grep fails a checkout that is perfectly fine. To refresh the helper on an already-booted Mac:
 
 ```bash
 sudo TARGET=/ FORCE=1 bash ~/teonix/hosts/applenix/install.sh run stage2

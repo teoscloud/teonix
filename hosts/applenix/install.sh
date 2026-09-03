@@ -21,7 +21,7 @@
 # -E so the ERR trap below also fires for failures inside functions.
 set -Eeuo pipefail
 
-readonly VERSION=7
+readonly VERSION=8
 readonly SELF="applenix-install"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/install.sh | bash"
 
@@ -917,8 +917,21 @@ mkdir -p "\$HOST_DIR"
 
 # Cheap guard against the class of failure that costs a whole kernel build:
 # linux-asahi dropped the ignoreConfigErrors argument in release-2026-07-30.
-if grep -rqs 'ignoreConfigErrors' "\$HOST_DIR"; then
-  die "\$HOST_DIR still passes ignoreConfigErrors to linux-asahi (leftover from the old bootstrap.sh).
+#
+# Only .nix files, and only outside comments: the word also appears in this
+# installer, in INSTALL.md, and in a comment in asahi.nix explaining why the
+# argument is gone. A recursive grep for the bare word matches all three and
+# fails a checkout that is perfectly correct.
+offenders=""
+for nix_file in "\$HOST_DIR"/*.nix; do
+  [[ -f \$nix_file ]] || continue
+  if sed 's/#.*//' "\$nix_file" | grep -q 'ignoreConfigErrors'; then
+    offenders+="\$(basename "\$nix_file") "
+  fi
+done
+if [[ -n \$offenders ]]; then
+  die "\$HOST_DIR still passes ignoreConfigErrors to linux-asahi: \$offenders
+       (leftover from the retired bootstrap.sh, which overwrote tracked files in place)
        Clean the checkout, then re-run:
          git -C \$DIR fetch origin && git -C \$DIR reset --hard origin/main"
 fi
