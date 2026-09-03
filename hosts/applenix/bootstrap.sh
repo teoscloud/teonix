@@ -124,10 +124,21 @@ fi
 echo "root: $(findmnt -n -o SOURCE /mnt)"
 echo "esp:  $(findmnt -n -o SOURCE /mnt/boot)"
 
+if ! command -v git >/dev/null; then
+  echo "installer has no git; pulling it from nixpkgs…"
+  nix-env -iA nixos.git 2>/dev/null || nix-env -iA nixpkgs.git 2>/dev/null || \
+    nix-shell -p git --run "git --version" >/dev/null
+fi
+command -v git >/dev/null || die "could not get git — run: nix-shell -p git"
+
 mkdir -p /mnt/home/teodor
 if [[ ! -d $FLAKE_DIR/.git ]]; then
   echo "cloning $REPO_URL -> $FLAKE_DIR"
-  git clone "$REPO_URL" "$FLAKE_DIR"
+  if command -v git >/dev/null; then
+    git clone "$REPO_URL" "$FLAKE_DIR"
+  else
+    nix-shell -p git --run "git clone '$REPO_URL' '$FLAKE_DIR'"
+  fi
 else
   echo "flake already at $FLAKE_DIR"
 fi
