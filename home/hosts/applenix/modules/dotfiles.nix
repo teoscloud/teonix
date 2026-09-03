@@ -44,8 +44,10 @@ in {
   home.file.".config/wofi/config".source = "${dotfilesPath}/config/wofi/config";
   home.file.".config/wofi/style.css".source = "${dotfilesPath}/config/wofi/style.css";
 
+  # White Mainframe is the default shell rice on applenix (NixOS + Asahi Fedora).
+  # Glass remains at …/nixbox/…/quickshell; switch with qsmainframe / qsglass.
   home.file.".config/quickshell".source = config.lib.file.mkOutOfStoreSymlink
-    "${projectdir}/home/hosts/applenix/dotfiles/config/quickshell";
+    "${projectdir}/home/hosts/nixbox/dotfiles/config/quickshell-mainframe";
 
   xdg.dataFile = cursorHicolorIconFiles;
 

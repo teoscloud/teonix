@@ -25,8 +25,20 @@ Singleton {
     // Window to receive insert/paste after overlays close (Hyprland address 0x…)
     property string insertTargetAddress: ""
 
-    // Bar + dock only on this Hyprland output (hyprctl monitors)
-    property string shellMonitor: "DP-1"
+    // Bar + dock only on this Hyprland output (hyprctl monitors).
+    // Prefer the laptop panel when present (Asahi Mac), else the usual
+    // nixbox primary — so one mainframe tree serves both hosts.
+    readonly property string shellMonitor: {
+        const list = Quickshell.screens;
+        const prefer = ["eDP-1", "DP-1", "HDMI-A-1"];
+        for (let p = 0; p < prefer.length; p++) {
+            for (let i = 0; i < list.length; i++) {
+                if (list[i].name === prefer[p])
+                    return prefer[p];
+            }
+        }
+        return list.length ? list[0].name : "eDP-1";
+    }
 
     function isShellMonitor(screen) {
         return !!(screen && screen.name === shellMonitor);
