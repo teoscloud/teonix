@@ -213,36 +213,27 @@ teonix-steam-kill
 steam
 ```
 
-### Lutris + GE-Proton (Battle.net / WoW, not Steam)
+### Battle.net (`teonix-battlenet`, no Steam client)
 
-`updatehome` installs Nix **lutris-unwrapped** (FHS Lutris and its `libstrangle` FPS limiter are x86-only), **umu-launcher**, and **proton-ge-bin** (GE-Proton 11, aarch64 tarball on this Mac). The runner is linked at:
-
-- `~/.local/share/lutris/runners/proton/GE-Proton`
-- `~/.local/share/Steam/compatibilitytools.d/GE-Proton`
-
-That is the ARM-host Proton-GE, not an extra Steam VM. Use it from Lutris:
+Host Lutris + Nix **aarch64** GE-Proton cannot run the Battle.net installer (Proton #10011: `RPC_S_SERVER_UNAVAILABLE` busy-loop, dead language window). x86 Proton cannot run on the 16K host (`jemalloc`). The working stack is the same **muvm (4K guest) + FEX** the Steam RPM pulls in — without launching Steam.
 
 ```bash
+bash ~/teonix/hosts/applenix/fedora.sh steam   # muvm + FEX only; skip if already done
 updatehome
-lutris
+# Windows x86 installer from blizzard.com → ~/Downloads/Battle.net-Setup.exe
+teonix-steam-kill    # one muvm on this machine
+teonix-battlenet
 ```
 
-Add a local game → installer `~/Downloads/Battle.net-Setup.exe` → runner **GE-Proton** (via umu). Then install WoW from Battle.net. Do not pick a random `*-aarch64` Wine that presents as Windows ARM64 — Battle.net will fetch ARM WoW. Nix `proton-ge-bin` is the GloriousEggroll aarch64 Linux build (x86 Windows via its own translation).
+First run downloads **GE-Proton11-5-x86_64** (~510 MiB, checksummed; never the `-aarch64` tarball), then runs setup with `--lang=enUS` so the hung language dialog never appears. After `Battle.net.exe` exists, the script writes `~/.local/share/applications/battlenet.desktop` and starts the client with Blizzard `HardwareAcceleration=false`, `--in-process-gpu`, and `--disable-gpu-compositing` (never `--disable-gpu`, never WineD3D, never SwiftShader on this Air). DXVK stays on for games. Later launches are the client only.
 
-Battle.net is still a known hang on this stack (Proton #10011). This Air has 8 GB; the emulation layer can eat several GB. If the kernel OOM-kills Lutris or the prefix:
+```bash
+battlenet          # same as teonix-battlenet
+bnetkill           # teonix-battlenet-kill
+```
+
+Logs: `~/.local/state/teonix-battlenet.log`. Prefix: `~/.local/share/teonix/battlenet/`. Do not write `~/.fex-emu/Config.json`. Do not pick Proton Experimental (ARM64). Close browsers first — this Air has 8 GB. If the kernel OOM-kills the guest:
 
 ```bash
 sudo /usr/libexec/fedora-asahi-remix-scripts/setup-swap.sh --recreate 16G
 ```
-
-Steam **Browse** under Hyprland/muvm often does nothing (file portal + 0×0 X11 popup). The Steam-side shortcut is still:
-
-```bash
-# quit Steam fully first
-teonix-steam-add ~/Downloads/Battle.net-Setup.exe "Battle.net Setup"
-steam
-```
-
-Then Compatibility → Proton 10. Prefer Lutris + GE-Proton for Battle.net on this machine.
-
-Do not write `~/.fex-emu/Config.json`; muvm owns FEX config.

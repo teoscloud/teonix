@@ -148,6 +148,9 @@ let
     # Host muvm + FEX Steam. Never Nixpkgs Steam.
     alias steam='teonix-steam'
     alias steamkill='teonix-steam-kill'
+    alias battlenet='teonix-battlenet'
+    alias bnet='teonix-battlenet'
+    alias bnetkill='teonix-battlenet-kill'
 
     alias qsmainframe='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qsmainframe.sh"'
     alias qsglass='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qsglass.sh"'

@@ -36,6 +36,8 @@ ignore_classes = [
   "Steam",
   "steamwebhelper",
   "Steamwebhelper",
+  "steam_app_battlenet",
+  "Battle.net.exe",
 ]
 
 # Keys must match Hyprland `initialClass` / `class` from `hyprctl clients`

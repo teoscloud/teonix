@@ -10,12 +10,12 @@ local mainMod = "SUPER"
 ---- MONITORS --
 ----------------
 
--- 1.5 = 150%; Hyprland snaps to 1.6 so 2560×1600 stays integer logical pixels.
+-- 1.6 is required on this panel (2560×1600 integer logical pixels). Do not drop to 1.
 hl.monitor({
     output = "eDP-1",
     mode = "preferred",
     position = "auto",
-    scale = 1.5,
+    scale = 1.6,
 })
 hl.monitor({
     output = "",
@@ -209,6 +209,27 @@ hl.window_rule({
     name = "steam-add-nonsteam",
     match = { title = "Add Non-Steam Game" },
     float = true,
+})
+
+-- Battle.net / Wine CEF: no blur, no fade, no rounding. Those punch black
+-- holes through XWayland surfaces on the 1.6 scaled panel.
+hl.window_rule({
+    name = "battlenet-surfaces",
+    match = { class = "^steam_app_battlenet$" },
+    rounding = 0,
+    border_size = 1,
+})
+hl.window_rule({
+    name = "battlenet-login",
+    match = { title = "Battle.net Login" },
+    float = true,
+    rounding = 0,
+})
+hl.window_rule({
+    name = "battlenet-setup",
+    match = { title = "^Battle.net Setup$" },
+    float = true,
+    rounding = 0,
 })
 
 ----------------

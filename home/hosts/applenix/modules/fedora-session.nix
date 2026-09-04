@@ -140,6 +140,20 @@ let
       exec python3 ${./../scripts/teonix-steam-add.py} "$@"
     '';
   };
+
+  teonixBattlenet = pkgs.writeShellApplication {
+    name = "teonix-battlenet";
+    text = ''
+      exec ${./../scripts/teonix-battlenet.sh} "$@"
+    '';
+  };
+
+  teonixBattlenetKill = pkgs.writeShellApplication {
+    name = "teonix-battlenet-kill";
+    text = ''
+      exec ${./../scripts/teonix-battlenet-kill.sh} "$@"
+    '';
+  };
 in
 {
   # Profile + XDG hooks that NixOS would have set up for us.
@@ -175,6 +189,8 @@ in
     steamHost
     teonixSteamKill
     teonixSteamAdd
+    teonixBattlenet
+    teonixBattlenetKill
     pkgs.hyprland
     pkgs.hypridle
     pkgs.hyprlock
@@ -208,16 +224,23 @@ in
   xdg.dataFile."lutris/runners/proton/GE-Proton".source = pkgs.proton-ge-bin.steamcompattool;
   xdg.dataFile."Steam/compatibilitytools.d/GE-Proton".source = pkgs.proton-ge-bin.steamcompattool;
 
-  # Steam's Browse button cannot open a host file picker from inside muvm.
-  # A .desktop here shows up in "Add a Non-Steam Game" so you can tick it.
-  xdg.desktopEntries.battle-net-setup = {
-    name = "Battle.net Setup";
-    comment = "Windows Battle.net installer — add in Lutris with GE-Proton";
-    exec = "${config.home.homeDirectory}/Downloads/Battle.net-Setup.exe";
+  # One launcher. teonix-battlenet runs setup on first launch, then the client.
+  # Do not ship a separate Setup.desktop — leftover installer entries are removed
+  # after a successful install.
+  xdg.desktopEntries.battlenet = {
+    name = "Battle.net";
+    comment = "Blizzard Battle.net (muvm + FEX, no Steam)";
+    exec = "teonix-battlenet";
     icon = "applications-games";
     terminal = false;
     categories = [ "Game" ];
+    settings.StartupWMClass = "steam_app_battlenet";
   };
+
+  home.activation.removeStaleBattlenetSetupDesktop = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    rm -f "$HOME/.local/share/applications/battle-net-setup.desktop" \
+          "$HOME/.local/share/applications/Battle.net Setup.desktop"
+  '';
 
   fonts.fontconfig.enable = true;
   fonts.fontconfig.defaultFonts = {
