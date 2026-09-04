@@ -32,6 +32,10 @@ ignore_classes = [
   "buschain-control-popup",
   "buschain-mixer",
   "buschain-control",
+  "steam",
+  "Steam",
+  "steamwebhelper",
+  "Steamwebhelper",
 ]
 
 # Keys must match Hyprland `initialClass` / `class` from `hyprctl clients`
@@ -70,9 +74,6 @@ binary = "codium"
 
 [apps.spotify]
 binary = "spotify"
-
-[apps.steam]
-binary = "steam"
 
 [apps.org.gnome.clocks]
 binary = "gnome-clocks"

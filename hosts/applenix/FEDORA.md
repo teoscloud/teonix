@@ -178,7 +178,17 @@ updatehome
 steam
 ```
 
-`teonix-steam` (and the `steam` command / desktop entry) exec `/usr/bin/steam`. They strip Nix `QT_PLUGIN_PATH` / Mesa exports so the Fedora PyQt6 splash can find `/usr/lib64/qt6/plugins`, and they do not put `/usr/lib64` on `LD_LIBRARY_PATH`. Launch that wrapper — not `~/.local/share/Steam/steam.sh` from the host shell. A raw `/usr/bin/steam` from a Nix-Qt session aborts (`createPlatformIntegration`).
+`teonix-steam` (and the `steam` command / desktop entry) start **one** muvm. After the first bootstrap they skip Fedora’s PyQt splash (its window probe never matches current Steam titles, so closing the splash killed the guest). A second launch — hyprflow restore, `steam://` on the host, or clicking Steam again — used to spawn another VM and look like a restart loop. If Steam is already up, the wrapper exits 0.
+
+Steam **Browse** under Hyprland/muvm often does nothing (file portal + 0×0 X11 popup). Skip it:
+
+```bash
+# quit Steam fully first
+teonix-steam-add ~/Downloads/Battle.net-Setup.exe "Battle.net Setup"
+steam
+```
+
+Then Compatibility → Proton 10. Or add any listed app in that dialog and paste the exe path into Properties → Target.
 
 First test a cheap Proton title. Battle.net is a known hang on this stack; WoW Classic is a later test. This Air has 8 GB — the emulation stack itself can eat several GB, so do not treat stutter or OOM here as evidence the M1 Max will be bad. If the kernel OOM-kills Steam:
 

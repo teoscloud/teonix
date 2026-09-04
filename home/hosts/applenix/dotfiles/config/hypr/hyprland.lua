@@ -198,6 +198,19 @@ hl.window_rule({
     border_color = { colors = { "rgb(F57676)", "rgb(F58B76)" } },
 })
 
+-- Steam's Add/Browse popups are empty-title 0×0 X11 windows. Without a
+-- minsize they never appear. stayfocused can freeze Hyprland — skip it.
+hl.window_rule({
+    name = "steam-ghost-popups",
+    match = { class = "^[Ss]team$", title = "^$" },
+    min_size = { 1, 1 },
+})
+hl.window_rule({
+    name = "steam-add-nonsteam",
+    match = { title = "Add Non-Steam Game" },
+    float = true,
+})
+
 ----------------
 ---- START -----
 ----------------

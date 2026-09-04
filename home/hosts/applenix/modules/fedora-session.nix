@@ -139,8 +139,25 @@ let
       unset __EGL_VENDOR_LIBRARY_FILENAMES
       unset LD_LIBRARY_PATH
 
-      # muvm / FEXBash / xwininfo must be the Fedora ones, not a Nix shadow.
+      # muvm / FEXBash must be the Fedora ones, not a Nix shadow.
       export PATH="/usr/bin:/usr/sbin''${PATH:+:$PATH}"
+
+      # A second muvm/Steam pair makes the client tear down and relaunch.
+      # steam:// from the guest also hits the host handler and used to do that.
+      if pgrep -f '/usr/bin/muvm.*bin_steam\.sh' >/dev/null \
+        || pgrep -f '/usr/bin/python3 /usr/bin/steam' >/dev/null; then
+        echo "Steam is already running — not starting another muvm." >&2
+        exit 0
+      fi
+
+      # After first bootstrap, skip the PyQt splash. Its window probe still
+      # looks for "Steam Big" / steamwebhelper titles that current Steam
+      # does not use; closing the splash then SIGTERMs the guest.
+      launcher="$HOME/.local/share/fex-steam/steam-launcher/bin_steam.sh"
+      if [[ -f $launcher ]] && command -v muvm >/dev/null && command -v FEXBash >/dev/null; then
+        cmd=$(printf '%q ' "$launcher" -cef-force-occlusion "$@")
+        exec muvm -- FEXBash -c "$cmd"
+      fi
 
       exec /usr/bin/steam "$@"
     '';
@@ -150,6 +167,14 @@ let
     name = "steam";
     text = ''
       exec ${teonixSteam}/bin/teonix-steam "$@"
+    '';
+  };
+
+  teonixSteamAdd = pkgs.writeShellApplication {
+    name = "teonix-steam-add";
+    runtimeInputs = [ pkgs.python3 ];
+    text = ''
+      exec python3 ${./../scripts/teonix-steam-add.py} "$@"
     '';
   };
 in
@@ -185,6 +210,7 @@ in
     hyprlandNixSession
     teonixSteam
     steamHost
+    teonixSteamAdd
     pkgs.hyprland
     pkgs.hypridle
     pkgs.hyprlock
@@ -211,10 +237,17 @@ in
     icon = "steam";
     terminal = false;
     categories = [ "Game" ];
-    mimeType = [
-      "x-scheme-handler/steam"
-      "x-scheme-handler/steamlink"
-    ];
+  };
+
+  # Steam's Browse button cannot open a host file picker from inside muvm.
+  # A .desktop here shows up in "Add a Non-Steam Game" so you can tick it.
+  xdg.desktopEntries.battle-net-setup = {
+    name = "Battle.net Setup";
+    comment = "Windows Battle.net installer — add from Steam without Browse";
+    exec = "${config.home.homeDirectory}/Downloads/Battle.net-Setup.exe";
+    icon = "applications-games";
+    terminal = false;
+    categories = [ "Game" ];
   };
 
   fonts.fontconfig.enable = true;
