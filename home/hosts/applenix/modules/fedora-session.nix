@@ -88,14 +88,16 @@ let
     export XDG_SESSION_TYPE=wayland
     export WLR_NO_HARDWARE_CURSORS="''${WLR_NO_HARDWARE_CURSORS:-1}"
 
-    # start-hyprland refuses to run off NixOS unless nixGL is installed, so the
-    # greeter gets Hyprland directly (its watchdog is a nicety, not a need).
+    # 0.53+ shows a red banner unless the watchdog (start-hyprland) owns
+    # Hyprland. Off NixOS that binary wants nixGL unless /run/opengl-driver
+    # exists — we already export this generation's Mesa, so --no-nixgl.
+    echo "start-hyprland=${pkgs.hyprland}/bin/start-hyprland"
     echo "Hyprland=${pkgs.hyprland}/bin/Hyprland"
     echo "drivers=${gpuDrivers}"
     echo "run-opengl-driver=$(readlink /run/opengl-driver || echo '<unset: run fedora.sh gpu step>')"
     echo "LIBGL_DRIVERS_PATH=''${LIBGL_DRIVERS_PATH:-}"
     echo "GBM_BACKENDS_PATH=''${GBM_BACKENDS_PATH:-}"
-    echo "exec Hyprland"
+    echo "exec start-hyprland --no-nixgl"
 
     # Secret Service before any client: drop leftover ksecretd, join PAM
     # gnome-keyring (or start one). See fedora-secrets.nix.
@@ -107,11 +109,26 @@ let
     # that file is missing, even when hyprland.lua is present.
     rm -f "$HOME/.config/hypr/hyprland.conf"
 
-    exec ${pkgs.hyprland}/bin/Hyprland -c "$HOME/.config/hypr/hyprland.lua" "$@"
+    exec ${pkgs.hyprland}/bin/start-hyprland --no-nixgl --path ${pkgs.hyprland}/bin/Hyprland -- -c "$HOME/.config/hypr/hyprland.lua" "$@"
   '';
 
   # Whole directory so wrappers can source teonix-muvm-common.sh / battlenet-lib.
   teonixScripts = ./../scripts;
+
+  # Scripts are copied into the store, so an edit is only live after
+  # `updatehome`. TEONIX_DEV=1 runs the working copy instead, which is the
+  # difference between debugging the code you just wrote and the code from the
+  # last generation.
+  teonixWrapper = { name, script, extra ? "" }: pkgs.writeShellApplication {
+    inherit name;
+    text = ''
+      ${extra}dev="$HOME/teonix/home/hosts/applenix/scripts/${script}"
+      if [ "''${TEONIX_DEV:-0}" = 1 ] && [ -x "$dev" ]; then
+        exec "$dev" "$@"
+      fi
+      exec ${teonixScripts}/${script} "$@"
+    '';
+  };
 
   # Fedora Asahi's /usr/bin/steam is a muvm+FEX wrapper, not the client.
   # Nixpkgs Steam is x86-only and must never land on this PATH.
@@ -144,25 +161,19 @@ let
     '';
   };
 
-  teonixBattlenet = pkgs.writeShellApplication {
+  teonixBattlenet = teonixWrapper {
     name = "teonix-battlenet";
-    text = ''
-      exec ${teonixScripts}/teonix-battlenet.sh "$@"
-    '';
+    script = "teonix-battlenet.sh";
   };
 
-  teonixBattlenetKill = pkgs.writeShellApplication {
+  teonixBattlenetKill = teonixWrapper {
     name = "teonix-battlenet-kill";
-    text = ''
-      exec ${teonixScripts}/teonix-battlenet-kill.sh "$@"
-    '';
+    script = "teonix-battlenet-kill.sh";
   };
 
-  teonixWow = pkgs.writeShellApplication {
+  teonixWow = teonixWrapper {
     name = "teonix-wow";
-    text = ''
-      exec ${teonixScripts}/teonix-wow.sh "$@"
-    '';
+    script = "teonix-wow.sh";
   };
 
   # Official WowUp.CF AppImage (x86_64). wrapType2 cannot run on aarch64;
@@ -264,14 +275,17 @@ in
     settings.StartupWMClass = "steam_app_battlenet";
   };
 
+  # Repair path only: boots the game straight to its own login screen when
+  # Battle.net itself is broken. Everything in this prefix reports the class
+  # steam_app_battlenet, so that is what StartupWMClass has to say.
   xdg.desktopEntries.wowclassic = {
-    name = "WoW Classic";
-    comment = "World of Warcraft Classic Anniversary (windowed D3D11, same prefix as Battle.net)";
+    name = "WoW Classic (no launcher)";
+    comment = "World of Warcraft Classic Anniversary straight to the game's own login screen";
     exec = "teonix-wow";
     icon = "applications-games";
     terminal = false;
     categories = [ "Game" ];
-    settings.StartupWMClass = "WowClassic.exe";
+    settings.StartupWMClass = "steam_app_battlenet";
   };
 
   home.activation.removeStaleBattlenetSetupDesktop = lib.hm.dag.entryAfter [ "writeBoundary" ] ''

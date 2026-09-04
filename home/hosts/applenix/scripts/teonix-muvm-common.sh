@@ -19,24 +19,42 @@ teonix_need_muvm() {
   }
 }
 
+# muvm renames itself to "libkrun VM" once the VM is up, so `pgrep -x muvm`
+# reports no guest while one is plainly running. Matching the command line
+# instead makes any shell that merely mentions muvm look like a guest, which
+# is how a relaunch ended up refusing itself. The exe link survives the
+# rename and cannot be spoofed by an argument.
+teonix_muvm_pid() {
+  local dir exe
+  for dir in /proc/[0-9]*; do
+    exe=$(readlink "$dir/exe" 2>/dev/null) || continue
+    case $exe in
+      */muvm) printf '%s' "${dir#/proc/}"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
 teonix_muvm_busy() {
-  pgrep -x muvm >/dev/null 2>&1 \
-    || pgrep -f 'muvm -- FEXBash' >/dev/null 2>&1 \
-    || pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
+  teonix_muvm_pid >/dev/null && return 0
+  pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
     || pgrep -f '/usr/bin/python3 /usr/bin/steam' >/dev/null 2>&1
 }
 
-# Refuse to start a 3–4 GiB guest when the host is already swapping CEF to death.
-# Optional first arg: minimum MemAvailable MiB (default 1536).
+# Advisory only. muvm hands the guest memory on demand and returns free pages
+# to the host, and there is an 8 GiB swapfile behind it, so a low MemAvailable
+# means "expect swap", not "cannot start". Never block a launch.
+# Optional first arg: the comfortable MemAvailable MiB for this guest.
 teonix_ram_gate() {
   local need=${1:-1536}
   local avail
   avail=$(awk '/MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo)
   if ((avail < need)); then
-    echo "teonix: only ${avail} MiB free (need ~${need} MiB). Close Brave/YouTube/extra Cursor, then retry." >&2
-    echo "teonix: last gray/null Battle.net pixmap was ~570 MiB free." >&2
-    return 1
+    echo "teonix: ${avail} MiB free, comfortable is ~${need} MiB — starting anyway, the host will swap."
+    ps -eo rss,comm --sort=-rss --no-headers 2>/dev/null \
+      | awk 'NR<=3 { printf "teonix:   %-24s %d MiB\n", $2, $1 / 1024 }'
   fi
+  return 0
 }
 
 # Caller must keep fd 9 open. Returns 1 if another wrapper holds the lock or a guest is up.

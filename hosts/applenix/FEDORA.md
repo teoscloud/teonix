@@ -67,7 +67,7 @@ Re-run `bash ~/teonix/hosts/applenix/fedora.sh` and the `gpu` step fixes it. Fed
 Two details worth knowing:
 
 - GBM backends live in `<mesa>/lib/gbm`, not `<mesa>/lib`. Pointing `GBM_BACKENDS_PATH` at `lib` gives `MESA-LOADER: failed to open dri: …/dri_gbm.so` followed by `CBackend::create() failed!`.
-- The greeter execs `Hyprland`, not `start-hyprland`. The latter hard-refuses on non-NixOS unless nixGL is installed, which is a black screen with only a line in the session log.
+- The greeter execs `start-hyprland --no-nixgl` (Hyprland 0.53+ watchdog). `--no-nixgl` is required: without it, Nix Hyprland off NixOS refuses unless nixGL is on `PATH`, which is a black screen with only a line in the session log. Mesa is already wired by the exports above and `/run/opengl-driver`.
 
 This Mac splits render and display across two DRM devices — `card*` with the `asahi` driver is render-only (no connectors) and `apple-drm` is the KMS device holding `eDP-1`. Aquamarine picks the KMS one on its own; do not pin `AQ_DRM_DEVICES` to it, or rendering loses the GPU.
 
@@ -175,8 +175,8 @@ The log always ends on the reason. Causes this config already guards, with the l
 | `XCURSOR_PATH: unbound variable` | `set -u` while sourcing `hm-session-vars.sh`; the wrapper now sources it under `set +u` |
 | `libexpat.so.1: cannot open shared object file` | Fedora `libEGL` won via `LD_LIBRARY_PATH`; Nix apps must use Nix Mesa |
 | `failed to open dri: …/dri_gbm.so` + `CBackend::create() failed!` | `GBM_BACKENDS_PATH` missing the `/gbm` suffix |
-| `requires nixGL to be installed` | `start-hyprland` off NixOS; exec `Hyprland` directly |
-| nothing after `exec Hyprland` | genuine compositor problem — read `/run/user/$UID/hypr/*/hyprland.log` |
+| `requires nixGL to be installed` | `start-hyprland` ran without `--no-nixgl` and `/run/opengl-driver` is missing |
+| nothing after `exec start-hyprland` | genuine compositor problem — read `/run/user/$UID/hypr/*/hyprland.log` |
 
 A hardcoded panel mode Asahi DCP rejects does the same thing, which is why the monitor line is `monitor = , preferred, auto, 1`.
 
@@ -217,27 +217,38 @@ steam
 
 Host Lutris + Nix **aarch64** GE-Proton cannot run Battle.net (Proton #10011). x86 Proton cannot run on the 16K host (`jemalloc`). The stack is **one 4K muvm + FEX + x86 GE-Proton11-5**. Battle.net, `teonix-wow`, WowUp, and Steam share `$XDG_RUNTIME_DIR/teonix-muvm.lock` — they must not overlap. Scale stays **1.6**. Do not change CEF flags (`--disable-gpu` is a black HWND; WineD3D crashes; SwiftShader never starts `login.app`).
 
-The infinite swirl after too many guest kills is Blizzard’s **`token-security-checkpoint`**, not a broken paint path. **Finish it in the Battle.net window**, not Brave. Opening the challenge in a real browser ends at `http://localhost:0/?ST=…` (`ERR_UNSAFE_PORT`) — that ticket is meant for the launcher’s CEF. If Brave already has that tab, close it; the wrapper scrapes `ST=` and hands it back (`teonix-battlenet auth` if you need to do it by hand).
+One command. Log in in the Battle.net window, then click Play. Nothing opens a browser.
 
 ```bash
-# close Brave / YouTube first (~1.5 GiB MemAvailable or the wrapper refuses)
 teonix-battlenet-kill
-updatehome
-# stay in the Battle.net window (close any Brave localhost:0 tab)
-teonix-wow
+bnet
 ```
 
-Leave the guest alone until WoW’s window is up. Do not click Play twice. Do not start Steam or WowUp in parallel.
+Do not start Steam or WowUp at the same time.
 
 ```bash
-bnet               # Battle.net only (one Play click after login)
-wow / wowclassic   # teonix-wow: Battle.net, wait for login, then WowClassic
-bnetkill           # teonix-battlenet-kill
+bnet / wow         # same thing: Battle.net, then Play for Classic
+bnetkill           # stop the guest
+bnetdoctor         # managed settings + last launch verdicts
+bnetlog            # follow the session log
+wownolauncher      # boot the launcher and press Play for you
 ```
 
-First Battle.net run downloads **GE-Proton11-5-x86_64** (~510 MiB, checksummed; never the `-aarch64` tarball) if needed, then setup with `--lang=enUS`. Frozen CEF: Blizzard `HardwareAcceleration=false` plus `--in-process-gpu --disable-gpu-compositing --disable-direct-composition --disable-gpu-sandbox`. DXVK stays on so **WowClassic** gets Vulkan. `WTF/Config.wtf` is windowed D3D11 1600×1000 — fullscreen exclusive never presents an HWND on XWayland.
+First Battle.net run downloads **GE-Proton11-5-x86_64** (~510 MiB, checksummed; never the `-aarch64` tarball) if needed, then setup with `--lang=enUS`. Frozen CEF: Blizzard `HardwareAcceleration=false` plus `--in-process-gpu --disable-gpu-compositing --disable-direct-composition --disable-gpu-sandbox`. DXVK stays on so **WowClassic** gets Vulkan.
 
-Logs: `~/.local/state/teonix-battlenet.log`. Prefix: `~/.local/share/teonix/battlenet/`. Do not write `~/.fex-emu/Config.json`. Do not pick Proton Experimental (ARM64). Desktop entries (`teonix-battlenet`, `teonix-wow`) stay `Terminal=false` so a kitty tab is not mistaken for the client.
+**Why Play used to cancel itself.** `muvm --mem` is a ceiling, not a reservation — the guest takes pages on demand and returns them — so the old 2560 MiB clamp protected nothing and only guaranteed an in-guest OOM the moment Play spawned the game next to CEF. The ceiling is now ~85% of RAM (`--vram=2048`), and a Play run measures ~4.1 GiB of guest RSS with launcher and game together. `Client.GameLaunchWindowBehavior = "2"` then makes the launcher exit on Play and hand its ~1.2 GiB to WoW, and the guest script holds the VM open past that exit so the game does not die with it.
+
+**Do not write `WTF/Config.wtf` from scratch.** A generated file without `SET textLocale` makes WowClassic throw `assertion failure exception` on repeat and exit with no window, no `Logs/` and no `Errors/` — indistinguishable from a failed Play. The scripts now merge windowed D3D11 1280×800 into WoW's own config and delete a config missing `textLocale` so the game rebuilds it.
+
+**WoW cannot be launched on its own.** `WowClassic.exe -windowed` asserts and never maps a window even with the launcher up and the account signed in; it needs the launch token only Play hands it. Anything that wants to start the game (`wownolauncher`, the failure rescue) asks the launcher instead, via `Battle.net.exe --exec="launch wow_classic_anniversary"` — best-effort only: measured against a launcher still on its login/security-checkpoint window, that request is ignored. **Play is the reliable route**; the rescue is one free extra attempt, not a fix.
+
+The launcher's login window is 800×500. The main client is larger, so a session parked at 800×500 is still on login or a security checkpoint and no launch request will do anything until that is finished in the Battle.net window (never in a host browser).
+
+Everything in this prefix reports the WM class `steam_app_battlenet` (Proton derives it from `SteamAppId`), so Hyprland rules and `StartupWMClass` match that class plus the window title — never `WowClassic.exe`. The 100×13 empty-title ghost HWND gets `no_focus` and no `min_size`. The Wine virtual desktop is scoped to `AppDefaults\Battle.net.exe` so the game gets a native window instead of rendering inside the launcher's.
+
+Logs: `~/.local/state/teonix-battlenet.log`, with a greppable `RESULT: ok | no-window | launcher-crash` per Play. `TEONIX_BNET_DEBUG=1` adds Proton/DXVK logs under `~/.local/share/teonix/battlenet/logs/` — `WINEDEBUG=-all` is right for daily use and useless when a launch hangs silently. `TEONIX_DEV=1` makes the Nix wrappers exec the working copy in `~/teonix`, so script edits do not need `updatehome`. Prefix: `~/.local/share/teonix/battlenet/`. Do not write `~/.fex-emu/Config.json`. Do not pick Proton Experimental (ARM64). Desktop entries (`teonix-battlenet`, `teonix-wow`) stay `Terminal=false` so a kitty tab is not mistaken for the client.
+
+Guest detection must not use `pgrep -x muvm`: muvm renames itself to `libkrun VM` once the VM is up, so that check reports no guest while one is running. Match on `/proc/*/exe` instead — matching the command line makes any shell that merely mentions muvm look like a guest, which made a relaunch refuse itself.
 
 If the kernel OOM-kills the guest:
 

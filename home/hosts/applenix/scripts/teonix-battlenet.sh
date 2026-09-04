@@ -12,27 +12,39 @@ source "$HERE/teonix-battlenet-lib.sh"
 
 teonix_host_fedora_env
 
-if [[ ${1:-} == kill ]]; then
-  exec teonix-battlenet-kill
-fi
-
-if [[ ${1:-} == auth ]]; then
-  shift
-  teonix_bnet_auth "${1:-}"
-  exit $?
-fi
+case ${1:-} in
+  kill)
+    exec "$HERE/teonix-battlenet-kill.sh"
+    ;;
+  doctor)
+    doctor
+    exit 0
+    ;;
+  wow)
+    shift
+    teonix_need_muvm
+    teonix_ram_gate 4500
+    teonix_muvm_lock "WoW Classic"
+    { echo "==== $(date -Iseconds) pid=$$ direct-wow ===="; } >>"$BNET_LOG"
+    trap 'exec 9>&- 2>/dev/null || true' EXIT
+    ensure_x86_proton || {
+      echo "teonix: Proton unpack failed. See $BNET_LOG" >&2
+      exit 1
+    }
+    run_wow_direct
+    exit $?
+    ;;
+esac
 
 teonix_need_muvm
-teonix_ram_gate 1536
+teonix_ram_gate 4500
 teonix_muvm_lock Battle.net
 
 {
   echo "==== $(date -Iseconds) pid=$$ ===="
 } >>"$BNET_LOG"
 
-watch_checkpoint
-watch_pid=$!
-trap 'kill "$watch_pid" 2>/dev/null || true; exec 9>&- 2>/dev/null || true' EXIT
+trap 'exec 9>&- 2>/dev/null || true' EXIT
 
 ensure_x86_proton || {
   echo "teonix: Proton unpack failed. See $BNET_LOG" >&2
@@ -41,10 +53,9 @@ ensure_x86_proton || {
 
 launch_client() {
   local launcher=$1
-  write_desktop
   write_client_config
   write_wow_classic_config
-  echo "Launching Battle.net (frozen CEF, DXVK on, scale 1.6)."
+  echo "Launching Battle.net."
   run_in_guest "$launcher" "${CEF_ARGS[@]}"
 }
 
@@ -58,7 +69,6 @@ echo "Battle.net is not installed yet — running the Windows setup (no language
 run_in_guest "$setup" --lang=enUS --installpath='C:\Program Files (x86)\Battle.net' "${CEF_ARGS[@]}" || true
 
 if launcher=$(find_launcher); then
-  write_desktop
   echo "Setup finished. Battle.net is in the application launcher."
   for _ in $(seq 1 30); do
     teonix_muvm_busy || break

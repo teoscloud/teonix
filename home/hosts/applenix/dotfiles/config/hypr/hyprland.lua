@@ -213,13 +213,24 @@ hl.window_rule({
 
 -- Battle.net / Wine CEF: no blur, no fade, no rounding. Those punch black
 -- holes through XWayland surfaces on the 1.6 scaled panel. Float + center
--- the login and main windows so they are not under the bar (y=-24). Do not
--- minsize the 100×13 ghost HWND — a huge minsize covers the screen.
+-- the login and main windows so they are not under the bar (y=-24).
+--
+-- Everything in this prefix carries class steam_app_battlenet, because the
+-- launcher exports SteamAppId=battlenet and Proton derives the WM class from
+-- it. WowClassic.exe therefore never appears as its own class — match the
+-- game on its title instead.
 hl.window_rule({
     name = "battlenet-surfaces",
     match = { class = "^steam_app_battlenet$" },
     rounding = 0,
     border_size = 1,
+})
+-- The 100×13 empty-title ghost HWND. Never give it a min_size (a large one
+-- covers the screen) and never let it steal focus from the real window.
+hl.window_rule({
+    name = "battlenet-ghost-hwnd",
+    match = { class = "^steam_app_battlenet$", title = "^$" },
+    no_focus = true,
 })
 hl.window_rule({
     name = "battlenet-login",
@@ -236,6 +247,14 @@ hl.window_rule({
     rounding = 0,
 })
 hl.window_rule({
+    name = "battlenet-wine-desktop",
+    match = { title = "Wine Desktop" },
+    float = true,
+    center = true,
+    rounding = 0,
+    border_size = 1,
+})
+hl.window_rule({
     name = "battlenet-setup",
     match = { title = "^Battle.net Setup$" },
     float = true,
@@ -244,7 +263,24 @@ hl.window_rule({
 })
 hl.window_rule({
     name = "wow-classic",
-    match = { class = "^WowClassic\\.exe$" },
+    match = { title = "^World of Warcraft" },
+    float = true,
+    center = true,
+    rounding = 0,
+    border_size = 1,
+})
+-- Kept for the day SteamAppId stops masking the real class.
+hl.window_rule({
+    name = "wow-classic-class",
+    match = { class = "^[Ww]ow[Cc]lassic\\.exe$" },
+    float = true,
+    center = true,
+    rounding = 0,
+    border_size = 1,
+})
+hl.window_rule({
+    name = "wine-virtual-desktop",
+    match = { class = "^explorer\\.exe$" },
     float = true,
     center = true,
     rounding = 0,

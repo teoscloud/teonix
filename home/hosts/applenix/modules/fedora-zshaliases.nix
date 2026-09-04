@@ -148,12 +148,17 @@ let
     # Host muvm + FEX Steam. Never Nixpkgs Steam.
     alias steam='teonix-steam'
     alias steamkill='teonix-steam-kill'
+    # One launcher: open Battle.net, press Play. bnetdoctor prints the managed
+    # settings and the last few launch verdicts; wownolauncher still boots the
+    # launcher (WoW refuses to start without it) and asks it for the game.
     alias battlenet='teonix-battlenet'
     alias bnet='teonix-battlenet'
     alias bnetkill='teonix-battlenet-kill'
-    alias bnetauth='teonix-battlenet auth'
-    alias wow='teonix-wow'
-    alias wowclassic='teonix-wow'
+    alias bnetdoctor='teonix-battlenet doctor'
+    alias bnetlog='tail -f "''${XDG_STATE_HOME:-$HOME/.local/state}/teonix-battlenet.log"'
+    alias wow='teonix-battlenet'
+    alias wowclassic='teonix-battlenet'
+    alias wownolauncher='teonix-wow'
     alias wowup='teonix-wowup'
 
     alias qsmainframe='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qsmainframe.sh"'
