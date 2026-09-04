@@ -103,7 +103,11 @@ let
       "$HOME/.nix-profile/bin/teonix-secrets-ensure" || true
     fi
 
-    exec ${pkgs.hyprland}/bin/Hyprland "$@"
+    # Hyprland writes a stub hyprland.conf (and the deprecation banner) if
+    # that file is missing, even when hyprland.lua is present.
+    rm -f "$HOME/.config/hypr/hyprland.conf"
+
+    exec ${pkgs.hyprland}/bin/Hyprland -c "$HOME/.config/hypr/hyprland.lua" "$@"
   '';
 in
 {
