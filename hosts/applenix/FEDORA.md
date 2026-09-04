@@ -10,7 +10,7 @@ curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/appleni
 
 That installs the Nix daemon (Determinate), `git` if missing, clones teonix, and switches Home Manager to `#applenix-fedora`. It is idempotent: if anything fails, run the same command again.
 
-Then log out and pick **Hyprland (Nix)**.
+Then reboot and log in at **GDM**. Pick **Hyprland (Nix)** if it is not already selected.
 
 The NixOS USB path (`install.sh`, `#applenix`) is unchanged.
 
@@ -26,8 +26,8 @@ The NixOS USB path (`install.sh`, `#applenix`) is unchanged.
 | `identity` | writes `local-identity.nix` from the current login (`$USER`) |
 | `switch` | `nix run nixpkgs#home-manager -- switch --flake path:.#applenix-fedora` |
 | `gpu` | `sudo non-nixos-gpu-setup` — points `/run/opengl-driver` at Nix Mesa (see GPU below) |
-| `keyring` | host `gnome-keyring` + `authselect with-pam-gnome-keyring` so SDDM unlocks secrets for every DE |
-| `session` | trampoline + Plasma Login Manager session dir; upgrades `plasma-workspace` when the greeter QML is ABI-broken |
+| `keyring` | host `gnome-keyring` + `authselect with-pam-gnome-keyring` so the greeter unlocks secrets |
+| `session` | trampoline + **GDM** (not Plasma Login, SDDM, or greetd) |
 | `steam` | **opt-in** — `dnf install steam` (muvm + FEX + Mesa overlays). Not run by `all`. |
 
 ```bash
@@ -80,13 +80,22 @@ Nixbox does this at the NixOS level (`services.gnome.gnome-keyring` + PAM). Fedo
 KDE's `ksecretd` is started by Plasma PAM and stays on the user bus after you switch to Hyprland. Chromium then either talks to KWallet or finds no `org.freedesktop.secrets` — that is the "keyring missing / failed to unlock" popup. teonix:
 
 - installs host `gnome-keyring` + `gnome-keyring-pam` (`fedora.sh` `keyring` step)
-- enables `authselect` feature `with-pam-gnome-keyring` so every greeter login unlocks the login keyring
+- enables `authselect` feature `with-pam-gnome-keyring` (session `auto_start`)
+- puts `pam_gnome_keyring.so` **after** the `system-auth` substack in `/etc/pam.d/login` and `/etc/pam.d/greetd` — authselect leaves it *inside* that substack after `auth sufficient pam_unix`, so a correct password never reaches the keyring, `login.keyring` stays locked, and Brave shows “The login keyring did not get unlocked when you logged into your computer”
 - claims `org.freedesktop.secrets` from the user session (`teonix-secrets-ensure`)
 - disables KWallet (`kwalletrc` `Enabled=false`) and no-ops `plasma-kwallet-pam`
 - points the Secret portal at `gnome-keyring`
 - wraps Brave / Chromium / Chrome / Mailspring with `--password-store=gnome-libsecret`
 
-Re-login once after the `keyring` step so PAM can create and unlock `login`. After that, switching Plasma ↔ Hyprland should not prompt.
+If that Brave dialog is on screen **now**, Unlock it once with your **login** password — the keyring file is not lost. Then:
+
+```bash
+bash ~/teonix/hosts/applenix/fedora.sh keyring
+bash ~/teonix/hosts/applenix/fedora.sh session
+sudo reboot
+```
+
+After a GDM (or TTY) password login, the keyring unlocks with PAM. No popup, same `login.keyring`.
 
 ---
 
@@ -94,7 +103,7 @@ Re-login once after the `keyring` step so PAM can create and unlock `login`. Aft
 
 - kernel + Asahi modules
 - PipeWire + WirePlumber
-- display manager
+- display manager (teonix uses GDM; Plasma Login / SDDM / greetd are not used)
 - Wi-Fi / vendor firmware
 
 Do not replace PipeWire with a Nix copy. Everything else — Hyprland, Quickshell, hyprflow, browsers, fonts, portals — comes from Nix, and Nix apps render with Nix Mesa (see GPU above), not Fedora's.
@@ -134,29 +143,22 @@ If you just installed Nix in this terminal and `nix` is missing, either open a n
 
 If the compositor is software-rendered, Fedora Mesa is missing or the session did not wrap host libEGL.
 
-### Black screen + mouse cursor, no login box
+### Gray / black screen at boot, or a login box that flashes then dies
 
-That is the **login manager itself**, not Hyprland. Fedora Asahi’s display manager is **Plasma Login Manager** (`plasmalogin.service`), not SDDM. kwin starts (cursor), then `plasma-login-greeter` fails to load `Main.qml`:
+That is the **login manager**, not Hyprland.
 
-```
-Type BreezeComponents.Battery unavailable
-libbatterycontrol.so.6: undefined symbol: QUntypedPropertyBinding … Qt_6.11_PRIVATE_API
-```
+- **Plasma Login** (`plasmalogin`): kwin starts, greeter SIGSEGVs in layer-shell on Asahi DCP → cursor only.
+- **SDDM** on this host: no theme installed → same.
+- **greetd/tuigreet**: died here with `configured default session user 'greeter' not found` → gray VT, no cursor.
 
-`qt6-qtbase` moved to 6.11.2 while `plasma-workspace` was still 6.7.3. Do **not** `systemctl enable sddm` — the SDDM package on this host has no theme, so you get the same cursor-only screen.
+teonix uses **GDM** (mutter greeter, `gdm-password` PAM). No KDE stack.
 
 ```bash
 bash ~/teonix/hosts/applenix/fedora.sh session
+sudo reboot
 ```
 
-That upgrades `plasma-workspace` / `plasma-login-manager` to 6.7.4+ (rebuilt against current Qt) and isolates the greeter from Nix Qt paths. Then **reboot**. Do not restart `plasmalogin` while Hyprland is already running from a TTY — they fight over the same DRM device.
-
-Confirm afterwards:
-
-```text
-journalctl -b -u plasmalogin
-# should not contain "Component is not ready" / Main.qml
-```
+Log in at GDM. Gear menu → **Hyprland (Nix)** if needed. Do not start GDM while Hyprland is already running from a TTY.
 
 ### Instant return to the greeter after typing the password
 
@@ -188,7 +190,7 @@ bash ~/teonix/hosts/applenix/fedora.sh
 
 The `gpu`, `session`, `keyring`, and opt-in `steam` steps use sudo. After that, `updatehome` refreshes `~/.nix-profile/bin/hyprland-nix-session`; the greeter always execs `/usr/local/bin/hyprland-nix-session`. No more `sudo cp` of `.desktop` files.
 
-Then reboot (or log out) and pick **Hyprland (Nix)**. Either **Hyprland** or **Hyprland (Nix)** starts the same wrapper.
+Then reboot and log in at **GDM**. Either **Hyprland** or **Hyprland (Nix)** starts the same wrapper.
 
 ---
 

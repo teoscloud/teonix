@@ -9,7 +9,7 @@
 # Idempotent: re-run after any failure; finished steps are skipped.
 set -Eeuo pipefail
 
-readonly VERSION=8
+readonly VERSION=11
 readonly SELF="applenix-fedora"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/fedora.sh | bash"
 readonly FLAKE_ATTR=applenix-fedora
@@ -95,31 +95,47 @@ probe_gpu() {
   want=$(gpu_drivers_path) || return 1
   [[ -n $want ]] && [[ "$(readlink /run/opengl-driver 2>/dev/null)" == "$want" ]]
 }
-# Plasma Login Manager greeter QML links Qt private ABI. After a qt6-qtbase
-# bump, plasma-workspace older than this shows a cursor on a black screen
-# (Main.qml → Breeze Battery → libbatterycontrol undefined symbol).
-readonly PLASMA_GREETER_MIN=6.7.4
-
-rpm_ver_ge() {
-  local have=$1 need=$2
-  [[ $(printf '%s\n%s\n' "$need" "$have" | sort -V | head -n1) == "$need" ]]
-}
-
 probe_session() {
   [[ -x /usr/local/bin/hyprland-nix-session ]] \
-    && [[ -f /usr/local/share/wayland-sessions/hyprland-nix.desktop ]] \
-    && [[ -f /etc/plasmalogin.conf.d/10-teonix-hyprland.conf ]] \
-    && [[ -f /etc/profile.d/zz-teonix-greeter-isolate.sh ]] || return 1
-  if rpm -q plasma-login-manager >/dev/null 2>&1; then
-    rpm_ver_ge "$(rpm -q --qf '%{VERSION}' plasma-workspace)" "$PLASMA_GREETER_MIN" || return 1
-  fi
+    && [[ -f /usr/share/wayland-sessions/hyprland-nix.desktop ]] \
+    && rpm -q gdm >/dev/null 2>&1 \
+    && systemctl is-enabled gdm >/dev/null 2>&1
 }
-# Host gnome-keyring + PAM so SDDM unlocks the login keyring for every DE.
+# Host gnome-keyring + PAM so every password login unlocks the login keyring.
 # Nix gnome-keyring cannot hook Fedora PAM; the host daemon is the one that
 # owns org.freedesktop.secrets after login.
 probe_keyring() {
   rpm -q gnome-keyring gnome-keyring-pam >/dev/null 2>&1 \
-    && authselect current 2>/dev/null | grep -q with-pam-gnome-keyring
+    && authselect current 2>/dev/null | grep -q with-pam-gnome-keyring \
+    && grep -qE '^[-]?auth[[:space:]]+optional[[:space:]]+pam_gnome_keyring\.so' /etc/pam.d/login
+}
+
+# authselect puts pam_gnome_keyring *after* `auth sufficient pam_unix` inside
+# the system-auth substack. A correct password ends the substack, so the
+# keyring never sees PAM_AUTHTOK: daemon starts, login.keyring stays locked,
+# Brave pops "The login keyring did not get unlocked". The capture line must
+# sit in the *caller* (login, gdm-password, greetd) after the substack returns.
+pam_ensure_gkr_after_substack() {
+  local f=$1
+  [[ -f $f ]] || return 0
+  if grep -qE '^[-]?auth[[:space:]]+optional[[:space:]]+pam_gnome_keyring\.so' "$f"; then
+    return 0
+  fi
+  if grep -qE '^auth[[:space:]]+substack[[:space:]]+system-auth' "$f"; then
+    sudo sed -i '/^auth[[:space:]]\+substack[[:space:]]\+system-auth/a auth       optional     pam_gnome_keyring.so' "$f"
+  elif grep -qE '^auth[[:space:]]+include[[:space:]]+system-auth' "$f"; then
+    sudo sed -i '/^auth[[:space:]]\+include[[:space:]]\+system-auth/a auth       optional     pam_gnome_keyring.so' "$f"
+  else
+    warn "could not find system-auth auth line in $f — add pam_gnome_keyring.so by hand"
+    return 1
+  fi
+}
+
+pam_disable_kwallet_lines() {
+  local f=$1
+  [[ -f $f ]] || return 0
+  sudo sed -i -E 's/^([-]?auth[[:space:]].*pam_kwallet)/# \1/' "$f"
+  sudo sed -i -E 's/^([-]?session[[:space:]].*pam_kwallet)/# \1/' "$f"
 }
 
 # Official Fedora Asahi Steam wrapper (muvm + FEX + Mesa overlays). Not Nix Steam.
@@ -238,11 +254,25 @@ step_gpu() {
 step_keyring() {
   runmsg "keyring — host GNOME Keyring + PAM unlock (not KWallet) for every session"
   sudo dnf install -y gnome-keyring gnome-keyring-pam
-  # SDDM uses password-auth/system-auth; this feature injects pam_gnome_keyring
-  # so the login keyring is created and unlocked with the user password.
+  # session auto_start still comes from this feature; auth capture cannot.
   sudo authselect enable-feature with-pam-gnome-keyring
-  probe_keyring || warn "gnome-keyring PAM feature is not active yet"
-  ok "keyring — gnome-keyring + authselect with-pam-gnome-keyring (re-login to unlock)"
+  pam_ensure_gkr_after_substack /etc/pam.d/login
+  pam_ensure_gkr_after_substack /etc/pam.d/gdm-password
+  pam_ensure_gkr_after_substack /etc/pam.d/greetd
+  pam_disable_kwallet_lines /etc/pam.d/greetd
+  probe_keyring || warn "gnome-keyring PAM is not complete yet"
+  ok "keyring — PAM auth after system-auth so GDM/TTY unlock login.keyring"
+}
+
+enable_display_manager() {
+  local want=$1 other
+  for other in greetd plasmalogin sddm gdm lightdm; do
+    [[ $other == "$want" ]] && continue
+    sudo systemctl disable "$other" >/dev/null 2>&1 || true
+  done
+  sudo rm -f /etc/systemd/system/display-manager.service
+  sudo systemctl enable "$want"
+  sudo systemctl set-default graphical.target
 }
 
 step_session() {
@@ -250,36 +280,20 @@ step_session() {
   local trampoline=/usr/local/bin/hyprland-nix-session
   local local_sessions=/usr/local/share/wayland-sessions
   local system_sessions=/usr/share/wayland-sessions
-  local sddm_dropin=/etc/sddm.conf.d/10-teonix-hyprland.conf
-  local plasma_dropin=/etc/plasmalogin.conf.d/10-teonix-hyprland.conf
-  local greeter_isolate=/etc/profile.d/zz-teonix-greeter-isolate.sh
+  local as_user=/var/lib/AccountsService/users/$user
   local desktop
 
-  runmsg "session — greeter hook + Plasma Login Manager (not SDDM)"
+  runmsg "session — GDM (not Plasma Login, SDDM, or greetd)"
 
-  # This host's display-manager.service is plasmalogin. Enabling sddm
-  # without a theme is the same black-cursor screen.
-  if systemctl is-enabled sddm >/dev/null 2>&1; then
-    warn "sddm is enabled — disabling it; Fedora Asahi uses plasmalogin"
-    sudo systemctl disable --now sddm || true
-    sudo systemctl enable plasmalogin
-  fi
+  # Plasma Login SIGSEGVs on this GPU. greetd died with no greeter user
+  # (gray VT, no cursor). GDM's mutter greeter + gdm-password PAM is the
+  # stack gnome-keyring was built for.
+  sudo dnf install -y gdm
+  [[ -x /usr/sbin/gdm || -x /usr/bin/gdm ]] || die "gdm missing after dnf install"
+  pam_ensure_gkr_after_substack /etc/pam.d/login
+  pam_ensure_gkr_after_substack /etc/pam.d/gdm-password
 
-  # Rebuild the greeter against current Qt private ABI when Fedora has it.
-  if rpm -q plasma-login-manager >/dev/null 2>&1; then
-    local have
-    have=$(rpm -q --qf '%{VERSION}' plasma-workspace)
-    if ! rpm_ver_ge "$have" "$PLASMA_GREETER_MIN"; then
-      runmsg "session — plasma-workspace $have < $PLASMA_GREETER_MIN (Qt ABI; greeter is black + cursor)"
-      sudo dnf upgrade -y \
-        plasma-workspace plasma-workspace-libs plasma-workspace-common \
-        plasma-login-manager kcm-plasmalogin libkworkspace6 \
-        plasma-lookandfeel-fedora
-    fi
-  fi
-
-  sudo mkdir -p /usr/local/bin "$local_sessions" "$system_sessions" \
-    /etc/sddm.conf.d /etc/plasmalogin.conf.d /etc/profile.d
+  sudo mkdir -p /usr/local/bin "$local_sessions" "$system_sessions"
   sudo tee "$trampoline" >/dev/null <<'TRAMPOLINE'
 #!/bin/sh
 for c in \
@@ -312,34 +326,23 @@ DESKTOP
   sudo cp "$local_sessions/hyprland.desktop" "$system_sessions/hyprland.desktop"
   sudo chown "$user:$user" "$local_sessions/hyprland-nix.desktop" "$local_sessions/hyprland.desktop"
 
-  sudo tee "$sddm_dropin" >/dev/null <<'EOF'
-[Wayland]
-SessionDir=/usr/local/share/wayland-sessions,/usr/share/wayland-sessions
+  sudo mkdir -p /var/lib/AccountsService/users
+  if [[ -f $as_user ]] && grep -q '^Session=' "$as_user"; then
+    sudo sed -i 's/^Session=.*/Session=hyprland-nix/' "$as_user"
+  elif [[ -f $as_user ]]; then
+    printf '\nSession=hyprland-nix\n' | sudo tee -a "$as_user" >/dev/null
+  else
+    sudo tee "$as_user" >/dev/null <<EOF
+[User]
+Session=hyprland-nix
+SystemAccount=false
 EOF
+  fi
 
-  sudo tee "$plasma_dropin" >/dev/null <<'EOF'
-[Wayland]
-SessionDir=/usr/local/share/wayland-sessions,/usr/share/wayland-sessions
-EOF
+  # Do not --now: a TTY Hyprland already owns the GPU.
+  enable_display_manager gdm
 
-  # plasmalogin greeter user has SHELL=nologin, so wayland-session sources
-  # /etc/profile → profile.d/nix.sh. Mixed Nix Qt plugins kill the QML UI.
-  sudo tee "$greeter_isolate" >/dev/null <<'EOF'
-# Sourced by the Plasma Login / SDDM greeter via /etc/profile.
-# Keep host Qt only — Nix QT_PLUGIN_PATH makes Main.qml fail to load.
-case $(id -un 2>/dev/null) in
-  plasmalogin|sddm)
-    unset QT_PLUGIN_PATH QT_PLUGIN_PATH_1 QML2_IMPORT_PATH QML_IMPORT_PATH
-    unset QTWEBENGINEPROCESS_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORMTHEME
-    unset LIBGL_DRIVERS_PATH GBM_BACKENDS_PATH __EGL_VENDOR_LIBRARY_FILENAMES
-    unset LD_LIBRARY_PATH
-    export PATH="/usr/bin:/usr/sbin:/bin"
-    ;;
-esac
-EOF
-  sudo chmod 644 "$greeter_isolate"
-
-  ok "session — $trampoline + plasmalogin SessionDir (updatehome refreshes the wrapper, not the .desktop)"
+  ok "session — GDM + $trampoline (reboot — pick Hyprland Nix if the gear menu shows extras)"
 }
 
 dnf_can_see_steam() {
@@ -451,7 +454,7 @@ main() {
   if [[ ${1:-all} == steam ]]; then
     say "launch: steam   (or teonix-steam — after updatehome)"
   else
-    say "log out and pick Hyprland (Nix) at the greeter"
+    say "reboot, then log in at GDM (pick Hyprland Nix if the gear menu shows extras)"
     say "later updates: updatehome   (from a Nix-enabled shell)"
     say "Steam (opt-in): bash $TEONIX_DIR/hosts/applenix/fedora.sh steam"
   fi
