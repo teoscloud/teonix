@@ -154,6 +154,21 @@ let
       exec ${./../scripts/teonix-battlenet-kill.sh} "$@"
     '';
   };
+
+  # Official WowUp.CF AppImage (x86_64). wrapType2 cannot run on aarch64;
+  # teonix-wowup launches it in the same 4K muvm + FEX as Battle.net.
+  wowupCfAppImage = pkgs.fetchurl {
+    url = "https://github.com/WowUp/WowUp.CF/releases/download/v2.23.1/WowUp-CF-2.23.1.AppImage";
+    hash = "sha256-jXTI/SSvSQTf1Htgjqb0xV1Xj9ndcK0Xa4H37fE5x9k=";
+  };
+
+  teonixWowup = pkgs.writeShellApplication {
+    name = "teonix-wowup";
+    text = ''
+      export TEONIX_WOWUP_APPIMAGE=${lib.escapeShellArg wowupCfAppImage}
+      exec ${./../scripts/teonix-wowup.sh} "$@"
+    '';
+  };
 in
 {
   # Profile + XDG hooks that NixOS would have set up for us.
@@ -191,6 +206,7 @@ in
     teonixSteamAdd
     teonixBattlenet
     teonixBattlenetKill
+    teonixWowup
     pkgs.hyprland
     pkgs.hypridle
     pkgs.hyprlock
@@ -241,6 +257,16 @@ in
     rm -f "$HOME/.local/share/applications/battle-net-setup.desktop" \
           "$HOME/.local/share/applications/Battle.net Setup.desktop"
   '';
+
+  xdg.desktopEntries.wowup = {
+    name = "WowUp";
+    comment = "WoW addon manager (WowUp.CF AppImage via muvm + FEX)";
+    exec = "teonix-wowup";
+    icon = "applications-games";
+    terminal = false;
+    categories = [ "Game" ];
+    settings.StartupWMClass = "wowup-cf";
+  };
 
   fonts.fontconfig.enable = true;
   fonts.fontconfig.defaultFonts = {

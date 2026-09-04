@@ -237,3 +237,19 @@ Logs: `~/.local/state/teonix-battlenet.log`. Prefix: `~/.local/share/teonix/batt
 ```bash
 sudo /usr/libexec/fedora-asahi-remix-scripts/setup-swap.sh --recreate 16G
 ```
+
+### WowUp (`teonix-wowup`)
+
+nixpkgs `wowup-cf` is an **x86_64 AppImage** (`platforms = [ "x86_64-linux" ]`) — it cannot be installed as a native Home Manager package on this Air. The official **WowUp.CF 2.23.1** binary is fetched in Nix and started in the same **muvm + FEX** guest as Battle.net. One muvm only: quit Battle.net first.
+
+```bash
+teonix-battlenet-kill
+updatehome
+wowup
+```
+
+Add client folder (not a Windows `C:` path):
+
+`~/.local/share/teonix/battlenet/prefix/pfx/drive_c/Program Files (x86)/World of Warcraft`
+
+Then pick `_classic_` / `_classic_era_` / `_retail_` as installed. Log: `~/.local/state/teonix-wowup.log`.

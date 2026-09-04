@@ -151,6 +151,7 @@ let
     alias battlenet='teonix-battlenet'
     alias bnet='teonix-battlenet'
     alias bnetkill='teonix-battlenet-kill'
+    alias wowup='teonix-wowup'
 
     alias qsmainframe='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qsmainframe.sh"'
     alias qsglass='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qsglass.sh"'
