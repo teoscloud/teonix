@@ -109,6 +109,49 @@ let
 
     exec ${pkgs.hyprland}/bin/Hyprland -c "$HOME/.config/hypr/hyprland.lua" "$@"
   '';
+
+  # Fedora Asahi's /usr/bin/steam is a muvm+FEX wrapper, not the client.
+  # Nixpkgs Steam is x86-only and must never land on this PATH.
+  teonixSteam = pkgs.writeShellApplication {
+    name = "teonix-steam";
+    text = ''
+      if [[ ! -x /usr/bin/steam ]]; then
+        echo "Fedora Asahi Steam is not installed." >&2
+        echo "  bash ~/teonix/hosts/applenix/fedora.sh steam" >&2
+        exit 1
+      fi
+
+      # /usr/bin/steam is Fedora python + PyQt6 splash, then muvm/FEX.
+      # The Hyprland session exports Nix QT_PLUGIN_PATH / Mesa paths so Nix
+      # Qt apps work. Fedora Qt then loads Nix wayland plugins against host
+      # libQt6 and aborts in QGuiApplicationPrivate::createPlatformIntegration.
+      # Unset those for this process only — do not put /usr/lib64 on
+      # LD_LIBRARY_PATH (that leaks into Hyprland and kills libexpat).
+      unset QT_PLUGIN_PATH
+      unset QT_PLUGIN_PATH_1
+      unset QML2_IMPORT_PATH
+      unset QML_IMPORT_PATH
+      unset QTWEBENGINEPROCESS_PATH
+      unset QT_QPA_PLATFORM_PLUGIN_PATH
+      unset QT_QPA_PLATFORMTHEME
+      unset LIBGL_DRIVERS_PATH
+      unset GBM_BACKENDS_PATH
+      unset __EGL_VENDOR_LIBRARY_FILENAMES
+      unset LD_LIBRARY_PATH
+
+      # muvm / FEXBash / xwininfo must be the Fedora ones, not a Nix shadow.
+      export PATH="/usr/bin:/usr/sbin''${PATH:+:$PATH}"
+
+      exec /usr/bin/steam "$@"
+    '';
+  };
+
+  steamHost = pkgs.writeShellApplication {
+    name = "steam";
+    text = ''
+      exec ${teonixSteam}/bin/teonix-steam "$@"
+    '';
+  };
 in
 {
   # Profile + XDG hooks that NixOS would have set up for us.
@@ -140,6 +183,8 @@ in
   # NixOS-only extras: compositor and portals live in programs.* there.
   home.packages = [
     hyprlandNixSession
+    teonixSteam
+    steamHost
     pkgs.hyprland
     pkgs.hypridle
     pkgs.hyprlock
@@ -158,6 +203,19 @@ in
     vt323
     shareTechMono
   ];
+
+  xdg.desktopEntries.steam = {
+    name = "Steam";
+    comment = "Fedora Asahi Steam (muvm + FEX)";
+    exec = "teonix-steam %U";
+    icon = "steam";
+    terminal = false;
+    categories = [ "Game" ];
+    mimeType = [
+      "x-scheme-handler/steam"
+      "x-scheme-handler/steamlink"
+    ];
+  };
 
   fonts.fontconfig.enable = true;
   fonts.fontconfig.defaultFonts = {

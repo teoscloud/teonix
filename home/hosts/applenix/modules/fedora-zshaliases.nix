@@ -145,6 +145,9 @@ let
     alias hfstatus='systemctl --user status hyprflow-autosave.timer'
 
     # Quickshell rice switch (mainframe is the HM default; glass is optional)
+    # Host /usr/bin/steam (muvm + FEX). Never Nixpkgs Steam.
+    alias steam='teonix-steam'
+
     alias qsmainframe='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qsmainframe.sh"'
     alias qsglass='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qsglass.sh"'
     alias qstheme='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qs-live-ipc.sh" theme toggle'

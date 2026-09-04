@@ -28,10 +28,12 @@ The NixOS USB path (`install.sh`, `#applenix`) is unchanged.
 | `gpu` | `sudo non-nixos-gpu-setup` — points `/run/opengl-driver` at Nix Mesa (see GPU below) |
 | `keyring` | host `gnome-keyring` + `authselect with-pam-gnome-keyring` so SDDM unlocks secrets for every DE |
 | `session` | one-time: trampoline at `/usr/local/bin/hyprland-nix-session` + SDDM session dir (no more `sudo cp`) |
+| `steam` | **opt-in** — `dnf install steam` (muvm + FEX + Mesa overlays). Not run by `all`. |
 
 ```bash
 curl …/fedora.sh | bash -s status    # checklist
 curl …/fedora.sh | bash -s help
+bash ~/teonix/hosts/applenix/fedora.sh steam   # named step
 ```
 
 The login that runs the script is the Home Manager user. `teodor` is only the fallback when nothing is set (this machine). Override with `TEONIX_USER=` if needed. That writes gitignored `local-identity.nix` (`username`, `homeDirectory`, `projectdir`).
@@ -160,6 +162,28 @@ cd ~/teonix && git pull
 bash ~/teonix/hosts/applenix/fedora.sh
 ```
 
-The `gpu` and `session` steps are the only sudo. After that, `updatehome` refreshes `~/.nix-profile/bin/hyprland-nix-session`; the greeter always execs `/usr/local/bin/hyprland-nix-session`. No more `sudo cp` of `.desktop` files.
+The `gpu`, `session`, `keyring`, and opt-in `steam` steps use sudo. After that, `updatehome` refreshes `~/.nix-profile/bin/hyprland-nix-session`; the greeter always execs `/usr/local/bin/hyprland-nix-session`. No more `sudo cp` of `.desktop` files.
 
 Then log in again. Either **Hyprland** or **Hyprland (Nix)** starts the same wrapper.
+
+---
+
+## Steam (Fedora Asahi wrapper, not Nix Steam)
+
+Do not install Nixpkgs Steam or a random Proton build. On this Mac the supported stack is Fedora’s `steam` RPM: a launcher that starts **muvm** (4K-page guest) + **FEX** + Mesa x86 overlays, then Steam / Proton / DXVK on the Asahi GPU.
+
+```bash
+bash ~/teonix/hosts/applenix/fedora.sh steam
+updatehome
+steam
+```
+
+`teonix-steam` (and the `steam` command / desktop entry) exec `/usr/bin/steam`. They strip Nix `QT_PLUGIN_PATH` / Mesa exports so the Fedora PyQt6 splash can find `/usr/lib64/qt6/plugins`, and they do not put `/usr/lib64` on `LD_LIBRARY_PATH`. Launch that wrapper — not `~/.local/share/Steam/steam.sh` from the host shell. A raw `/usr/bin/steam` from a Nix-Qt session aborts (`createPlatformIntegration`).
+
+First test a cheap Proton title. Battle.net is a known hang on this stack; WoW Classic is a later test. This Air has 8 GB — the emulation stack itself can eat several GB, so do not treat stutter or OOM here as evidence the M1 Max will be bad. If the kernel OOM-kills Steam:
+
+```bash
+sudo /usr/libexec/fedora-asahi-remix-scripts/setup-swap.sh --recreate 16G
+```
+
+Do not write `~/.fex-emu/Config.json`; muvm owns FEX config.

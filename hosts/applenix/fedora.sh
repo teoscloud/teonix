@@ -9,7 +9,7 @@
 # Idempotent: re-run after any failure; finished steps are skipped.
 set -Eeuo pipefail
 
-readonly VERSION=6
+readonly VERSION=7
 readonly SELF="applenix-fedora"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/fedora.sh | bash"
 readonly FLAKE_ATTR=applenix-fedora
@@ -17,7 +17,10 @@ readonly FLAKE_ATTR=applenix-fedora
 TEONIX_REPO="${TEONIX_REPO:-https://github.com/teoscloud/teonix.git}"
 TEONIX_DIR="${TEONIX_DIR:-$HOME/teonix}"
 
+# Desktop bootstrap. steam is opt-in — FEX overlays are large and not needed
+# to get Hyprland up.
 readonly STEPS=(nix git repo identity switch gpu keyring session)
+readonly EXTRA_STEPS=(steam)
 
 say() { printf '%s\n' "$*"; }
 ok() { printf '[ ok ] %s\n' "$*"; }
@@ -103,6 +106,19 @@ probe_session() {
 probe_keyring() {
   rpm -q gnome-keyring gnome-keyring-pam >/dev/null 2>&1 \
     && authselect current 2>/dev/null | grep -q with-pam-gnome-keyring
+}
+
+# Official Fedora Asahi Steam wrapper (muvm + FEX + Mesa overlays). Not Nix Steam.
+probe_steam() {
+  rpm -q steam >/dev/null 2>&1 && [[ -x /usr/bin/steam ]]
+}
+
+known_step() {
+  local want=$1 x
+  for x in "${STEPS[@]}" "${EXTRA_STEPS[@]}"; do
+    [[ $x == "$want" ]] && return 0
+  done
+  return 1
 }
 
 step_nix() {
@@ -266,6 +282,34 @@ EOF
   ok "session — $trampoline + SDDM SessionDir (updatehome refreshes the wrapper, not the .desktop)"
 }
 
+dnf_can_see_steam() {
+  dnf -q list steam >/dev/null 2>&1
+}
+
+step_steam() {
+  runmsg "steam — Fedora Asahi wrapper (muvm + FEX), not Nixpkgs Steam"
+
+  if ! rpm -q steam >/dev/null 2>&1; then
+    if ! dnf_can_see_steam; then
+      warn "steam is not in the enabled repos — installing asahi-repos"
+      sudo dnf install -y asahi-repos \
+        || die "asahi-repos is missing; this host needs Fedora Asahi Remix repos"
+    fi
+    sudo dnf install -y steam
+  fi
+
+  [[ -x /usr/bin/steam ]] || die "/usr/bin/steam is missing after dnf install steam"
+
+  local kb
+  kb=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null || echo 0)
+  if [[ $kb =~ ^[0-9]+$ ]] && (( kb < 16 * 1024 * 1024 )); then
+    warn "this machine reports $((kb / 1024)) MiB RAM; Steam + FEX + muvm wants ~16G"
+    warn "if games OOM: sudo /usr/libexec/fedora-asahi-remix-scripts/setup-swap.sh --recreate 16G"
+  fi
+
+  ok "steam — /usr/bin/steam  (launch with steam / teonix-steam after updatehome)"
+}
+
 run_step() {
   local step=$1
   if [[ ${FORCE:-0} != 1 ]] && "probe_${step}"; then
@@ -287,8 +331,10 @@ Fedora does not include Nix. This script installs it, clones teonix, points
 /run/opengl-driver at Nix Mesa, unlocks GNOME Keyring at login, and switches
 Home Manager to #${FLAKE_ATTR}. Re-run after any failure.
 
-  … all       every pending step (default)
-  … status    checklist
+  … all              every pending desktop step (default — not steam)
+  … <step>           one named step (nix git repo identity switch gpu
+                     keyring session steam)
+  … status           checklist
   … help
 
 Environment:
@@ -313,6 +359,13 @@ cmd_status() {
       printf '%-10s %s\n' "$step" pending
     fi
   done
+  for step in "${EXTRA_STEPS[@]}"; do
+    if "probe_${step}" 2>/dev/null; then
+      printf '%-10s %s\n' "$step" "done (opt-in)"
+    else
+      printf '%-10s %s\n' "$step" "pending — fedora.sh $step"
+    fi
+  done
 }
 
 main() {
@@ -327,13 +380,21 @@ main() {
         run_step "$step"
       done
       ;;
-    *) die "unknown command: $1 (try: help)" ;;
+    *)
+      known_step "$1" || die "unknown command: $1 (try: help)"
+      run_step "$1"
+      ;;
   esac
 
   say ""
   ok "${SELF} v${VERSION} finished"
-  say "log out and pick Hyprland (Nix) at the greeter"
-  say "later updates: updatehome   (from a Nix-enabled shell)"
+  if [[ ${1:-all} == steam ]]; then
+    say "launch: steam   (or teonix-steam — after updatehome)"
+  else
+    say "log out and pick Hyprland (Nix) at the greeter"
+    say "later updates: updatehome   (from a Nix-enabled shell)"
+    say "Steam (opt-in): bash $TEONIX_DIR/hosts/applenix/fedora.sh steam"
+  fi
 }
 
 main "$@"
