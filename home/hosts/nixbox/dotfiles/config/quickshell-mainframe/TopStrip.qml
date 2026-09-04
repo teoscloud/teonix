@@ -149,6 +149,127 @@ Scope {
                 }
             }
 
+            function batHeat(pct) {
+                if (pct <= 15)
+                    return Theme.danger
+                if (pct <= 30)
+                    return Theme.accentHot
+                return Theme.success
+            }
+
+            component BatteryCell: Item {
+                id: batRoot
+                property int pct: 0
+                property bool charging: false
+                property bool onMains: false
+                property color fillColor: strip.batHeat(pct)
+
+                readonly property int cells: 8
+                readonly property int lit: Math.max(0, Math.min(cells, Math.round(pct * cells / 100)))
+                readonly property color chrome: charging ? Theme.success : Theme.hairline
+
+                visible: Globals.batPresent
+                width: visible ? batRow.implicitWidth + 10 : 0
+                height: parent ? parent.height : Theme.barHeight
+
+                Row {
+                    id: batRow
+                    anchors.centerIn: parent
+                    spacing: 5
+
+                    // Filled + pulse = charging. Hollow = on battery / holding.
+                    Item {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 7
+                        height: 7
+
+                        Rectangle {
+                            id: chargeMark
+                            anchors.centerIn: parent
+                            width: 5
+                            height: 5
+                            rotation: 45
+                            color: batRoot.charging ? Theme.success : "transparent"
+                            border.width: 1
+                            border.color: batRoot.charging ? Theme.success : Theme.fgMuted
+                            opacity: batRoot.charging && !Theme.motionOff ? chargePulse.phase : 1
+
+                            SequentialAnimation {
+                                id: chargePulse
+                                property real phase: 1
+                                running: batRoot.charging && !Theme.motionOff
+                                loops: Animation.Infinite
+                                NumberAnimation {
+                                    target: chargePulse
+                                    property: "phase"
+                                    from: 1
+                                    to: 0.3
+                                    duration: 700
+                                }
+                                NumberAnimation {
+                                    target: chargePulse
+                                    property: "phase"
+                                    from: 0.3
+                                    to: 1
+                                    duration: 700
+                                }
+                            }
+                        }
+                    }
+
+                    Item {
+                        id: can
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 28
+                        height: 12
+
+                        Rectangle {
+                            id: body
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 24
+                            height: 12
+                            color: "transparent"
+                            border.color: batRoot.chrome
+                            border.width: 1
+                        }
+
+                        Rectangle {
+                            anchors.left: body.right
+                            anchors.verticalCenter: body.verticalCenter
+                            width: 2
+                            height: 5
+                            color: batRoot.chrome
+                        }
+
+                        Row {
+                            anchors.centerIn: body
+                            spacing: 1
+
+                            Repeater {
+                                model: batRoot.cells
+
+                                Rectangle {
+                                    required property int index
+                                    width: 2
+                                    height: 8
+                                    color: index < batRoot.lit ? batRoot.fillColor : Theme.hatch
+                                    opacity: index < batRoot.lit ? 1 : 0.45
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: pct + "%"
+                        color: batRoot.charging ? Theme.success : fillColor
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeMicro
+                    }
+                }
+            }
+
             readonly property int focusedWs: Number(Hyprland.focusedWorkspace?.id
                 ?? Hyprland.activeWorkspace?.id ?? 0)
 
@@ -460,38 +581,6 @@ Scope {
                     spacing: 0
 
                     Item {
-                        width: linkRow.implicitWidth + 8
-                        height: parent.height
-
-                        Row {
-                            id: linkRow
-                            anchors.centerIn: parent
-                            spacing: 4
-
-                            Rectangle {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 5
-                                height: 5
-                                rotation: 45
-                                color: Theme.success
-                            }
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: "LINK"
-                                color: Theme.fgMuted
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeMicro
-                            }
-                        }
-                    }
-
-                    VRule {
-                        height: parent.height - 2 * Theme.moduleInset
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: Theme.sepWidth
-                    }
-
-                    Item {
                         width: hostLab.implicitWidth + 10
                         height: parent.height
 
@@ -524,19 +613,16 @@ Scope {
                     }
 
                     VRule {
+                        visible: Globals.batPresent
                         height: parent.height - 2 * Theme.moduleInset
                         anchors.verticalCenter: parent.verticalCenter
-                        width: Theme.sepWidth
+                        width: visible ? Theme.sepWidth : 0
                     }
 
-                    StatCell {
-                        tag: "DN"
-                        value: Globals.netRx
-                    }
-
-                    StatCell {
-                        tag: "UP"
-                        value: Globals.netTx
+                    BatteryCell {
+                        pct: Globals.batPct
+                        charging: Globals.batCharging
+                        onMains: Globals.batAc
                     }
 
                     VRule {

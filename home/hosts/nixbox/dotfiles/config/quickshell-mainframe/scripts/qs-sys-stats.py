@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""One-shot CPU / RAM / net rates for the mainframe top strip.
+"""One-shot CPU / RAM / battery for the mainframe top strip.
 
 Compares against a snapshot in $XDG_RUNTIME_DIR so each invoke is instant.
-Prints: {"cpu":12,"ram":44,"rx":"1.2M","tx":"80K"}
+Prints: {"cpu":12,"ram":44,"bat_present":true,"bat":72,"bat_status":"Discharging","bat_ac":false}
 """
 from __future__ import annotations
 
@@ -11,18 +11,6 @@ import os
 import time
 
 STATE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "qs-mainframe-sys.json")
-
-SKIP_IFACE_PREFIX = (
-    "lo",
-    "docker",
-    "veth",
-    "br-",
-    "virbr",
-    "vnet",
-    "tap",
-    "ifb",
-    "dummy",
-)
 
 
 def cpu_times() -> tuple[int, int]:
@@ -47,66 +35,105 @@ def ram_pct() -> int:
     return int(round(max(0, min(100, (tot - avail) * 100 / tot))))
 
 
-def skip_iface(name: str) -> bool:
-    return any(name == p or name.startswith(p) for p in SKIP_IFACE_PREFIX)
+def _read_int(path: str) -> int | None:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
 
 
-def net_bytes() -> tuple[int, int]:
-    rx = tx = 0
-    with open("/proc/net/dev", encoding="utf-8") as f:
-        for line in f:
-            if ":" not in line:
-                continue
-            name, rest = line.split(":", 1)
-            name = name.strip()
-            if skip_iface(name):
-                continue
-            cols = rest.split()
-            rx += int(cols[0])
-            tx += int(cols[8])
-    return rx, tx
+def _read_str(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
 
 
-def fmt_rate(bps: float) -> str:
-    if bps < 0:
-        bps = 0
-    if bps < 1024:
-        return f"{int(bps)}B"
-    if bps < 1024 * 1024:
-        v = bps / 1024
-        return f"{v:.0f}K" if v >= 10 else f"{v:.1f}K"
-    v = bps / (1024 * 1024)
-    return f"{v:.1f}M" if v < 100 else f"{v:.0f}M"
+def mains_online() -> bool:
+    base = "/sys/class/power_supply"
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return False
+    for name in sorted(names):
+        path = os.path.join(base, name)
+        if _read_str(os.path.join(path, "type")) != "Mains":
+            continue
+        if _read_str(os.path.join(path, "online")) == "1":
+            return True
+    return False
+
+
+def battery() -> dict:
+    """System battery from sysfs (Asahi macsmc-battery, BAT0, …)."""
+    base = "/sys/class/power_supply"
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return {"bat_present": False, "bat_ac": mains_online()}
+
+    chosen = ""
+    for name in sorted(names):
+        path = os.path.join(base, name)
+        if _read_str(os.path.join(path, "type")) != "Battery":
+            continue
+        if _read_str(os.path.join(path, "present")) == "0":
+            continue
+        if _read_str(os.path.join(path, "scope")) == "Device":
+            continue
+        chosen = path
+        if _read_str(os.path.join(path, "scope")) == "System":
+            break
+    if not chosen:
+        return {"bat_present": False, "bat_ac": mains_online()}
+
+    cap = _read_int(os.path.join(chosen, "capacity"))
+    if cap is None:
+        now = _read_int(os.path.join(chosen, "energy_now"))
+        full = _read_int(os.path.join(chosen, "energy_full"))
+        if now is None or not full:
+            now = _read_int(os.path.join(chosen, "charge_now"))
+            full = _read_int(os.path.join(chosen, "charge_full"))
+        if now is not None and full:
+            cap = int(round(max(0, min(100, now * 100.0 / full))))
+        else:
+            cap = 0
+    else:
+        cap = max(0, min(100, cap))
+
+    status = _read_str(os.path.join(chosen, "status")) or "Unknown"
+    return {
+        "bat_present": True,
+        "bat": cap,
+        "bat_status": status,
+        "bat_ac": mains_online(),
+    }
 
 
 def main() -> None:
     now = time.monotonic()
     idle, total = cpu_times()
-    rx, tx = net_bytes()
     cpu = 0
-    rx_bps = tx_bps = 0.0
     try:
         with open(STATE, encoding="utf-8") as f:
             prev = json.load(f)
-        dt = max(0.2, now - float(prev.get("t", now)))
         dtot = total - int(prev["total"])
         if dtot > 0:
             di = idle - int(prev["idle"])
             cpu = int(round(max(0, min(100, (1.0 - di / dtot) * 100))))
-        rx_bps = (rx - int(prev["rx"])) / dt
-        tx_bps = (tx - int(prev["tx"])) / dt
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         pass
 
     tmp = STATE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"t": now, "idle": idle, "total": total, "rx": rx, "tx": tx}, f)
+        json.dump({"t": now, "idle": idle, "total": total}, f)
     os.replace(tmp, STATE)
 
-    print(
-        json.dumps({"cpu": cpu, "ram": ram_pct(), "rx": fmt_rate(rx_bps), "tx": fmt_rate(tx_bps)}),
-        flush=True,
-    )
+    out = {"cpu": cpu, "ram": ram_pct()}
+    out.update(battery())
+    print(json.dumps(out), flush=True)
 
 
 if __name__ == "__main__":

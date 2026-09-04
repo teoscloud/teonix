@@ -86,8 +86,11 @@ Singleton {
 
     property int cpuPct: 0
     property int ramPct: 0
-    property string netRx: "0B"
-    property string netTx: "0B"
+    property bool batPresent: false
+    property int batPct: 0
+    property string batStatus: ""
+    property bool batAc: false
+    readonly property bool batCharging: batStatus === "Charging"
 
     // Shared Master HW status for VolumePill / ScrollStrip
     property int hwVolPct: 0
@@ -381,10 +384,15 @@ Singleton {
                 cpuPct = Math.max(0, Math.min(100, cpu));
             if (!isNaN(ram))
                 ramPct = Math.max(0, Math.min(100, ram));
-            if (j.rx !== undefined)
-                netRx = String(j.rx);
-            if (j.tx !== undefined)
-                netTx = String(j.tx);
+            if (typeof j.bat_present === "boolean")
+                batPresent = j.bat_present;
+            const bat = parseInt(j.bat, 10);
+            if (!isNaN(bat))
+                batPct = Math.max(0, Math.min(100, bat));
+            if (j.bat_status !== undefined)
+                batStatus = String(j.bat_status);
+            if (typeof j.bat_ac === "boolean")
+                batAc = j.bat_ac;
         } catch (e) {
         }
     }
