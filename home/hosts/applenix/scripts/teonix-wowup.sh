@@ -3,17 +3,15 @@
 # nixpkgs wowup-cf is x86_only and cannot go in aarch64 home.packages.
 set -euo pipefail
 
-unset QT_PLUGIN_PATH QT_PLUGIN_PATH_1 QML2_IMPORT_PATH QML_IMPORT_PATH
-unset QTWEBENGINEPROCESS_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORMTHEME
-unset LIBGL_DRIVERS_PATH GBM_BACKENDS_PATH __EGL_VENDOR_LIBRARY_FILENAMES
-unset LD_LIBRARY_PATH
-export PATH="/usr/bin:/usr/sbin${PATH:+:$PATH}"
+HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+# shellcheck source=teonix-muvm-common.sh
+source "$HERE/teonix-muvm-common.sh"
+teonix_host_fedora_env
 
 APPIMAGE="${TEONIX_WOWUP_APPIMAGE:-}"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}/teonix/wowup"
 ROOT="$DATA/squashfs-root"
 LOG="${XDG_STATE_HOME:-$HOME/.local/state}/teonix-wowup.log"
-LOCK="${XDG_RUNTIME_DIR:-/tmp}/teonix-wowup.lock"
 WOW_PREFIX="${XDG_DATA_HOME:-$HOME/.local/share}/teonix/battlenet/prefix/pfx/drive_c/Program Files (x86)/World of Warcraft"
 
 mkdir -p "$DATA" "$(dirname "$LOG")"
@@ -27,17 +25,7 @@ die() {
   exit 1
 }
 
-need_muvm() {
-  [[ -x /usr/bin/muvm ]] && command -v FEXBash >/dev/null || \
-    die "muvm/FEXBash missing — bash ~/teonix/hosts/applenix/fedora.sh steam"
-}
-
-muvm_busy() {
-  pgrep -x muvm >/dev/null 2>&1 \
-    || pgrep -f 'muvm -- FEXBash' >/dev/null 2>&1 \
-    || pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
-    || pgrep -f '/usr/bin/python3 /usr/bin/steam' >/dev/null 2>&1
-}
+need_muvm() { teonix_need_muvm || exit 1; }
 
 mem_mib() {
   local total n
@@ -53,7 +41,7 @@ hint_wow_clients() {
   say "  $WOW_PREFIX"
   if [[ -d $WOW_PREFIX ]]; then
     local d
-    for d in "$WOW_PREFIX"/_retail_ "$WOW_PREFIX"/_classic_ "$WOW_PREFIX"/_classic_era_ "$WOW_PREFIX"/_classic_ptr_ "$WOW_PREFIX"/_beta_; do
+    for d in "$WOW_PREFIX"/_anniversary_ "$WOW_PREFIX"/_retail_ "$WOW_PREFIX"/_classic_ "$WOW_PREFIX"/_classic_era_ "$WOW_PREFIX"/_classic_ptr_ "$WOW_PREFIX"/_beta_; do
       [[ -d $d ]] && say "  found $(basename "$d")"
     done
   else
@@ -65,13 +53,8 @@ hint_wow_clients() {
   die "WowUp AppImage missing — updatehome (TEONIX_WOWUP_APPIMAGE)"
 
 need_muvm
-
-if muvm_busy; then
-  die "a muvm guest is already running (Battle.net or Steam). teonix-battlenet-kill first — one guest on this machine"
-fi
-
-exec 9>"$LOCK"
-flock -n 9 || die "WowUp is already starting"
+teonix_ram_gate 1536 || exit 1
+teonix_muvm_lock WowUp || exit 1
 
 {
   echo "==== $(date -Iseconds) pid=$$ ===="

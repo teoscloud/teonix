@@ -213,26 +213,33 @@ teonix-steam-kill
 steam
 ```
 
-### Battle.net (`teonix-battlenet`, no Steam client)
+### Battle.net + WoW Classic (one muvm)
 
-Host Lutris + Nix **aarch64** GE-Proton cannot run the Battle.net installer (Proton #10011: `RPC_S_SERVER_UNAVAILABLE` busy-loop, dead language window). x86 Proton cannot run on the 16K host (`jemalloc`). The working stack is the same **muvm (4K guest) + FEX** the Steam RPM pulls in — without launching Steam.
+Host Lutris + Nix **aarch64** GE-Proton cannot run Battle.net (Proton #10011). x86 Proton cannot run on the 16K host (`jemalloc`). The stack is **one 4K muvm + FEX + x86 GE-Proton11-5**. Battle.net, `teonix-wow`, WowUp, and Steam share `$XDG_RUNTIME_DIR/teonix-muvm.lock` — they must not overlap. Scale stays **1.6**. Do not change CEF flags (`--disable-gpu` is a black HWND; WineD3D crashes; SwiftShader never starts `login.app`).
+
+The infinite swirl after too many guest kills is Blizzard’s **`token-security-checkpoint`**, not a broken paint path. **Finish it in the Battle.net window**, not Brave. Opening the challenge in a real browser ends at `http://localhost:0/?ST=…` (`ERR_UNSAFE_PORT`) — that ticket is meant for the launcher’s CEF. If Brave already has that tab, close it; the wrapper scrapes `ST=` and hands it back (`teonix-battlenet auth` if you need to do it by hand).
 
 ```bash
-bash ~/teonix/hosts/applenix/fedora.sh steam   # muvm + FEX only; skip if already done
+# close Brave / YouTube first (~1.5 GiB MemAvailable or the wrapper refuses)
+teonix-battlenet-kill
 updatehome
-# Windows x86 installer from blizzard.com → ~/Downloads/Battle.net-Setup.exe
-teonix-steam-kill    # one muvm on this machine
-teonix-battlenet
+# stay in the Battle.net window (close any Brave localhost:0 tab)
+teonix-wow
 ```
 
-First run downloads **GE-Proton11-5-x86_64** (~510 MiB, checksummed; never the `-aarch64` tarball), then runs setup with `--lang=enUS` so the hung language dialog never appears. After `Battle.net.exe` exists, the script writes `~/.local/share/applications/battlenet.desktop` and starts the client with Blizzard `HardwareAcceleration=false`, `--in-process-gpu`, and `--disable-gpu-compositing` (never `--disable-gpu`, never WineD3D, never SwiftShader on this Air). DXVK stays on for games. Later launches are the client only.
+Leave the guest alone until WoW’s window is up. Do not click Play twice. Do not start Steam or WowUp in parallel.
 
 ```bash
-battlenet          # same as teonix-battlenet
+bnet               # Battle.net only (one Play click after login)
+wow / wowclassic   # teonix-wow: Battle.net, wait for login, then WowClassic
 bnetkill           # teonix-battlenet-kill
 ```
 
-Logs: `~/.local/state/teonix-battlenet.log`. Prefix: `~/.local/share/teonix/battlenet/`. Do not write `~/.fex-emu/Config.json`. Do not pick Proton Experimental (ARM64). Close browsers first — this Air has 8 GB. If the kernel OOM-kills the guest:
+First Battle.net run downloads **GE-Proton11-5-x86_64** (~510 MiB, checksummed; never the `-aarch64` tarball) if needed, then setup with `--lang=enUS`. Frozen CEF: Blizzard `HardwareAcceleration=false` plus `--in-process-gpu --disable-gpu-compositing --disable-direct-composition --disable-gpu-sandbox`. DXVK stays on so **WowClassic** gets Vulkan. `WTF/Config.wtf` is windowed D3D11 1600×1000 — fullscreen exclusive never presents an HWND on XWayland.
+
+Logs: `~/.local/state/teonix-battlenet.log`. Prefix: `~/.local/share/teonix/battlenet/`. Do not write `~/.fex-emu/Config.json`. Do not pick Proton Experimental (ARM64). Desktop entries (`teonix-battlenet`, `teonix-wow`) stay `Terminal=false` so a kitty tab is not mistaken for the client.
+
+If the kernel OOM-kills the guest:
 
 ```bash
 sudo /usr/libexec/fedora-asahi-remix-scripts/setup-swap.sh --recreate 16G
@@ -240,11 +247,10 @@ sudo /usr/libexec/fedora-asahi-remix-scripts/setup-swap.sh --recreate 16G
 
 ### WowUp (`teonix-wowup`)
 
-nixpkgs `wowup-cf` is an **x86_64 AppImage** (`platforms = [ "x86_64-linux" ]`) — it cannot be installed as a native Home Manager package on this Air. The official **WowUp.CF 2.23.1** binary is fetched in Nix and started in the same **muvm + FEX** guest as Battle.net. One muvm only: quit Battle.net first.
+nixpkgs `wowup-cf` is an **x86_64 AppImage** — it cannot be a native aarch64 Home Manager package. Official **WowUp.CF 2.23.1** runs in the same **muvm + FEX** guest. **Quit Battle.net / WoW first** (`bnetkill`).
 
 ```bash
 teonix-battlenet-kill
-updatehome
 wowup
 ```
 
@@ -252,4 +258,4 @@ Add client folder (not a Windows `C:` path):
 
 `~/.local/share/teonix/battlenet/prefix/pfx/drive_c/Program Files (x86)/World of Warcraft`
 
-Then pick `_classic_` / `_classic_era_` / `_retail_` as installed. Log: `~/.local/state/teonix-wowup.log`.
+Then pick `_anniversary_` / `_classic_` / `_classic_era_` / `_retail_` as installed. Log: `~/.local/state/teonix-wowup.log`.

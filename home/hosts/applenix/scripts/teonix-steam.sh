@@ -2,46 +2,28 @@
 # One muvm, no Fedora PyQt splash, no second copy.
 set -euo pipefail
 
-# Host Fedora binaries only. Nix Qt/Mesa paths make Fedora/FEX guests abort.
-unset QT_PLUGIN_PATH QT_PLUGIN_PATH_1 QML2_IMPORT_PATH QML_IMPORT_PATH
-unset QTWEBENGINEPROCESS_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORMTHEME
-unset LIBGL_DRIVERS_PATH GBM_BACKENDS_PATH __EGL_VENDOR_LIBRARY_FILENAMES
-unset LD_LIBRARY_PATH
-export PATH="/usr/bin:/usr/sbin${PATH:+:$PATH}"
+HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+# shellcheck source=teonix-muvm-common.sh
+source "$HERE/teonix-muvm-common.sh"
+teonix_host_fedora_env
+teonix_need_muvm
 
-if [[ ! -x /usr/bin/muvm ]] || ! command -v FEXBash >/dev/null; then
-  echo "muvm/FEXBash missing — bash ~/teonix/hosts/applenix/fedora.sh steam" >&2
-  exit 1
-fi
-
-runtime="${XDG_RUNTIME_DIR:-/tmp}"
-lock="$runtime/teonix-steam.lock"
 log="${XDG_STATE_HOME:-$HOME/.local/state}/teonix-steam.log"
 mkdir -p "$(dirname "$log")"
 
-already_up() {
-  pgrep -x muvm >/dev/null 2>&1 \
-    || pgrep -f 'muvm -- FEXBash' >/dev/null 2>&1 \
-    || pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
-    || pgrep -f '/usr/bin/python3 /usr/bin/steam' >/dev/null 2>&1
+steam_up() {
+  pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
+    || pgrep -f '/usr/bin/python3 /usr/bin/steam' >/dev/null 2>&1 \
+    || pgrep -f '/Steam/steam.sh' >/dev/null 2>&1
 }
 
-if already_up; then
+if steam_up; then
   echo "Steam is already running — not starting another muvm." >&2
   exit 0
 fi
 
-exec 9>"$lock"
-if ! flock -n 9; then
-  echo "Steam is already running — not starting another muvm." >&2
-  exit 0
-fi
-
-# Re-check after the lock: a leftover guest from the old wrapper has no flock.
-if already_up; then
-  echo "Steam is already running — not starting another muvm." >&2
-  exit 0
-fi
+teonix_ram_gate 1536
+teonix_muvm_lock Steam
 
 # Prefer the bootstrapped client. bin_steam.sh re-extracts and looks like a loop.
 if [[ -f $HOME/.local/share/Steam/steam.sh ]]; then

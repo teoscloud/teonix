@@ -110,26 +110,29 @@ let
     exec ${pkgs.hyprland}/bin/Hyprland -c "$HOME/.config/hypr/hyprland.lua" "$@"
   '';
 
+  # Whole directory so wrappers can source teonix-muvm-common.sh / battlenet-lib.
+  teonixScripts = ./../scripts;
+
   # Fedora Asahi's /usr/bin/steam is a muvm+FEX wrapper, not the client.
   # Nixpkgs Steam is x86-only and must never land on this PATH.
   teonixSteam = pkgs.writeShellApplication {
     name = "teonix-steam";
     text = ''
-      exec ${./../scripts/teonix-steam.sh} "$@"
+      exec ${teonixScripts}/teonix-steam.sh "$@"
     '';
   };
 
   steamHost = pkgs.writeShellApplication {
     name = "steam";
     text = ''
-      exec ${./../scripts/teonix-steam.sh} "$@"
+      exec ${teonixScripts}/teonix-steam.sh "$@"
     '';
   };
 
   teonixSteamKill = pkgs.writeShellApplication {
     name = "teonix-steam-kill";
     text = ''
-      exec ${./../scripts/teonix-steam-kill.sh} "$@"
+      exec ${teonixScripts}/teonix-steam-kill.sh "$@"
     '';
   };
 
@@ -137,21 +140,28 @@ let
     name = "teonix-steam-add";
     runtimeInputs = [ pkgs.python3 ];
     text = ''
-      exec python3 ${./../scripts/teonix-steam-add.py} "$@"
+      exec python3 ${teonixScripts}/teonix-steam-add.py "$@"
     '';
   };
 
   teonixBattlenet = pkgs.writeShellApplication {
     name = "teonix-battlenet";
     text = ''
-      exec ${./../scripts/teonix-battlenet.sh} "$@"
+      exec ${teonixScripts}/teonix-battlenet.sh "$@"
     '';
   };
 
   teonixBattlenetKill = pkgs.writeShellApplication {
     name = "teonix-battlenet-kill";
     text = ''
-      exec ${./../scripts/teonix-battlenet-kill.sh} "$@"
+      exec ${teonixScripts}/teonix-battlenet-kill.sh "$@"
+    '';
+  };
+
+  teonixWow = pkgs.writeShellApplication {
+    name = "teonix-wow";
+    text = ''
+      exec ${teonixScripts}/teonix-wow.sh "$@"
     '';
   };
 
@@ -166,7 +176,7 @@ let
     name = "teonix-wowup";
     text = ''
       export TEONIX_WOWUP_APPIMAGE=${lib.escapeShellArg wowupCfAppImage}
-      exec ${./../scripts/teonix-wowup.sh} "$@"
+      exec ${teonixScripts}/teonix-wowup.sh "$@"
     '';
   };
 in
@@ -206,6 +216,7 @@ in
     teonixSteamAdd
     teonixBattlenet
     teonixBattlenetKill
+    teonixWow
     teonixWowup
     pkgs.hyprland
     pkgs.hypridle
@@ -251,6 +262,16 @@ in
     terminal = false;
     categories = [ "Game" ];
     settings.StartupWMClass = "steam_app_battlenet";
+  };
+
+  xdg.desktopEntries.wowclassic = {
+    name = "WoW Classic";
+    comment = "World of Warcraft Classic Anniversary (windowed D3D11, same prefix as Battle.net)";
+    exec = "teonix-wow";
+    icon = "applications-games";
+    terminal = false;
+    categories = [ "Game" ];
+    settings.StartupWMClass = "WowClassic.exe";
   };
 
   home.activation.removeStaleBattlenetSetupDesktop = lib.hm.dag.entryAfter [ "writeBoundary" ] ''

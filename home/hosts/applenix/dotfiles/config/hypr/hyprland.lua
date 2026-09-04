@@ -212,7 +212,9 @@ hl.window_rule({
 })
 
 -- Battle.net / Wine CEF: no blur, no fade, no rounding. Those punch black
--- holes through XWayland surfaces on the 1.6 scaled panel.
+-- holes through XWayland surfaces on the 1.6 scaled panel. Float + center
+-- the login and main windows so they are not under the bar (y=-24). Do not
+-- minsize the 100×13 ghost HWND — a huge minsize covers the screen.
 hl.window_rule({
     name = "battlenet-surfaces",
     match = { class = "^steam_app_battlenet$" },
@@ -223,13 +225,30 @@ hl.window_rule({
     name = "battlenet-login",
     match = { title = "Battle.net Login" },
     float = true,
+    center = true,
+    rounding = 0,
+})
+hl.window_rule({
+    name = "battlenet-main",
+    match = { title = "^Battle.net$" },
+    float = true,
+    center = true,
     rounding = 0,
 })
 hl.window_rule({
     name = "battlenet-setup",
     match = { title = "^Battle.net Setup$" },
     float = true,
+    center = true,
     rounding = 0,
+})
+hl.window_rule({
+    name = "wow-classic",
+    match = { class = "^WowClassic\\.exe$" },
+    float = true,
+    center = true,
+    rounding = 0,
+    border_size = 1,
 })
 
 ----------------

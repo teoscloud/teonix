@@ -23,7 +23,9 @@ for pat in \
 do
   pkill -KILL -f "$pat" 2>/dev/null || true
 done
-rm -f "${XDG_RUNTIME_DIR:-/tmp}/teonix-steam.lock"
+rm -f \
+  "${XDG_RUNTIME_DIR:-/tmp}/teonix-muvm.lock" \
+  "${XDG_RUNTIME_DIR:-/tmp}/teonix-steam.lock"
 if [[ $killed -eq 1 ]]; then
   echo "Steam processes signaled."
 else
