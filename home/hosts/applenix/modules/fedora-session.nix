@@ -159,6 +159,10 @@ let
     '';
   };
 
+  # Play works; WowClassic dies in FEX before a window (FEX #5399). Resume
+  # notes — PRs, versions, go/no-go — live in hosts/applenix/FEDORA.md
+  # ("Resume when FEX moves"). Do not shop Proton or build a patched FEX
+  # until #5785 is merged and chrisRidgers reports a window on Asahi.
   teonixBattlenet = teonixWrapper {
     name = "teonix-battlenet";
     script = "teonix-battlenet.sh";
