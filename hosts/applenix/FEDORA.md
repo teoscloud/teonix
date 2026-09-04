@@ -27,7 +27,7 @@ The NixOS USB path (`install.sh`, `#applenix`) is unchanged.
 | `switch` | `nix run nixpkgs#home-manager -- switch --flake path:.#applenix-fedora` |
 | `gpu` | `sudo non-nixos-gpu-setup` — points `/run/opengl-driver` at Nix Mesa (see GPU below) |
 | `keyring` | host `gnome-keyring` + `authselect with-pam-gnome-keyring` so SDDM unlocks secrets for every DE |
-| `session` | one-time: trampoline at `/usr/local/bin/hyprland-nix-session` + SDDM session dir (no more `sudo cp`) |
+| `session` | trampoline + Plasma Login Manager session dir; upgrades `plasma-workspace` when the greeter QML is ABI-broken |
 | `steam` | **opt-in** — `dnf install steam` (muvm + FEX + Mesa overlays). Not run by `all`. |
 
 ```bash
@@ -134,7 +134,31 @@ If you just installed Nix in this terminal and `nix` is missing, either open a n
 
 If the compositor is software-rendered, Fedora Mesa is missing or the session did not wrap host libEGL.
 
-### Instant return to SDDM
+### Black screen + mouse cursor, no login box
+
+That is the **login manager itself**, not Hyprland. Fedora Asahi’s display manager is **Plasma Login Manager** (`plasmalogin.service`), not SDDM. kwin starts (cursor), then `plasma-login-greeter` fails to load `Main.qml`:
+
+```
+Type BreezeComponents.Battery unavailable
+libbatterycontrol.so.6: undefined symbol: QUntypedPropertyBinding … Qt_6.11_PRIVATE_API
+```
+
+`qt6-qtbase` moved to 6.11.2 while `plasma-workspace` was still 6.7.3. Do **not** `systemctl enable sddm` — the SDDM package on this host has no theme, so you get the same cursor-only screen.
+
+```bash
+bash ~/teonix/hosts/applenix/fedora.sh session
+```
+
+That upgrades `plasma-workspace` / `plasma-login-manager` to 6.7.4+ (rebuilt against current Qt) and isolates the greeter from Nix Qt paths. Then **reboot**. Do not restart `plasmalogin` while Hyprland is already running from a TTY — they fight over the same DRM device.
+
+Confirm afterwards:
+
+```text
+journalctl -b -u plasmalogin
+# should not contain "Component is not ready" / Main.qml
+```
+
+### Instant return to the greeter after typing the password
 
 The session died before the first frame. On a TTY (Ctrl+Alt+F3):
 
@@ -164,7 +188,7 @@ bash ~/teonix/hosts/applenix/fedora.sh
 
 The `gpu`, `session`, `keyring`, and opt-in `steam` steps use sudo. After that, `updatehome` refreshes `~/.nix-profile/bin/hyprland-nix-session`; the greeter always execs `/usr/local/bin/hyprland-nix-session`. No more `sudo cp` of `.desktop` files.
 
-Then log in again. Either **Hyprland** or **Hyprland (Nix)** starts the same wrapper.
+Then reboot (or log out) and pick **Hyprland (Nix)**. Either **Hyprland** or **Hyprland (Nix)** starts the same wrapper.
 
 ---
 
@@ -178,7 +202,14 @@ updatehome
 steam
 ```
 
-`teonix-steam` (and the `steam` command / desktop entry) start **one** muvm. After the first bootstrap they skip Fedora’s PyQt splash (its window probe never matches current Steam titles, so closing the splash killed the guest). A second launch — hyprflow restore, `steam://` on the host, or clicking Steam again — used to spawn another VM and look like a restart loop. If Steam is already up, the wrapper exits 0.
+`teonix-steam` (and the `steam` command / desktop entry) start **one** muvm, take a flock, and after the first bootstrap run `~/.local/share/Steam/steam.sh` — not `bin_steam.sh` and not `-cef-force-occlusion` (those two were the restart loop). Fedora’s PyQt splash is skipped: its window probe never matches current Steam titles, so closing the splash killed the guest. A second launch — hyprflow restore, `steam://` on the host, or clicking Steam again — used to spawn another VM. If Steam is already up, the wrapper exits 0.
+
+Logs: `~/.local/state/teonix-steam.log`. If it wedges:
+
+```bash
+teonix-steam-kill
+steam
+```
 
 Steam **Browse** under Hyprland/muvm often does nothing (file portal + 0×0 X11 popup). Skip it:
 

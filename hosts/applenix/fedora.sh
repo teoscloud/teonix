@@ -9,7 +9,7 @@
 # Idempotent: re-run after any failure; finished steps are skipped.
 set -Eeuo pipefail
 
-readonly VERSION=7
+readonly VERSION=8
 readonly SELF="applenix-fedora"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/fedora.sh | bash"
 readonly FLAKE_ATTR=applenix-fedora
@@ -95,10 +95,24 @@ probe_gpu() {
   want=$(gpu_drivers_path) || return 1
   [[ -n $want ]] && [[ "$(readlink /run/opengl-driver 2>/dev/null)" == "$want" ]]
 }
+# Plasma Login Manager greeter QML links Qt private ABI. After a qt6-qtbase
+# bump, plasma-workspace older than this shows a cursor on a black screen
+# (Main.qml → Breeze Battery → libbatterycontrol undefined symbol).
+readonly PLASMA_GREETER_MIN=6.7.4
+
+rpm_ver_ge() {
+  local have=$1 need=$2
+  [[ $(printf '%s\n%s\n' "$need" "$have" | sort -V | head -n1) == "$need" ]]
+}
+
 probe_session() {
   [[ -x /usr/local/bin/hyprland-nix-session ]] \
     && [[ -f /usr/local/share/wayland-sessions/hyprland-nix.desktop ]] \
-    && [[ -f /etc/sddm.conf.d/10-teonix-hyprland.conf ]]
+    && [[ -f /etc/plasmalogin.conf.d/10-teonix-hyprland.conf ]] \
+    && [[ -f /etc/profile.d/zz-teonix-greeter-isolate.sh ]] || return 1
+  if rpm -q plasma-login-manager >/dev/null 2>&1; then
+    rpm_ver_ge "$(rpm -q --qf '%{VERSION}' plasma-workspace)" "$PLASMA_GREETER_MIN" || return 1
+  fi
 }
 # Host gnome-keyring + PAM so SDDM unlocks the login keyring for every DE.
 # Nix gnome-keyring cannot hook Fedora PAM; the host daemon is the one that
@@ -237,11 +251,35 @@ step_session() {
   local local_sessions=/usr/local/share/wayland-sessions
   local system_sessions=/usr/share/wayland-sessions
   local sddm_dropin=/etc/sddm.conf.d/10-teonix-hyprland.conf
+  local plasma_dropin=/etc/plasmalogin.conf.d/10-teonix-hyprland.conf
+  local greeter_isolate=/etc/profile.d/zz-teonix-greeter-isolate.sh
   local desktop
 
-  runmsg "session — one-time greeter hook (stable Exec, no more sudo cp)"
+  runmsg "session — greeter hook + Plasma Login Manager (not SDDM)"
 
-  sudo mkdir -p /usr/local/bin "$local_sessions" "$system_sessions" /etc/sddm.conf.d
+  # This host's display-manager.service is plasmalogin. Enabling sddm
+  # without a theme is the same black-cursor screen.
+  if systemctl is-enabled sddm >/dev/null 2>&1; then
+    warn "sddm is enabled — disabling it; Fedora Asahi uses plasmalogin"
+    sudo systemctl disable --now sddm || true
+    sudo systemctl enable plasmalogin
+  fi
+
+  # Rebuild the greeter against current Qt private ABI when Fedora has it.
+  if rpm -q plasma-login-manager >/dev/null 2>&1; then
+    local have
+    have=$(rpm -q --qf '%{VERSION}' plasma-workspace)
+    if ! rpm_ver_ge "$have" "$PLASMA_GREETER_MIN"; then
+      runmsg "session — plasma-workspace $have < $PLASMA_GREETER_MIN (Qt ABI; greeter is black + cursor)"
+      sudo dnf upgrade -y \
+        plasma-workspace plasma-workspace-libs plasma-workspace-common \
+        plasma-login-manager kcm-plasmalogin libkworkspace6 \
+        plasma-lookandfeel-fedora
+    fi
+  fi
+
+  sudo mkdir -p /usr/local/bin "$local_sessions" "$system_sessions" \
+    /etc/sddm.conf.d /etc/plasmalogin.conf.d /etc/profile.d
   sudo tee "$trampoline" >/dev/null <<'TRAMPOLINE'
 #!/bin/sh
 for c in \
@@ -279,7 +317,29 @@ DESKTOP
 SessionDir=/usr/local/share/wayland-sessions,/usr/share/wayland-sessions
 EOF
 
-  ok "session — $trampoline + SDDM SessionDir (updatehome refreshes the wrapper, not the .desktop)"
+  sudo tee "$plasma_dropin" >/dev/null <<'EOF'
+[Wayland]
+SessionDir=/usr/local/share/wayland-sessions,/usr/share/wayland-sessions
+EOF
+
+  # plasmalogin greeter user has SHELL=nologin, so wayland-session sources
+  # /etc/profile → profile.d/nix.sh. Mixed Nix Qt plugins kill the QML UI.
+  sudo tee "$greeter_isolate" >/dev/null <<'EOF'
+# Sourced by the Plasma Login / SDDM greeter via /etc/profile.
+# Keep host Qt only — Nix QT_PLUGIN_PATH makes Main.qml fail to load.
+case $(id -un 2>/dev/null) in
+  plasmalogin|sddm)
+    unset QT_PLUGIN_PATH QT_PLUGIN_PATH_1 QML2_IMPORT_PATH QML_IMPORT_PATH
+    unset QTWEBENGINEPROCESS_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORMTHEME
+    unset LIBGL_DRIVERS_PATH GBM_BACKENDS_PATH __EGL_VENDOR_LIBRARY_FILENAMES
+    unset LD_LIBRARY_PATH
+    export PATH="/usr/bin:/usr/sbin:/bin"
+    ;;
+esac
+EOF
+  sudo chmod 644 "$greeter_isolate"
+
+  ok "session — $trampoline + plasmalogin SessionDir (updatehome refreshes the wrapper, not the .desktop)"
 }
 
 dnf_can_see_steam() {
