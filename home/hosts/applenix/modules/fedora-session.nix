@@ -159,7 +159,7 @@ in
     XDG_SESSION_DESKTOP = "Hyprland";
     GTK_USE_PORTAL = "1";
     NIXOS_XDG_OPEN_USE_PORTAL = "1";
-    STEAM_EXTRA_COMPAT_TOOLS_PATHS = "/home/${username}/.steam/root/compatibilitytools.d";
+    STEAM_EXTRA_COMPAT_TOOLS_PATHS = "${pkgs.proton-ge-bin.steamcompattool}:/home/${username}/.steam/root/compatibilitytools.d";
     RUST_MIN_STACK = "16777216";
   };
 
@@ -203,11 +203,16 @@ in
     categories = [ "Game" ];
   };
 
+  # GloriousEggroll ships an aarch64 GE-Proton tarball; nixpkgs proton-ge-bin
+  # picks that on this host. Lutris (umu) and Steam both look here.
+  xdg.dataFile."lutris/runners/proton/GE-Proton".source = pkgs.proton-ge-bin.steamcompattool;
+  xdg.dataFile."Steam/compatibilitytools.d/GE-Proton".source = pkgs.proton-ge-bin.steamcompattool;
+
   # Steam's Browse button cannot open a host file picker from inside muvm.
   # A .desktop here shows up in "Add a Non-Steam Game" so you can tick it.
   xdg.desktopEntries.battle-net-setup = {
     name = "Battle.net Setup";
-    comment = "Windows Battle.net installer — add from Steam without Browse";
+    comment = "Windows Battle.net installer — add in Lutris with GE-Proton";
     exec = "${config.home.homeDirectory}/Downloads/Battle.net-Setup.exe";
     icon = "applications-games";
     terminal = false;

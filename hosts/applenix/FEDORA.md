@@ -213,7 +213,29 @@ teonix-steam-kill
 steam
 ```
 
-Steam **Browse** under Hyprland/muvm often does nothing (file portal + 0×0 X11 popup). Skip it:
+### Lutris + GE-Proton (Battle.net / WoW, not Steam)
+
+`updatehome` installs Nix **lutris-unwrapped** (FHS Lutris and its `libstrangle` FPS limiter are x86-only), **umu-launcher**, and **proton-ge-bin** (GE-Proton 11, aarch64 tarball on this Mac). The runner is linked at:
+
+- `~/.local/share/lutris/runners/proton/GE-Proton`
+- `~/.local/share/Steam/compatibilitytools.d/GE-Proton`
+
+That is the ARM-host Proton-GE, not an extra Steam VM. Use it from Lutris:
+
+```bash
+updatehome
+lutris
+```
+
+Add a local game → installer `~/Downloads/Battle.net-Setup.exe` → runner **GE-Proton** (via umu). Then install WoW from Battle.net. Do not pick a random `*-aarch64` Wine that presents as Windows ARM64 — Battle.net will fetch ARM WoW. Nix `proton-ge-bin` is the GloriousEggroll aarch64 Linux build (x86 Windows via its own translation).
+
+Battle.net is still a known hang on this stack (Proton #10011). This Air has 8 GB; the emulation layer can eat several GB. If the kernel OOM-kills Lutris or the prefix:
+
+```bash
+sudo /usr/libexec/fedora-asahi-remix-scripts/setup-swap.sh --recreate 16G
+```
+
+Steam **Browse** under Hyprland/muvm often does nothing (file portal + 0×0 X11 popup). The Steam-side shortcut is still:
 
 ```bash
 # quit Steam fully first
@@ -221,12 +243,6 @@ teonix-steam-add ~/Downloads/Battle.net-Setup.exe "Battle.net Setup"
 steam
 ```
 
-Then Compatibility → Proton 10. Or add any listed app in that dialog and paste the exe path into Properties → Target.
-
-First test a cheap Proton title. Battle.net is a known hang on this stack; WoW Classic is a later test. This Air has 8 GB — the emulation stack itself can eat several GB, so do not treat stutter or OOM here as evidence the M1 Max will be bad. If the kernel OOM-kills Steam:
-
-```bash
-sudo /usr/libexec/fedora-asahi-remix-scripts/setup-swap.sh --recreate 16G
-```
+Then Compatibility → Proton 10. Prefer Lutris + GE-Proton for Battle.net on this machine.
 
 Do not write `~/.fex-emu/Config.json`; muvm owns FEX config.

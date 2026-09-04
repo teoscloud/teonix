@@ -75,6 +75,12 @@ let
         || pkg.hasManpages or false
       );
   };
+
+  # lutris-unwrapped puts libstrangle on PATH (FPS limiter). That package is
+  # x86-only, so the unwrapped GUI still refuses to evaluate on aarch64.
+  lutrisUnwrappedAarch64 = unstable-pkgs.lutris-unwrapped.override {
+    libstrangle = unstable-pkgs.emptyDirectory;
+  };
 in
 
 lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
@@ -149,6 +155,11 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
 
     ################
     # Gaming Tools #
+    # Full lutris is an FHS+multiArch+Steam wrap; that evaluates libstrangle
+    # (x86-only) and breaks aarch64. Use lutris-unwrapped there; x86 gets FHS.
+    # proton-ge-bin.out is a sentinel file (nixpkgs refuses profile install).
+    # The real tree is .steamcompattool, linked from fedora-session.nix.
+    umu-launcher-unwrapped
     vkbasalt
     ################
     baobab
@@ -160,7 +171,6 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
     imv
     spotify
     spotify-tray
-    protontricks
     mangohud
     rustc
     cargo
@@ -308,7 +318,6 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
     cava
     whitesur-icon-theme
     gnome-extension-manager
-    heroic
 
     arrpc
 
@@ -325,3 +334,14 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
     texliveFull
   ]
 )
+++ lib.optionals unstable-pkgs.stdenv.hostPlatform.isx86_64 [
+  # FHS wrap: 32-bit extras + optional Steam. x86 only.
+  unstable-pkgs.lutris
+  unstable-pkgs.protontricks
+  stable-pkgs.heroic
+]
+++ lib.optionals unstable-pkgs.stdenv.hostPlatform.isAarch64 [
+  # GUI only; libstrangle stubbed (x86 FPS limiter). Runners are umu +
+  # proton-ge-bin (linked in fedora-session.nix).
+  lutrisUnwrappedAarch64
+]
