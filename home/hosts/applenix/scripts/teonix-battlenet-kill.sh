@@ -18,7 +18,7 @@ kill_pat() {
   done < <(pgrep -f "$pat" || true)
 }
 for pat in \
-  'WowClassic.exe' \
+  '[Ww]o[Ww]Classic.exe' \
   'Battle.net.exe' \
   'Battle.net-Setup.exe' \
   '/teonix/home/hosts/applenix/scripts/teonix-wow.sh' \
@@ -35,7 +35,7 @@ do
 done
 sleep 0.6
 for pat in \
-  'WowClassic.exe' \
+  '[Ww]o[Ww]Classic.exe' \
   'Battle.net.exe' \
   'Battle.net-Setup.exe' \
   'muvm -- FEXBash' \

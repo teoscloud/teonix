@@ -37,8 +37,6 @@ GUEST_BIN="$DATA/guest-bin"
 GUEST_DIR="$DATA/guest"
 CACHE_DIR="$DATA/cache"
 DXVK_CONF="$DATA/dxvk.conf"
-# Host -> guest one-shot rescue signal. Shared home, so the guest sees it.
-RETRY_FLAG="$DATA/rescue-wow"
 
 mkdir -p "$COMPAT" "$PREFIX" "$INSTALLER_DIR" "$ICONS" "$GUEST_DIR" \
   "$CACHE_DIR/dxvk" "$CACHE_DIR/mesa" "$(dirname "$BNET_LOG")"
@@ -182,6 +180,8 @@ export QSG_RHI_BACKEND=software
 export PROTON_ENABLE_WAYLAND=0
 export DXVK_HUD=0
 export SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
+# NX / NoExec bypass for WowClassic under FEX (FEX #5328 / #5399).
+export FEX_WIN_EXEC_QUERY_FALLBACK_MODE=2
 EOF
   # Quoted: the semicolon used to split this into two commands, silently
   # dropping the locationapi override.
@@ -195,7 +195,9 @@ EOF
     mkdir -p "$DATA/logs"
     printf 'export PROTON_LOG_DIR=%q\n' "$DATA/logs"
     echo 'export PROTON_LOG=1'
-    echo 'export WINEDEBUG=err+all,fixme-all'
+    # TEONIX_WINEDEBUG=+seh gets the exception records behind WoW's silent
+    # "assertion failure exception" exit.
+    printf 'export WINEDEBUG=%q\n' "${TEONIX_WINEDEBUG:-err+all,fixme-all}"
     echo 'export DXVK_LOG_LEVEL=info'
     printf 'export DXVK_LOG_PATH=%q\n' "$DATA/logs"
   fi
@@ -355,9 +357,9 @@ client = data.setdefault("Client", {})
 # CEF on a null D3D pixmap: this is the Blizzard setting, not a Chrome flag.
 client["HardwareAcceleration"] = "false"
 client["AutoStartMinimized"] = "false"
-# "2" = exit Battle.net completely on game launch. This is what frees the
-# launcher's ~1.2 GiB for WowClassic, and it also removes the resident
-# Battle.net.exe/agent.exe that takes running games down when it crashes.
+# "2" = exit on Play. "1" (minimize) was tried at 22:35: WoW started with
+# CEF still at ~1.6 GiB, MemAvailable=0, then "Render process was terminated"
+# and the UI refreshed. Coexistence OOMs the renderer; exit frees it.
 client["GameLaunchWindowBehavior"] = "2"
 client["RestoreWindowOnGameEnd"] = "false"
 client.setdefault("Sound", {})["Enabled"] = "false"
@@ -377,12 +379,9 @@ PY
   bnet_log "wrote $cfg GameLaunchWindowBehavior=2 ${WOW_UID}.AdditionalLaunchArguments=-windowed"
 }
 
-# WoW owns Config.wtf. Writing the whole file from here strips the keys the
-# game cannot start without — textLocale above all — and WoW then throws
-# "assertion failure exception" on startup with no window, no Logs and no
-# Errors, which looks exactly like a failed Play. Merge into the game's own
-# file, and never invent one: WoW writes a complete, valid config on its
-# first run, and hwDetect fills in what this machine can actually do.
+# WoW owns Config.wtf. A generated file without textLocale asserts; a complete
+# seed was tried on Play 21:51 (config_wtf=true) and the same Honeykrisp
+# assertion still fired, so we do not invent one. Merge into the game's file.
 write_wow_classic_config() {
   local wtf="$WOW_CLASSIC_DIR/WTF"
   local cfg="$wtf/Config.wtf"
@@ -460,7 +459,6 @@ write_guest_script() {
     printf 'WOW_DIR=%q\n' "$WOW_CLASSIC_DIR"
     printf 'WOW_UID=%q\n' "$WOW_UID"
     printf 'EXE_DIR=%q\n' "$(dirname "$exe")"
-    printf 'RESCUE=%q\n' "$RETRY_FLAG"
     printf 'LOG=%q\n' "$BNET_LOG"
     printf 'WINE_PREFIX=%q\n' "$PREFIX/pfx"
     printf 'ARGS=('
@@ -469,49 +467,70 @@ write_guest_script() {
     if [[ $hold == 1 ]]; then
       cat <<'EOS'
 
-# One-shot, best-effort rescue, armed by the host only when Play produced no
-# window. It asks Battle.net rather than the game: running WowClassic.exe
-# directly throws "assertion failure exception" on repeat and never maps a
-# window, even with the launcher up and the account signed in, because the
-# game needs the launch token only Play hands it.
+# There is deliberately no automated retry here. Both candidates were
+# measured and neither works:
 #
-# Measured: --exec="launch <uid>" against a launcher still sitting on its
-# login/security-checkpoint window does nothing. Treat this as a free extra
-# attempt, not a fix — the notification tells the user to press Play.
-if [[ -f $WOW ]]; then
-  (
-    tries=0
-    while [[ $tries -lt 900 ]]; do
-      if [[ -f $RESCUE ]]; then
-        rm -f "$RESCUE"
-        echo "teonix: rescue — asking Battle.net to launch $WOW_UID" >>"$LOG"
-        cd "$EXE_DIR" || exit 1
-        "$PROTON" run "$EXE" --exec="launch $WOW_UID" >>"$LOG" 2>&1
-        break
-      fi
-      tries=$((tries + 1))
-      sleep 2
-    done
-  ) &
-fi
-
+#   proton run WowClassic.exe -windowed
+#       throws "assertion failure exception" on repeat and never maps a
+#       window, even with the launcher up and the account signed in — the
+#       game will not start without the launch token Play hands it.
+#   proton run Battle.net.exe --exec="launch <uid>"
+#       never incremented the launcher's own "Launched ...WoWClassic.exe"
+#       count, signed in or not.
+#
+# Play is the only route that starts this game, so a failure is reported and
+# left to the user instead of burning memory on a retry that cannot succeed.
 # Builtins only. The FEX guest's PATH starts with our own guest-bin and the
 # x86 rootfs, so pgrep/tr are not something to bet the launch on.
 proc_running() {
-  local f arg
+  # Case-folded: Battle.net launches the exe as "WoWClassic.exe" even though
+  # the file is WowClassic.exe, so an exact match misses the real process.
+  local f arg needle=${1,,}
   for f in /proc/[0-9]*/cmdline; do
     [[ -r $f ]] || continue
     # NUL-delimited read: $(<cmdline) warns "ignored null byte" per process,
     # which floods the log every poll.
     while IFS= read -rd '' arg; do
+      arg=${arg,,}
       case $arg in
-        *"$1"*) return 0 ;;
+        *"$needle"*) return 0 ;;
       esac
     done <"$f" 2>/dev/null
   done
   return 1
 }
 
+# Play 22:35: CEF still ~1.6 GiB when WowClassic appears; 18s later the
+# renderer was OOM-killed. Drop CEF as soon as the game process exists.
+# Agent.exe stays for the launch token.
+reap_cef_when_wow() {
+  local f arg st name cefpid
+  while :; do
+    for f in /proc/[0-9]*/cmdline; do
+      [[ -r $f ]] || continue
+      while IFS= read -rd '' arg; do
+        case ${arg,,} in
+          *wowclassic.exe*)
+            for st in /proc/[0-9]*/status; do
+              name=$(awk '/^Name:/ { print $2 }' "$st" 2>/dev/null) || continue
+              case $name in
+                CrRendererMain|CrBrowserMain|CrUtilityMain)
+                  cefpid=${st#/proc/}; cefpid=${cefpid%/status}
+                  kill "$cefpid" 2>/dev/null || true
+                  ;;
+              esac
+            done
+            return 0
+            ;;
+        esac
+      done <"$f" 2>/dev/null
+    done
+    sleep 1
+  done
+}
+reap_cef_when_wow &
+
+cd "$EXE_DIR" || true
 "$PROTON" waitforexitandrun "$EXE" "${ARGS[@]}" || true
 
 # Battle.net has exited — on Play that is deliberate
@@ -530,8 +549,8 @@ while :; do
   fi
   # Game has been and gone: drop the guest promptly.
   [[ $seen_game -eq 1 && $idle -ge 5 ]] && break
-  # Game never appeared: hold ~90s so the host's rescue can still land, but
-  # do not let a lingering agent.exe own the guest forever.
+  # Game never appeared: hold a while anyway so a slow start is not cut off,
+  # but do not let a lingering agent.exe own the guest forever.
   [[ $idle -ge 30 ]] && break
   sleep 3
 done
@@ -555,9 +574,12 @@ EOS
 
 guest_running() { teonix_muvm_pid >/dev/null 2>&1; }
 
+# -i is load-bearing: Battle.net logs the path it was configured with,
+# "WoWClassic.exe", while the file on disk is WowClassic.exe. Matching case
+# sensitively found nothing, so the verifier sat out every real launch.
 count_launches() {
   local n
-  n=$(set +o pipefail; grep -h 'Launched .*WowClassic.exe' "$BNET_USER_LOGS"/battle.net-*.log 2>/dev/null | wc -l)
+  n=$(set +o pipefail; grep -hic 'Launched .*WowClassic\.exe' "$BNET_USER_LOGS"/battle.net-*.log 2>/dev/null | paste -sd+ - | bc 2>/dev/null)
   n=${n// /}
   printf '%s' "${n:-0}"
 }
@@ -657,17 +679,15 @@ diagnose_failed_play() {
   fi
 }
 
-# Watch the launcher's own log for Play, then prove a window appeared. One
-# bounded rescue inside the same guest — never a second VM, because
-# -launcherlogin with no launcher hangs forever with no window.
+# Watch the launcher's own log for Play, then prove a window appeared. Report
+# only: see the note in write_guest_script for why there is no retry.
 verify_play() {
   local pre
   pre=$(count_launches)
-  rm -f "$RETRY_FLAG"
   (
     set +e
     seen=$pre
-    rescued=0
+    reported=0
     waited=0
     saw_guest=0
     while ((waited < 3600)); do
@@ -698,11 +718,9 @@ verify_play() {
         continue
       fi
       diagnose_failed_play
-      if ((rescued == 0)); then
-        rescued=1
-        : >"$RETRY_FLAG"
-        bnet_log "rescue: asked the guest for a launcher-side launch"
-        bnet_notify "WoW Classic" "Play did not open a window. Retrying once — if nothing appears, press Play again. Details: teonix-battlenet doctor"
+      if ((reported == 0)); then
+        reported=1
+        bnet_notify "WoW Classic" "The game started and exited without opening a window. Run teonix-battlenet doctor; TEONIX_BNET_DEBUG=1 captures why."
       fi
     done
   ) >>"$BNET_LOG" 2>&1 &
@@ -730,52 +748,21 @@ run_in_guest() {
     echo "Log in and press Play: WoW opens windowed and the launcher closes itself."
     ram_report
     verify_play
-    if [[ ${TEONIX_AUTOPLAY:-0} == 1 ]]; then
-      autoplay_when_logged_in
-    fi
   else
     echo "Starting Battle.net (guest ceiling ${mem} MiB). Log: $BNET_LOG"
     ram_report
   fi
   raise_game_windows
-  muvm --mem="$mem" --vram="$vram" -e DISPLAY \
+  export FEX_WIN_EXEC_QUERY_FALLBACK_MODE=2
+  muvm --mem="$mem" --vram="$vram" -e DISPLAY -e FEX_WIN_EXEC_QUERY_FALLBACK_MODE \
     -- FEXBash -c "exec bash $(printf '%q' "$script")" >>"$BNET_LOG" 2>&1
 }
 
-# Wait for the session, then ask the launcher to start the game, which is the
-# same path the Play button takes.
-autoplay_when_logged_in() {
-  local pre
-  pre=$(count_logins)
-  (
-    set +e
-    waited=0
-    saw_guest=0
-    while ((waited < 900)); do
-      sleep 3
-      waited=$((waited + 3))
-      if guest_running; then
-        saw_guest=1
-      elif ((saw_guest == 1)) || ((waited > 30)); then
-        break
-      fi
-      if (($(count_logins) > pre)); then
-        sleep 4
-        : >"$RETRY_FLAG"
-        bnet_log "autoplay: asked Battle.net to launch $WOW_UID"
-        break
-      fi
-    done
-  ) >>"$BNET_LOG" 2>&1 &
-}
-
-# "Skip the click", not "skip the launcher". WowClassic.exe on its own throws
-# assertion failure exceptions forever and never maps a window, even with the
-# launcher up and the account signed in — the game will not start without the
-# launch token Play gives it. So boot the launcher and, once the session is
-# up, ask it to launch the game. That request is best-effort: if the launcher
-# is still on a login or security-checkpoint window it is ignored, and Play
-# is still the reliable route.
+# There is no way to start this game from a script. WowClassic.exe on its own
+# asserts and never maps a window, and Battle.net.exe --exec="launch <uid>"
+# never launches anything — both measured, signed in, with the launcher up.
+# So this boots the launcher and tells the user to press Play, same as the
+# headline path; it stays as a command because muscle memory expects it.
 run_wow_direct() {
   local launcher
   launcher=$(find_launcher) || {
@@ -786,9 +773,7 @@ run_wow_direct() {
     echo "teonix: WoW Classic is not installed yet — open Battle.net and install it." >&2
     return 1
   }
-  echo "WoW cannot boot without Battle.net — starting the launcher and asking it for the game."
-  echo "If the launcher stops at login or a security checkpoint, finish that and press Play."
-  TEONIX_AUTOPLAY=1
+  echo "WoW only starts from Play — opening Battle.net. Press Play when it is up."
   write_client_config
   write_wow_classic_config
   run_in_guest "$launcher" "${CEF_ARGS[@]}"

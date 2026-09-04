@@ -115,15 +115,13 @@ let
   # Whole directory so wrappers can source teonix-muvm-common.sh / battlenet-lib.
   teonixScripts = ./../scripts;
 
-  # Scripts are copied into the store, so an edit is only live after
-  # `updatehome`. TEONIX_DEV=1 runs the working copy instead, which is the
-  # difference between debugging the code you just wrote and the code from the
-  # last generation.
+  # Prefer the checkout copy so dock/PATH pick up script edits without
+  # TEONIX_DEV. The store copy is the fallback when that file is missing.
   teonixWrapper = { name, script, extra ? "" }: pkgs.writeShellApplication {
     inherit name;
     text = ''
       ${extra}dev="$HOME/teonix/home/hosts/applenix/scripts/${script}"
-      if [ "''${TEONIX_DEV:-0}" = 1 ] && [ -x "$dev" ]; then
+      if [ -x "$dev" ]; then
         exec "$dev" "$@"
       fi
       exec ${teonixScripts}/${script} "$@"
