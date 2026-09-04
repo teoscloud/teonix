@@ -9,6 +9,7 @@
   imports = [
     ./applenix.nix
     ./hosts/applenix/modules/fedora-session.nix
+    ./hosts/applenix/modules/fedora-secrets.nix
     ./hosts/applenix/modules/fedora-zshaliases.nix
   ];
 

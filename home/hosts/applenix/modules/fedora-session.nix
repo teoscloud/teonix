@@ -97,6 +97,12 @@ let
     echo "GBM_BACKENDS_PATH=''${GBM_BACKENDS_PATH:-}"
     echo "exec Hyprland"
 
+    # Secret Service before any client: drop leftover ksecretd, join PAM
+    # gnome-keyring (or start one). See fedora-secrets.nix.
+    if [ -x "$HOME/.nix-profile/bin/teonix-secrets-ensure" ]; then
+      "$HOME/.nix-profile/bin/teonix-secrets-ensure" || true
+    fi
+
     exec ${pkgs.hyprland}/bin/Hyprland "$@"
   '';
 in
@@ -167,8 +173,12 @@ in
         "org.freedesktop.impl.portal.ScreenCast" = [ "hyprland" ];
         "org.freedesktop.impl.portal.Screenshot" = [ "hyprland" ];
         "org.freedesktop.impl.portal.FileChooser" = [ "gtk" ];
+        "org.freedesktop.impl.portal.Secret" = [ "gnome-keyring" ];
       };
-      common.default = [ "hyprland" "gtk" ];
+      common = {
+        default = [ "hyprland" "gtk" ];
+        "org.freedesktop.impl.portal.Secret" = [ "gnome-keyring" ];
+      };
     };
   };
 

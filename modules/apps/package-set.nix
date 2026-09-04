@@ -27,6 +27,22 @@ let
     '';
   };
 
+  # Chromium-family apps probe XDG_CURRENT_DESKTOP and pick KWallet after a
+  # Plasma login. Force gnome-libsecret so they follow gnome-keyring in every DE.
+  withGnomeLibsecret = pkg:
+    unstable-pkgs.symlinkJoin {
+      name = "${pkg.pname or pkg.name}-libsecret";
+      paths = [ pkg ];
+      nativeBuildInputs = [ unstable-pkgs.makeWrapper ];
+      meta = pkg.meta or { };
+      postBuild = ''
+        for b in "$out/bin/"*; do
+          [ -x "$b" ] && [ ! -d "$b" ] || continue
+          wrapProgram "$b" --add-flags "--password-store=gnome-libsecret"
+        done
+      '';
+    };
+
   hyprflow = import ./hyprflow.nix {
     lib = unstable-pkgs.lib;
     rustPlatform = unstable-pkgs.rustPlatform;
@@ -252,9 +268,9 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
     hyprpaper
     hyprpicker
 
-    brave
-    chromium
-    google-chrome
+    (withGnomeLibsecret unstable-pkgs.brave)
+    (withGnomeLibsecret unstable-pkgs.chromium)
+    (withGnomeLibsecret unstable-pkgs.google-chrome)
 
     haskellPackages.asana
     geary

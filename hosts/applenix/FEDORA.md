@@ -26,6 +26,7 @@ The NixOS USB path (`install.sh`, `#applenix`) is unchanged.
 | `identity` | writes `local-identity.nix` from the current login (`$USER`) |
 | `switch` | `nix run nixpkgs#home-manager -- switch --flake path:.#applenix-fedora` |
 | `gpu` | `sudo non-nixos-gpu-setup` — points `/run/opengl-driver` at Nix Mesa (see GPU below) |
+| `keyring` | host `gnome-keyring` + `authselect with-pam-gnome-keyring` so SDDM unlocks secrets for every DE |
 | `session` | one-time: trampoline at `/usr/local/bin/hyprland-nix-session` + SDDM session dir (no more `sudo cp`) |
 
 ```bash
@@ -67,6 +68,23 @@ Two details worth knowing:
 - The greeter execs `Hyprland`, not `start-hyprland`. The latter hard-refuses on non-NixOS unless nixGL is installed, which is a black screen with only a line in the session log.
 
 This Mac splits render and display across two DRM devices — `card*` with the `asahi` driver is render-only (no connectors) and `apple-drm` is the KMS device holding `eDP-1`. Aquamarine picks the KMS one on its own; do not pin `AQ_DRM_DEVICES` to it, or rendering loses the GPU.
+
+---
+
+## Secrets: GNOME Keyring only, never KWallet
+
+Nixbox does this at the NixOS level (`services.gnome.gnome-keyring` + PAM). Fedora has to do the same with the **host** daemon, because only `/usr/lib64/security/pam_gnome_keyring.so` can unlock the login keyring at SDDM.
+
+KDE's `ksecretd` is started by Plasma PAM and stays on the user bus after you switch to Hyprland. Chromium then either talks to KWallet or finds no `org.freedesktop.secrets` — that is the "keyring missing / failed to unlock" popup. teonix:
+
+- installs host `gnome-keyring` + `gnome-keyring-pam` (`fedora.sh` `keyring` step)
+- enables `authselect` feature `with-pam-gnome-keyring` so every greeter login unlocks the login keyring
+- claims `org.freedesktop.secrets` from the user session (`teonix-secrets-ensure`)
+- disables KWallet (`kwalletrc` `Enabled=false`) and no-ops `plasma-kwallet-pam`
+- points the Secret portal at `gnome-keyring`
+- wraps Brave / Chromium / Chrome / Mailspring with `--password-store=gnome-libsecret`
+
+Re-login once after the `keyring` step so PAM can create and unlock `login`. After that, switching Plasma ↔ Hyprland should not prompt.
 
 ---
 

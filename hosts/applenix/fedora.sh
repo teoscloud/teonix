@@ -9,7 +9,7 @@
 # Idempotent: re-run after any failure; finished steps are skipped.
 set -Eeuo pipefail
 
-readonly VERSION=5
+readonly VERSION=6
 readonly SELF="applenix-fedora"
 readonly CURL_CMD="curl -fsSL https://raw.githubusercontent.com/teoscloud/teonix/main/hosts/applenix/fedora.sh | bash"
 readonly FLAKE_ATTR=applenix-fedora
@@ -17,7 +17,7 @@ readonly FLAKE_ATTR=applenix-fedora
 TEONIX_REPO="${TEONIX_REPO:-https://github.com/teoscloud/teonix.git}"
 TEONIX_DIR="${TEONIX_DIR:-$HOME/teonix}"
 
-readonly STEPS=(nix git repo identity switch gpu session)
+readonly STEPS=(nix git repo identity switch gpu keyring session)
 
 say() { printf '%s\n' "$*"; }
 ok() { printf '[ ok ] %s\n' "$*"; }
@@ -96,6 +96,13 @@ probe_session() {
   [[ -x /usr/local/bin/hyprland-nix-session ]] \
     && [[ -f /usr/local/share/wayland-sessions/hyprland-nix.desktop ]] \
     && [[ -f /etc/sddm.conf.d/10-teonix-hyprland.conf ]]
+}
+# Host gnome-keyring + PAM so SDDM unlocks the login keyring for every DE.
+# Nix gnome-keyring cannot hook Fedora PAM; the host daemon is the one that
+# owns org.freedesktop.secrets after login.
+probe_keyring() {
+  rpm -q gnome-keyring gnome-keyring-pam >/dev/null 2>&1 \
+    && authselect current 2>/dev/null | grep -q with-pam-gnome-keyring
 }
 
 step_nix() {
@@ -198,6 +205,16 @@ step_gpu() {
   ok "gpu — $(readlink /run/opengl-driver 2>/dev/null || echo '/run/opengl-driver')"
 }
 
+step_keyring() {
+  runmsg "keyring — host GNOME Keyring + PAM unlock (not KWallet) for every session"
+  sudo dnf install -y gnome-keyring gnome-keyring-pam
+  # SDDM uses password-auth/system-auth; this feature injects pam_gnome_keyring
+  # so the login keyring is created and unlocked with the user password.
+  sudo authselect enable-feature with-pam-gnome-keyring
+  probe_keyring || warn "gnome-keyring PAM feature is not active yet"
+  ok "keyring — gnome-keyring + authselect with-pam-gnome-keyring (re-login to unlock)"
+}
+
 step_session() {
   local user="${TEONIX_USER:-${USER:-$(id -un)}}"
   local trampoline=/usr/local/bin/hyprland-nix-session
@@ -267,8 +284,8 @@ ${SELF} v${VERSION} — Nix + teonix desktop on Asahi Fedora
   ${CURL_CMD}
 
 Fedora does not include Nix. This script installs it, clones teonix, points
-/run/opengl-driver at Nix Mesa, and switches Home Manager to #${FLAKE_ATTR}.
-Re-run after any failure.
+/run/opengl-driver at Nix Mesa, unlocks GNOME Keyring at login, and switches
+Home Manager to #${FLAKE_ATTR}. Re-run after any failure.
 
   … all       every pending step (default)
   … status    checklist

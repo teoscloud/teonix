@@ -24,5 +24,11 @@ fi
 bash "$KILL"
 bash "$MF/scripts/qs-live-ipc.sh" --install-binds || true
 
+# Prefer ~/.config/quickshell when HM already points it at mainframe, so
+# plain `qs ipc` (and live-ipc) both find this instance. Fall back to -p $MF.
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell"
 # Do not pass --no-duplicate: if a leftover survived, -n exits and leaves the old shell.
+if [[ -e $CFG ]] && [[ $(readlink -f "$CFG") == $(readlink -f "$MF") ]]; then
+  exec qs -p "$CFG" -d
+fi
 exec qs -p "$MF" -d
