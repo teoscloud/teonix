@@ -15,7 +15,7 @@ Singleton {
     property string insertTargetAddress: ""
 
     // Bar + dock only on this Hyprland output (hyprctl monitors)
-    property string shellMonitor: "DP-1"
+    property string shellMonitor: "DP-2"
 
     function isShellMonitor(screen) {
         return !!(screen && screen.name === shellMonitor);

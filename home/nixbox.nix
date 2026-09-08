@@ -121,8 +121,13 @@ in
   imports = [
     ./hosts/nixbox/modules/zshaliases.nix  # ✅ Renamed from shell.nix
     ./hosts/nixbox/modules/dotfiles.nix
-    ./hosts/nixbox/modules/hyprflow.nix
   ];
+
+  # Drop leftover hyprflow user units from earlier generations.
+  home.activation.disableHyprflow = config.lib.dag.entryAfter [ "writeBoundary" ] ''
+    systemctl --user stop hyprflow-autosave.timer hyprflow-autosave.service hyprflow-save-on-exit.service 2>/dev/null || true
+    systemctl --user disable --now hyprflow-autosave.timer hyprflow-save-on-exit.service 2>/dev/null || true
+  '';
 
   services.udiskie = {
     enable = true;

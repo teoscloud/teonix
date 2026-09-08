@@ -1,4 +1,4 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, projectdir, ... }:
 
 let
   dotfilesPath = ../dotfiles;
@@ -34,7 +34,6 @@ in {
 
   # ✅ Symlink Hyprland configurations
   home.file.".config/hypr/hyprland.conf".source = "${dotfilesPath}/config/hypr/hyprland.conf";
-  home.file.".config/hyprflow/config.toml".source = "${dotfilesPath}/config/hyprflow/config.toml";
   home.file.".config/hypr/hyprlock.conf".source = "${dotfilesPath}/config/hypr/hyprlock.conf";
   home.file.".config/hypr/hyprpaper.conf".source = "${dotfilesPath}/config/hypr/hyprpaper.conf";
   home.file.".config/hypr/hypridle.conf".source = "${dotfilesPath}/config/hypr/hypridle.conf";
@@ -60,15 +59,19 @@ in {
   home.file.".config/wofi/config".source = "${dotfilesPath}/config/wofi/config";
   home.file.".config/wofi/style.css".source = "${dotfilesPath}/config/wofi/style.css";
 
-  # Quickshell — live out-of-store symlink so `qs -r` picks up edits without HM rebuild
-  home.file.".config/quickshell".source = config.lib.file.mkOutOfStoreSymlink
-    "${config.home.homeDirectory}/teonix/home/hosts/nixbox/dotfiles/config/quickshell";
+  # White Mainframe is the default shell rice (same as applenix).
+  # Glass remains at …/quickshell; switch with qsmainframe / qsglass.
+  home.file.".config/quickshell" = {
+    source = config.lib.file.mkOutOfStoreSymlink
+      "${projectdir}/home/hosts/nixbox/dotfiles/config/quickshell-mainframe";
+    force = true;
+  };
 
   # Equibop / Equicord — live out-of-store so CSS edits apply without HM rebuild.
   # Activation keeps the theme in enabledThemes after Equibop updates.
   home.file.".config/equibop/themes/qsmainframe.theme.css" = {
     source = config.lib.file.mkOutOfStoreSymlink
-      "${config.home.homeDirectory}/teonix/home/hosts/nixbox/dotfiles/config/equibop/themes/qsmainframe.theme.css";
+      "${projectdir}/home/hosts/nixbox/dotfiles/config/equibop/themes/qsmainframe.theme.css";
     force = true;
   };
 
@@ -145,10 +148,6 @@ in {
   };
   home.file.".config/hypr/scripts/ro-type.sh" = {
     source = "${dotfilesPath}/config/hypr/scripts/ro-type.sh";
-    executable = true;
-  };
-  home.file.".config/hypr/scripts/hyprflow-restore-on-login.sh" = {
-    source = "${dotfilesPath}/config/hypr/scripts/hyprflow-restore-on-login.sh";
     executable = true;
   };
   # ✅ Symlink ios font config

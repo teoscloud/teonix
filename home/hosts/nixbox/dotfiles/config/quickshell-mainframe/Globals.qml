@@ -30,7 +30,7 @@ Singleton {
     // nixbox primary — so one mainframe tree serves both hosts.
     readonly property string shellMonitor: {
         const list = Quickshell.screens;
-        const prefer = ["eDP-1", "DP-1", "HDMI-A-1"];
+        const prefer = ["eDP-1", "DP-2", "DP-1", "HDMI-A-1"];
         for (let p = 0; p < prefer.length; p++) {
             for (let i = 0; i < list.length; i++) {
                 if (list[i].name === prefer[p])
