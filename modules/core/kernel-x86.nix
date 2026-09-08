@@ -1,13 +1,16 @@
-{ config, pkgs, username, lib, ... }:
+{ config, pkgs, username, lib, hostname ? "", ... }:
 
 {
   boot = {
-    kernelPackages =
+    # CachyOS + AMD IOMMU are desktop hosts only. #mainframe sets
+    # linuxPackages_latest / intel_iommu in hosts/mainframe/platform.nix.
+    kernelPackages = lib.mkIf (hostname != "mainframe") (
       if pkgs ? linuxPackages_cachyos
       then pkgs.linuxPackages_cachyos
-      else pkgs.linuxPackages;
+      else pkgs.linuxPackages
+    );
 
-    kernelParams = [
+    kernelParams = lib.optionals (hostname != "mainframe") [
       "amd_iommu=on"
       "iommu=pt"
     ];

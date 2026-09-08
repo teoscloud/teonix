@@ -1,0 +1,5 @@
+{ ... }:
+
+{
+  imports = [ ../nixbox/ssh.nix ];
+}

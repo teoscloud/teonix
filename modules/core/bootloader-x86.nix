@@ -1,4 +1,4 @@
-{ config, ... }:
+{ config, lib, hostname ? "", ... }:
 
 {
   boot = {
@@ -12,7 +12,7 @@
       "vfio_iommu_type1"
     ];
 
-    extraModprobeConfig = ''
+    extraModprobeConfig = lib.mkIf (hostname != "mainframe") ''
       options kvm_amd nested=1
       options kvm_amd emulate_invalid_guest_state=0
       options kvm ignore_msrs=1

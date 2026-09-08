@@ -46,10 +46,11 @@
     nixbox_hostname = "nixbox";
     nixtop_hostname = "nixtop";
     applenix_hostname = "applenix";
+    mainframe_hostname = "mainframe";
 
     detectedHostname = builtins.getEnv "HOSTNAME";
     defaultHostname =
-      if builtins.elem detectedHostname [ nixbox_hostname nixtop_hostname applenix_hostname ]
+      if builtins.elem detectedHostname [ nixbox_hostname nixtop_hostname applenix_hostname mainframe_hostname ]
       then detectedHostname
       else "nixos";
 
@@ -203,6 +204,19 @@
         ];
       };
 
+      mainframe = mkNixos {
+        system = "x86_64-linux";
+        hostname = mainframe_hostname;
+        home = ./home/mainframe.nix;
+        extraModules = x86ExtraModules;
+        modules = [
+          ./hosts/mainframe/hardware-configuration.nix
+          ./hosts/mainframe/platform.nix
+          ./hosts/mainframe/ssh.nix
+          ./modules/services/gnome.nix
+        ];
+      };
+
     };
 
     homeConfigurations = {
@@ -228,6 +242,12 @@
         pkgs = armPkgs;
         extraSpecialArgs = mkCommonSpecialArgs "aarch64-linux" // { hostname = applenix_hostname; };
         modules = [ ./home/applenix.nix ];
+      };
+
+      mainframe = home-manager.lib.homeManagerConfiguration {
+        pkgs = x86Pkgs;
+        extraSpecialArgs = mkCommonSpecialArgs "x86_64-linux" // { hostname = mainframe_hostname; };
+        modules = [ ./home/mainframe.nix ];
       };
 
       # Standalone Home Manager on Asahi Fedora (kernel/GPU/audio stay Fedora).

@@ -1,20 +1,26 @@
-{ config, pkgs, stable-pkgs, lib, inputs, system ? "x86_64-linux", ... }:
+{ config, pkgs, stable-pkgs, lib, inputs, system ? "x86_64-linux", hostname ? "", ... }:
 
+let
+  isMainframe = hostname == "mainframe";
+  isX86 = system == "x86_64-linux";
+in
 {
   nix.settings = {
     download-buffer-size = 134217728;
     # Keep cache downloads moderate so they don't saturate disk/network during updates.
     max-substitution-jobs = 4;
 
-    # x86_64 (24-thread / 32G nixbox): conservative desktop-friendly
-    # parallelism, max-jobs × cores ≈ 6 threads worst-case for local compiles,
-    # and the idle CPU/IO policy below still yields to interactive apps.
-    #
-    # aarch64 (applenix): the Asahi kernel and its Rust drivers are the big
-    # local build and they are memory-hungry, so build one derivation at a time
-    # but let it use every core. Two parallel kernel-sized jobs OOM an 8G Mac.
-    max-jobs = if system == "x86_64-linux" then 2 else 1;
-    cores = if system == "x86_64-linux" then 3 else 0;
+    # mainframe (~28c/54t Xeon): 8×6 leaves headroom for Hyprland.
+    # other x86 (nixbox 32G): conservative desktop-friendly ~6 threads.
+    # aarch64 (applenix): one job, all cores — two kernel-sized jobs OOM 8G.
+    max-jobs =
+      if isMainframe then 8
+      else if isX86 then 2
+      else 1;
+    cores =
+      if isMainframe then 6
+      else if isX86 then 3
+      else 0;
 
     experimental-features = [
       "nix-command"
@@ -70,7 +76,12 @@
     IOWeight = 10;
   }
   // (
-    if system == "x86_64-linux" then
+    if isMainframe then
+      {
+        MemoryHigh = "32G";
+        MemoryMax = "48G";
+      }
+    else if isX86 then
       {
         MemoryHigh = "10G"; # start reclaiming early
         MemoryMax = "14G"; # hard cap; keeps headroom for Hyprland/browsers

@@ -15,9 +15,10 @@
       rootless = {
         enable = true;
         setSocketVariable = true;
-        # Desktop docker data lives on the big disk; other hosts keep the default.
-        daemon.settings = lib.mkIf (hostname == "nixbox") {
+        # Big-disk docker data on nixbox / mainframe; other hosts keep the default.
+        daemon.settings = lib.mkIf (hostname == "nixbox" || hostname == "mainframe") {
           data-root = "/home/teodor/mnt/qvo870/dockerdata";
+          features.buildkit = true;
         };
       };
     };
@@ -40,9 +41,11 @@
     #vmware.host.enable = true;
   };
 
-  # Cap Docker (rootless user service) to 16GB so the host doesn't starve
-  systemd.user.services.docker.serviceConfig.MemoryMax = "16G";
-  systemd.user.services.docker.serviceConfig.MemoryHigh = "14G";
+  # Cap rootless Docker so the host doesn't starve (nixbox 32G vs Xeon workstation).
+  systemd.user.services.docker.serviceConfig.MemoryMax =
+    if hostname == "mainframe" then "48G" else "16G";
+  systemd.user.services.docker.serviceConfig.MemoryHigh =
+    if hostname == "mainframe" then "40G" else "14G";
 
   services.udev.extraRules = ''
     # Set permissions for evdev devices to allow read/write for all users

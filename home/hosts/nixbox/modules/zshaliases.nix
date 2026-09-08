@@ -12,7 +12,7 @@ in
     # Desktop-friendly updates: low CPU/IO priority on the client. nix-daemon is also
     # capped (idle sched + max-jobs/cores) in modules/core/nix-settings.nix.
     _nix_nice() { nice -n 19 ionice -c3 "$@"; }
-    _nix_rebuild_opts=(--option max-jobs 2 --option cores 3)
+    _nix_rebuild_opts=(--option max-jobs ${if hostname == "mainframe" then "8" else "2"} --option cores ${if hostname == "mainframe" then "6" else "3"})
     alias systemupdate='cd ${projectdir} && _nix_nice nix flake update && _nix_nice sudo nixos-rebuild switch --flake "path:."#${hostname} --impure "''${_nix_rebuild_opts[@]}" && _nix_nice home-manager switch -b bak --flake "path:."#${hostname}'
     alias updatehome='cd ${projectdir} && _nix_nice home-manager switch -b bak --flake "path:."#${hostname}'
     alias nixupgrade='cd ${projectdir} && _nix_nice sudo nixos-rebuild switch --flake "path:."#${hostname} --impure "''${_nix_rebuild_opts[@]}"'
