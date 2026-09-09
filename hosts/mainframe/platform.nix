@@ -1,8 +1,9 @@
 { pkgs, lib, ... }:
 
 {
-  # Workstation/mainline kernel — not CachyOS. Chaotic overlay stays for packages.
-  boot.kernelPackages = lib.mkForce pkgs.linuxPackages_latest;
+  # Latest LTS from nixpkgs (linuxPackages), not CachyOS and not mainline
+  # linuxPackages_latest. Point releases ride along with flake updates.
+  boot.kernelPackages = lib.mkForce pkgs.linuxPackages;
 
   boot.kernelParams = [
     "intel_iommu=on"
