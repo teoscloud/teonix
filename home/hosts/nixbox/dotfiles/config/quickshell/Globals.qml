@@ -14,8 +14,19 @@ Singleton {
     // Window to receive insert/paste after overlays close (Hyprland address 0x…)
     property string insertTargetAddress: ""
 
-    // Bar + dock only on this Hyprland output (hyprctl monitors)
-    property string shellMonitor: "DP-2"
+    // Bar + dock only on this Hyprland output (hyprctl monitors).
+    // Picked by pixel count, never by connector name, so any panel works in any port.
+    readonly property string shellMonitor: {
+        const list = Quickshell.screens;
+        if (!list.length)
+            return Hyprland.focusedMonitor ? Hyprland.focusedMonitor.name : "";
+        let best = list[0];
+        for (let i = 1; i < list.length; i++) {
+            if (list[i].width * list[i].height > best.width * best.height)
+                best = list[i];
+        }
+        return best.name;
+    }
 
     function isShellMonitor(screen) {
         return !!(screen && screen.name === shellMonitor);

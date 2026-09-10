@@ -213,6 +213,11 @@
           ./hosts/mainframe/hardware-configuration.nix
           ./hosts/mainframe/platform.nix
           ./hosts/mainframe/ssh.nix
+          # Board-level: this chassis has no onboard video, so a dead GPU means
+          # no BIOS access. Keep across GPU swaps.
+          ./hosts/mainframe/gpu-guard.nix
+          # GPU-specific: drop this line when the RX 580 is replaced (see GPU.md).
+          ./hosts/mainframe/gpu-quirks-polaris.nix
           ./modules/services/gnome.nix
         ];
       };

@@ -44,6 +44,13 @@ in {
   home.file.".config/hypr/scripts/install-whitesur-system-icons.sh".source =
     "${dotfilesPath}/config/hypr/scripts/install-whitesur-system-icons.sh";
 
+  # Display safety net: connector-agnostic safe mode, modeset verification and the
+  # zero-output watchdog. See hosts/mainframe/GPU.md.
+  home.file.".config/hypr/scripts/display-safe.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/display-safe.sh";
+    executable = true;
+  };
+
   home.activation.whitesurSystemIcons = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     PATH="${pkgs.python3}/bin:$PATH" \
       bash ${dotfilesPath}/config/hypr/scripts/install-whitesur-system-icons.sh

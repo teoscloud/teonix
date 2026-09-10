@@ -26,18 +26,18 @@ Singleton {
     property string insertTargetAddress: ""
 
     // Bar + dock only on this Hyprland output (hyprctl monitors).
-    // Prefer the laptop panel when present (Asahi Mac), else the usual
-    // nixbox primary — so one mainframe tree serves both hosts.
+    // Picked by pixel count, never by connector name, so any panel works in any
+    // DP/HDMI port and one mainframe tree still serves the laptop (single eDP-1).
     readonly property string shellMonitor: {
         const list = Quickshell.screens;
-        const prefer = ["eDP-1", "DP-2", "DP-1", "HDMI-A-1"];
-        for (let p = 0; p < prefer.length; p++) {
-            for (let i = 0; i < list.length; i++) {
-                if (list[i].name === prefer[p])
-                    return prefer[p];
-            }
+        if (!list.length)
+            return Hyprland.focusedMonitor ? Hyprland.focusedMonitor.name : "";
+        let best = list[0];
+        for (let i = 1; i < list.length; i++) {
+            if (list[i].width * list[i].height > best.width * best.height)
+                best = list[i];
         }
-        return list.length ? list[0].name : "eDP-1";
+        return best.name;
     }
 
     function isShellMonitor(screen) {
