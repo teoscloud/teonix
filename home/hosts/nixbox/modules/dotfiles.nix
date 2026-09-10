@@ -56,6 +56,18 @@ in {
     executable = true;
   };
 
+  # lan-mouse (disabled). Script + config.toml stay in dotfiles for later.
+  # home.file.".config/hypr/scripts/lan-mouse-enter.sh" = {
+  #   source = "${dotfilesPath}/config/hypr/scripts/lan-mouse-enter.sh";
+  #   executable = true;
+  # };
+  # home.activation.lanMouseConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+  #   mkdir -p "$HOME/.config/lan-mouse"
+  #   if [ ! -f "$HOME/.config/lan-mouse/config.toml" ]; then
+  #     cp ${dotfilesPath}/config/lan-mouse/config.toml "$HOME/.config/lan-mouse/config.toml"
+  #   fi
+  # '';
+
   home.activation.whitesurSystemIcons = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     PATH="${pkgs.python3}/bin:$PATH" \
       bash ${dotfilesPath}/config/hypr/scripts/install-whitesur-system-icons.sh

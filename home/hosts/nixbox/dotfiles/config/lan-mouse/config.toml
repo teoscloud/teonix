@@ -1,0 +1,14 @@
+# lan-mouse: this Hyprland host owns the keyboard and sends input to Windows.
+# Super+Ctrl on Linux enters (Hyprland bind, after the keys are released).
+# Super+Ctrl on Windows returns (release_bind). Same chord is safe only because
+# Linux waits for key-up before crossing — otherwise you bounce.
+
+release_bind = [ "KeyLeftMeta", "KeyLeftCtrl" ]
+port = 4242
+
+[[clients]]
+position = "left"
+hostname = "windows"
+activate_on_startup = true
+# After pairing, set the Windows box LAN IP so Mullvad cannot steal the route:
+# ips = ["192.168.x.x"]
