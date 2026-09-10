@@ -25,6 +25,11 @@ Singleton {
     // Window to receive insert/paste after overlays close (Hyprland address 0x…)
     property string insertTargetAddress: ""
 
+    // Set by the main-monitor toggle through the `mainmonitor` IPC handler. It is
+    // deliberately only honoured while the named output is actually connected, so
+    // a stale value after re-cabling can never leave the bar homeless.
+    property string mainMonitorOverride: ""
+
     // Bar + dock only on this Hyprland output (hyprctl monitors).
     // Picked by pixel count, never by connector name, so any panel works in any
     // DP/HDMI port and one mainframe tree still serves the laptop (single eDP-1).
@@ -32,12 +37,25 @@ Singleton {
         const list = Quickshell.screens;
         if (!list.length)
             return Hyprland.focusedMonitor ? Hyprland.focusedMonitor.name : "";
+        if (mainMonitorOverride) {
+            for (let j = 0; j < list.length; j++) {
+                if (list[j].name === mainMonitorOverride)
+                    return mainMonitorOverride;
+            }
+        }
         let best = list[0];
         for (let i = 1; i < list.length; i++) {
             if (list[i].width * list[i].height > best.width * best.height)
                 best = list[i];
         }
         return best.name;
+    }
+
+    // boundShellScreen is sticky by design, so it has to be released when main
+    // moves or every overlay stays behind on the old output.
+    onShellMonitorChanged: {
+        if (boundShellScreen && boundShellScreen.name !== shellMonitor)
+            boundShellScreen = null;
     }
 
     function isShellMonitor(screen) {

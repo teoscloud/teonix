@@ -51,6 +51,11 @@ in {
     executable = true;
   };
 
+  home.file.".config/hypr/scripts/main-monitor.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/main-monitor.sh";
+    executable = true;
+  };
+
   home.activation.whitesurSystemIcons = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     PATH="${pkgs.python3}/bin:$PATH" \
       bash ${dotfilesPath}/config/hypr/scripts/install-whitesur-system-icons.sh

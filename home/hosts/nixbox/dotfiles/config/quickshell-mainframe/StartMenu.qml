@@ -228,17 +228,20 @@ Scope {
                                 { label: "Exit", danger: false, argv: ["hyprctl", "dispatch", "exit"] },
                                 { label: "Sleep", danger: false, argv: ["systemctl", "suspend"] },
                                 { label: "Reboot", danger: true, argv: ["systemctl", "reboot"] },
-                                { label: "Halt", danger: true, argv: ["systemctl", "poweroff"] }
+                                { label: "Shutdown", danger: true, argv: ["systemctl", "poweroff"] }
                             ]
                             delegate: Item {
                                 required property var modelData
-                                width: 56
+                                // Sized to the label so the row still fits the
+                                // 320px panel with a word as long as "Shutdown".
+                                width: Math.max(40, powerLabel.implicitWidth + 14)
                                 height: 36
                                 Rectangle {
                                     anchors.fill: parent
                                     color: pma.containsMouse ? Theme.bgSelected : "transparent"
                                 }
                                 Text {
+                                    id: powerLabel
                                     anchors.centerIn: parent
                                     text: modelData.label
                                     color: modelData.danger ? Theme.danger : Theme.fg

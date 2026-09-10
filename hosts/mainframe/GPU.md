@@ -122,6 +122,58 @@ live on 2026-09-10 with two extra 1080p60 outputs attached. `display-safe.sh`
 never selects a mode above the budget, for any monitor in any port. A GPU swap
 drops the quirks file and with it the ban.
 
+### The greeter is upstream of all that
+
+`display-safe.sh` only exists once a session is running. GDM/mutter comes first
+and would take the ultrawide's EDID-preferred mode — which *is* `5120x1440@120`.
+The only lever mutter offers is `monitors.xml`, so `gpu-quirks-polaris.nix`
+generates one and installs it in both places a modern GDM looks:
+
+- `/etc/xdg/monitors.xml` — the global mutter default, read by the greeter's
+  dynamic user.
+- `/var/lib/gdm/seat0/config/monitors.xml` — GDM 49+ moved the greeter's config
+  to a per-seat directory; written by `teonix-greeter-monitor-pin.service`,
+  ordered before the display manager.
+
+The per-seat file is **generated at boot** by `greeter-monitors.py` from the EDIDs
+actually connected, because a mutter configuration only applies when it lists
+*every* connected monitor — there is no way to pin one panel and let mutter
+improvise the rest. That is what went wrong on 2026-09-10: with three monitors
+attached, the static ultrawide-only pin matched nothing, mutter fell back to its
+own left-to-right guess, and the greeter was laid out across the wrong geometry.
+
+The generator names no monitor, connector or card index. For each connected
+output it picks the largest mode inside the pixel-rate budget, then the refresh
+nearest 60 Hz at that size — that lands on the panel's native timing instead of a
+broadcast 50 Hz entry or a GTF-derived rate the kernel may not actually offer,
+and a mode mutter cannot find would invalidate the whole configuration. The
+largest panel becomes primary at 0,0. So an ultrawide gets its full width, a
+1440p panel gets 1440p, and the refresh ceiling still applies to both.
+
+`/etc/xdg/monitors.xml` remains as a static fallback for the single-ultrawide
+case only. Three things about that fallback file:
+
+- **It names the panel.** Unavoidable: mutter matches on connector plus EDID
+  vendor/product/serial. It is the only such hardcoding in the repo and it is
+  quarantined in the quirks file, so a GPU swap removes it. If the panel itself
+  is replaced, nothing matches and mutter just falls back to its own defaults.
+- **The rate must be exact.** mutter matches stored rates within 0.001 Hz, so a
+  wrong value fails silently and hands the greeter back to the banned mode.
+  Derive it as `pixel clock / (htotal x vtotal)` from `edid-decode`; the same
+  formula reproduces mutter's own `119.999` for the 120 Hz mode, which is how the
+  value was verified.
+- **Only "ultrawide alone" layouts are listed**, once per connector the card can
+  expose. Multi-monitor cases are handled by the generator above, not here.
+
+Connector names move: reseating the card on 2026-09-10 swapped the ultrawide from
+`DP-2` to `DP-1`. Hyprland's `desc:` rules and the generator both absorbed that
+with no changes, which is exactly why neither may ever name a port.
+
+Note that a stale `~/.config/monitors.xml` **overrides** `/etc/xdg` for a GNOME
+session. This machine had one left over from January pinning the ultrawide at
+`239.761` Hz. It is irrelevant under Hyprland, but delete it before ever starting
+a GNOME session.
+
 ## What is in place
 
 ### System (`hosts/mainframe/`)
@@ -197,6 +249,31 @@ atomic commit failed.
 | `save-and-deescalate` | `hypridle` pre-sleep | Remember the layout, then go safe |
 | `restore` | `hypridle` post-sleep | Put the layout back, or go safe if it cannot |
 | `watchdog` | `exec-once` | If every output is ever dark, reload and recover in-session |
+
+`scripts/main-monitor.sh` is the one display script that changes **no** mode, so
+it sits entirely outside the pixel-rate ban. It only moves the *designation* of
+"main": the set of workspaces pinned to main (read live from
+`hyprctl workspacerules`, so the config stays the only place that decides which
+those are) plus Quickshell's bar, dock and overlays (via its `mainmonitor` IPC
+handler). Workspaces that were never pinned to main stay put, so the receiving
+output keeps its own and gains main's on top.
+
+| Command | Used by | Behaviour |
+| --- | --- | --- |
+| `toggle` | `Super+Esc` | Bounce between the current main and the previous one |
+| `next` | `Super+Shift+Esc` | Walk every active output, in EDID-description order |
+| `set SEL` | — | Make a connector name or `desc:` prefix main |
+| `status` | — | Report the current main, the cycle order and main's workspaces |
+
+State lives in `$XDG_RUNTIME_DIR/teonix-display/`, so it never survives a reboot
+and a stale entry is ignored the moment that output stops being connected.
+
+Two sharp edges, both cosmetic. `hyprctl reload` re-reads the config and pins the
+workspace rules back to their configured output, while workspaces already moved
+stay where they are — press the bind again to line things up. And an output left
+with no workspace at all gets a fresh empty one from Hyprland, which takes the
+lowest free number rather than obeying the rules; it holds no windows and is
+destroyed again the moment that output gets a real workspace.
 
 `hypridle`'s `before_sleep_cmd`/`after_sleep_cmd` hook logind's `PrepareForSleep`,
 so they run for **every** suspend, not just idle-triggered ones. That means the

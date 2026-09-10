@@ -48,6 +48,15 @@ ShellRoot {
         function set(id: string): void { Theme.setPalette(id); }
     }
 
+    // Driven by ~/.config/hypr/scripts/main-monitor.sh so the bar, dock and
+    // overlays follow whichever output Hyprland just made main.
+    IpcHandler {
+        target: "mainmonitor"
+        function set(name: string): void { Globals.mainMonitorOverride = name; }
+        function clear(): void { Globals.mainMonitorOverride = ""; }
+        function get(): string { return Globals.shellMonitor; }
+    }
+
     TopStrip {}
     SessionRail {}
     MixerPanel {}

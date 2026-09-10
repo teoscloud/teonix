@@ -9,7 +9,7 @@
 # onboard video, so that also means no BIOS access until a full power drain.
 # Confirmed 2026-09-10: one suspend at 00:14:40 was followed by six boots with
 # zero `pci 0000:05:00.0` lines.
-{ lib, ... }:
+{ lib, pkgs, ... }:
 
 let
   expectedGpu = "1002:67df";
@@ -26,6 +26,71 @@ let
   # live on 2026-09-10 with two extra 1080p60 outputs attached). Drop this file
   # on a GPU upgrade and the ban disappears with it.
   maxPixelRateMps = 500;
+
+  # ---------------------------------------------------------------- greeter pin
+  #
+  # display-safe.sh cannot reach the login greeter: GDM/mutter runs before any
+  # session and would take the ultrawide's EDID-preferred mode, which is exactly
+  # the banned 5120x1440@120. monitors.xml is the only lever mutter offers, and
+  # it matches on connector plus EDID identity — so this is the one place in the
+  # repo that must name a specific panel. It is quarantined here deliberately:
+  # a GPU swap drops this file and the pin disappears with it.
+  #
+  # Only "ultrawide alone" layouts are listed, and that is sufficient rather than
+  # lazy: with any second output attached the GPU refuses 5120x1440@120 outright
+  # (verified 2026-09-10), so the banned mode is only reachable when this panel
+  # is the sole monitor. Every connector the card can expose is enumerated, so
+  # the pin still applies after moving the cable to a different port. If the
+  # panel is ever replaced, nothing matches and mutter simply falls back.
+  ultrawide = {
+    vendor = "SAM";
+    product = "LC49G95T";
+    serial = "H4ZN900468";
+    width = 5120;
+    height = 1440;
+    # 469000 kHz / (5280 x 1481) = 59.9769 Hz. mutter matches stored rates within
+    # 0.001 Hz, so this value has to stay exact or the pin silently stops
+    # matching and the greeter falls back to the banned mode. The same formula
+    # reproduces mutter's own 119.999 for the 120 Hz mode, which is how it was
+    # checked. Recompute from `edid-decode` if the panel or its firmware changes.
+    rate = "59.977";
+  };
+
+  connectors = [
+    "DP-1" "DP-2" "DP-3" "DP-4"
+    "HDMI-A-1" "HDMI-A-2" "HDMI-A-3"
+    "DVI-D-1" "DVI-I-1"
+  ];
+
+  configFor = connector: ''
+      <configuration>
+        <layoutmode>logical</layoutmode>
+        <logicalmonitor>
+          <x>0</x>
+          <y>0</y>
+          <scale>1</scale>
+          <primary>yes</primary>
+          <monitor>
+            <monitorspec>
+              <connector>${connector}</connector>
+              <vendor>${ultrawide.vendor}</vendor>
+              <product>${ultrawide.product}</product>
+              <serial>${ultrawide.serial}</serial>
+            </monitorspec>
+            <mode>
+              <width>${toString ultrawide.width}</width>
+              <height>${toString ultrawide.height}</height>
+              <rate>${ultrawide.rate}</rate>
+            </mode>
+          </monitor>
+        </logicalmonitor>
+      </configuration>
+  '';
+
+  monitorsXml = pkgs.writeText "teonix-greeter-monitors.xml" ''
+    <monitors version="2">
+    ${lib.concatMapStrings configFor connectors}</monitors>
+  '';
 in
 {
   # Deterministic early KMS: load amdgpu from the initrd instead of relying on udev
@@ -55,6 +120,44 @@ in
     TEONIX_MAX_REFRESH_MULTI_OUTPUT=${toString maxRefreshMultiOutput}
     TEONIX_MAX_PIXEL_RATE_MPS=${toString maxPixelRateMps}
   '';
+
+  # Static fallback for the single-ultrawide case, in case the generated per-seat
+  # file below is ever not picked up. Only the ultrawide is named here; other
+  # panels are left entirely to mutter.
+  environment.etc."xdg/monitors.xml".source = monitorsXml;
+
+  # GDM 49+ moved the greeter's config into a per-seat directory owned by a
+  # dynamic user, so /etc/xdg alone is not guaranteed to win. Place the same file
+  # in both locations rather than betting on one. Ordered before the greeter
+  # starts; deliberately does not touch the ownership or mode of GDM's own
+  # directory, only the entry inside it.
+  #
+  # The per-seat file is *generated* rather than static, because a mutter config
+  # only applies when it lists every connected monitor — there is no way to pin
+  # one panel and let mutter improvise the rest. So the greeter config is built
+  # at boot from the EDIDs actually present: no monitor, connector or card index
+  # is named anywhere, each panel gets its own largest mode inside the pixel-rate
+  # budget, and the biggest panel becomes primary at 0,0. An ultrawide therefore
+  # gets its full width instead of mutter guessing, and a 1440p panel gets 1440p,
+  # with the refresh ceiling still applied.
+  #
+  # Regenerated on every greeter start (RemainAfterExit is off), so a config
+  # mutter might write for itself never survives.
+  systemd.services.teonix-greeter-monitor-pin = {
+    description = "Generate a greeter monitor layout this GPU can survive";
+    wantedBy = [ "display-manager.service" ];
+    before = [ "display-manager.service" ];
+    path = with pkgs; [ python3 edid-decode ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = false;
+    };
+    script = ''
+      install -d -m 0755 /var/lib/gdm/seat0
+      [ -d /var/lib/gdm/seat0/config ] || install -d -m 0700 /var/lib/gdm/seat0/config
+      python3 ${./greeter-monitors.py} /var/lib/gdm/seat0/config/monitors.xml
+    '';
+  };
 
   # Tell us when these quirks outlive the card they were written for.
   systemd.services.teonix-gpu-quirks-staleness = {
