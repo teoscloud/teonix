@@ -9,7 +9,7 @@
 # onboard video, so that also means no BIOS access until a full power drain.
 # Confirmed 2026-09-10: one suspend at 00:14:40 was followed by six boots with
 # zero `pci 0000:05:00.0` lines.
-{ lib, pkgs, ... }:
+{ ... }:
 
 let
   expectedGpu = "1002:67df";
@@ -27,70 +27,6 @@ let
   # on a GPU upgrade and the ban disappears with it.
   maxPixelRateMps = 500;
 
-  # ---------------------------------------------------------------- greeter pin
-  #
-  # display-safe.sh cannot reach the login greeter: GDM/mutter runs before any
-  # session and would take the ultrawide's EDID-preferred mode, which is exactly
-  # the banned 5120x1440@120. monitors.xml is the only lever mutter offers, and
-  # it matches on connector plus EDID identity — so this is the one place in the
-  # repo that must name a specific panel. It is quarantined here deliberately:
-  # a GPU swap drops this file and the pin disappears with it.
-  #
-  # Only "ultrawide alone" layouts are listed, and that is sufficient rather than
-  # lazy: with any second output attached the GPU refuses 5120x1440@120 outright
-  # (verified 2026-09-10), so the banned mode is only reachable when this panel
-  # is the sole monitor. Every connector the card can expose is enumerated, so
-  # the pin still applies after moving the cable to a different port. If the
-  # panel is ever replaced, nothing matches and mutter simply falls back.
-  ultrawide = {
-    vendor = "SAM";
-    product = "LC49G95T";
-    serial = "H4ZN900468";
-    width = 5120;
-    height = 1440;
-    # 469000 kHz / (5280 x 1481) = 59.9769 Hz. mutter matches stored rates within
-    # 0.001 Hz, so this value has to stay exact or the pin silently stops
-    # matching and the greeter falls back to the banned mode. The same formula
-    # reproduces mutter's own 119.999 for the 120 Hz mode, which is how it was
-    # checked. Recompute from `edid-decode` if the panel or its firmware changes.
-    rate = "59.977";
-  };
-
-  connectors = [
-    "DP-1" "DP-2" "DP-3" "DP-4"
-    "HDMI-A-1" "HDMI-A-2" "HDMI-A-3"
-    "DVI-D-1" "DVI-I-1"
-  ];
-
-  configFor = connector: ''
-      <configuration>
-        <layoutmode>logical</layoutmode>
-        <logicalmonitor>
-          <x>0</x>
-          <y>0</y>
-          <scale>1</scale>
-          <primary>yes</primary>
-          <monitor>
-            <monitorspec>
-              <connector>${connector}</connector>
-              <vendor>${ultrawide.vendor}</vendor>
-              <product>${ultrawide.product}</product>
-              <serial>${ultrawide.serial}</serial>
-            </monitorspec>
-            <mode>
-              <width>${toString ultrawide.width}</width>
-              <height>${toString ultrawide.height}</height>
-              <rate>${ultrawide.rate}</rate>
-            </mode>
-          </monitor>
-        </logicalmonitor>
-      </configuration>
-  '';
-
-  monitorsXml = pkgs.writeText "teonix-greeter-monitors.xml" ''
-    <monitors version="2">
-    ${lib.concatMapStrings configFor connectors}</monitors>
-  '';
 in
 {
   # Deterministic early KMS: load amdgpu from the initrd instead of relying on udev
@@ -121,138 +57,29 @@ in
     TEONIX_MAX_PIXEL_RATE_MPS=${toString maxPixelRateMps}
   '';
 
-  # Static fallback for the single-ultrawide case, in case the generated per-seat
-  # file below is ever not picked up. Only the ultrawide is named here; other
-  # panels are left entirely to mutter.
-  environment.etc."xdg/monitors.xml".source = monitorsXml;
-
-  # GDM 49+ moved the greeter's config into a per-seat directory owned by a
-  # dynamic user, so /etc/xdg alone is not guaranteed to win. Place the same file
-  # in both locations rather than betting on one. Ordered before the greeter
-  # starts; deliberately does not touch the ownership or mode of GDM's own
-  # directory, only the entry inside it.
+  # The greeter must have NO stored monitors.xml — ever. Proven across six boots
+  # on 2026-09-10: every stored config that matched the connected monitors left
+  # the login screen black with endless "Page flip failed: drmModeAtomicCommit:
+  # Invalid argument", regardless of what it pinned (three outputs at 5120,
+  # the ultrawide alone at 5120, at 2560, even a single 1080p60 panel — 104 to
+  # 170 failures each). With no matching config, mutter negotiates its own
+  # layout and that worked every time, including with all three monitors
+  # attached (0 failures at 13:38). Mutter treats a stored config as policy and
+  # hammers a commit this amdgpu/DCE 11.2 combination rejects; its own layout it
+  # degrades until something sticks. So the fix is the absence of a file.
   #
-  # The per-seat file is *generated* rather than static, because a mutter config
-  # only applies when it lists every connected monitor — there is no way to pin
-  # one panel and let mutter improvise the rest. So the greeter config is built
-  # at boot from the EDIDs actually present: no monitor, connector or card index
-  # is named anywhere, each panel gets its own largest mode inside the pixel-rate
-  # budget, and the biggest panel becomes primary at 0,0. An ultrawide therefore
-  # gets its full width instead of mutter guessing, and a 1440p panel gets 1440p,
-  # with the refresh ceiling still applied.
-  #
-  # Regenerated on every greeter start (RemainAfterExit is off), so a config
-  # mutter might write for itself never survives.
-  systemd.services.teonix-greeter-monitor-pin = {
-    description = "Generate a greeter monitor layout this GPU can survive";
+  # This runs every greeter start (RemainAfterExit off): the file persists on
+  # disk between boots, and mutter can write one of its own.
+  systemd.services.teonix-greeter-unpin = {
+    description = "Remove stored greeter monitor configs (mutter must improvise on this GPU)";
     wantedBy = [ "display-manager.service" ];
     before = [ "display-manager.service" ];
-    path = with pkgs; [ python3 edid-decode ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = false;
     };
     script = ''
-      # Set by the watchdog below after it throws a layout mutter could not
-      # commit. Regenerating the same file would undo the repair, so for the rest
-      # of this boot the greeter is mutter's problem.
-      if [ -e /run/teonix/greeter-no-pin ]; then
-        echo "greeter repair in effect this boot; not generating a layout"
-        exit 0
-      fi
-      install -d -m 0755 /var/lib/gdm/seat0
-      [ -d /var/lib/gdm/seat0/config ] || install -d -m 0700 /var/lib/gdm/seat0/config
-      python3 ${./greeter-monitors.py} /var/lib/gdm/seat0/config/monitors.xml
-    '';
-  };
-
-  # Last resort. Mutter forces a stored layout even when it cannot commit it, and
-  # the result is a black login screen whose only escape is unplugging a cable —
-  # which is exactly what happened on 2026-09-10. If page flips are still failing
-  # well after the greeter came up, and nobody has managed to log in, throw the
-  # generated layout away and hand the greeter back to mutter's own logic, which
-  # downgrades until it finds something the card will take.
-  #
-  # Two guards keep this from ever disturbing a working session: it acts only
-  # while no session of Class=user exists (checked twice, the second time
-  # immediately before acting), and at most once per boot. The worst a false
-  # positive can cost is one restart of a greeter nobody was using.
-  #
-  # The trigger is the count since boot, deliberately not the recent rate. A black
-  # greeter goes quiet: 57 of the 170 failures on 2026-09-10 landed in the first
-  # eight seconds and then stopped, because a static screen has nothing to repaint,
-  # so a "still failing right now" test reads zero on a screen that is stone dead.
-  # The counts separate cleanly anyway — 170 and 103 on the two broken boots
-  # against 6 on a boot mutter fixed by itself — so 25 sits in open water.
-  systemd.services.teonix-greeter-watchdog = {
-    description = "Recover the login greeter if this GPU cannot commit its layout";
-    wantedBy = [ "display-manager.service" ];
-    after = [ "display-manager.service" ];
-    path = with pkgs; [ systemd coreutils gnugrep gawk ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = false;
-    };
-    script = ''
-      flag=/run/teonix/greeter-repaired
-      stand_down=/run/teonix/greeter-no-pin
-      pin=/var/lib/gdm/seat0/config/monitors.xml
-
-      if [ -e "$flag" ]; then
-        echo "greeter already repaired this boot; standing by"
-        exit 0
-      fi
-
-      user_session() {
-        for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
-          if [ "$(loginctl show-session "$s" -p Class --value 2>/dev/null)" = "user" ]; then
-            return 0
-          fi
-        done
-        return 1
-      }
-
-      # Let the greeter come up and settle before judging it.
-      sleep 25
-
-      if user_session; then
-        echo "someone is logged in; the greeter did its job"
-        exit 0
-      fi
-      if [ ! -f "$pin" ]; then
-        echo "no pinned layout to blame"
-        exit 0
-      fi
-
-      failures="$(journalctl -b -t gnome-shell --no-pager 2>/dev/null \
-        | grep -c 'Page flip failed' || true)"
-      if [ "''${failures:-0}" -lt 25 ]; then
-        echo "greeter healthy ($failures page-flip failures this boot)"
-        exit 0
-      fi
-
-      if user_session; then
-        echo "a session appeared while checking; leaving the greeter alone"
-        exit 0
-      fi
-
-      install -d -m 0755 /run/teonix
-      : > "$stand_down"
-      rm -f "$pin"
-      # The static single-panel fallback could fail the same way, so this boot
-      # gets no stored configuration at all. Activation restores it.
-      rm -f /etc/xdg/monitors.xml
-      cat > "$flag" <<'EOF'
-      teonix: the login greeter could not commit its pinned monitor layout, so the
-      teonix: layout was removed and GDM restarted once. See GPU.md, "Why the
-      teonix: greeter only drives one monitor". A reboot tries the layout again.
-      EOF
-      chmod 0644 "$flag"
-
-      echo "greeter failed $failures page flips with nobody logged in; dropping $pin and restarting the display manager"
-      # --no-block: restarting the unit we are ordered after would otherwise have
-      # us waiting on a job that is waiting on us.
-      systemctl restart --no-block display-manager.service
+      rm -f /var/lib/gdm/seat0/config/monitors.xml
     '';
   };
 
@@ -300,13 +127,9 @@ in
     '';
   };
 
-  # Surface this module's notices at login (mainframe only — both files are
-  # written by services above, which disappear with this module).
+  # Surface the staleness notice at login (mainframe only — the file is written
+  # by the service above, which disappears with this module).
   environment.interactiveShellInit = ''
-    for _qf in /run/teonix/gpu-quirks-stale /run/teonix/greeter-repaired; do
-      [ -f "$_qf" ] && cat "$_qf"
-    done
-    unset _qf
-    true
+    [ -f /run/teonix/gpu-quirks-stale ] && cat /run/teonix/gpu-quirks-stale || true
   '';
 }

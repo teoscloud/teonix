@@ -122,111 +122,43 @@ live on 2026-09-10 with two extra 1080p60 outputs attached. `display-safe.sh`
 never selects a mode above the budget, for any monitor in any port. A GPU swap
 drops the quirks file and with it the ban.
 
-### The greeter is upstream of all that
+### The greeter: NEVER give mutter a stored monitors.xml
 
-`display-safe.sh` only exists once a session is running. GDM/mutter comes first
-and would take the ultrawide's EDID-preferred mode — which *is* `5120x1440@120`.
-The only lever mutter offers is `monitors.xml`, so `gpu-quirks-polaris.nix`
-generates one and installs it in both places a modern GDM looks:
+**Hard rule, written in six boots of scar tissue (2026-09-10): any stored
+`monitors.xml` that matches the connected monitors leaves the login screen
+black. Mutter's own improvised layout always works.** `teonix-greeter-unpin`
+deletes `/var/lib/gdm/seat0/config/monitors.xml` before every greeter start,
+and nothing installs `/etc/xdg/monitors.xml`. That absence *is* the greeter
+configuration.
 
-- `/etc/xdg/monitors.xml` — the global mutter default, read by the greeter's
-  dynamic user.
-- `/var/lib/gdm/seat0/config/monitors.xml` — GDM 49+ moved the greeter's config
-  to a per-seat directory; written by `teonix-greeter-monitor-pin.service`,
-  ordered before the display manager.
+| Boot | Stored config the greeter saw | Page-flip failures | Result |
+| --- | --- | --- | --- |
+| 13:24 | ultrawide-only pin, matched nothing (3 monitors attached) | 6 | worked |
+| 13:38 | same non-matching pin → mutter improvised | 0 | worked, all 3 attached |
+| 14:24 | generated: 3 outputs, G9 at 5120 | 170 | black |
+| 14:57 | generated: G9 only, 5120 | 114 | black |
+| 15:14 | generated: G9 only, 2560 | 104 | black |
+| 15:36 | generated: Samsung 27 only, plain 1920x1080@60 | 110 | black |
 
-The per-seat file is **generated at boot** by `greeter-monitors.py` from the EDIDs
-actually connected, because a mutter configuration only applies when it lists
-*every* connected monitor — there is no way to pin one panel and let mutter
-improvise the rest. That is what went wrong on 2026-09-10: with three monitors
-attached, the static ultrawide-only pin matched nothing, mutter fell back to its
-own left-to-right guess, and the greeter was laid out across the wrong geometry.
+The last row kills every mode theory: a single 1080p60 output is the most
+trivial commit that exists and it still failed
+(`Page flip failed: drmModeAtomicCommit: Invalid argument`, forever). Resolution,
+refresh, panel choice, output count — all irrelevant. What matters is *how* the
+layout was chosen: mutter treats a stored config as policy and hammers a commit
+this amdgpu/DCE 11.2 combination rejects, but a layout it negotiated itself gets
+degraded until something sticks. A watchdog that restarted GDM after a failure
+was tried and did not help — mutter just forced the stored config again.
 
-The generator names no monitor, connector or card index. For each connected
-output it picks the largest mode inside the pixel-rate budget, then the refresh
-nearest 60 Hz at that size — that lands on the panel's native timing instead of a
-broadcast 50 Hz entry or a GTF-derived rate the kernel may not actually offer,
-and a mode mutter cannot find would invalidate the whole configuration.
-
-**The greeter gets exactly one output**, the largest panel, with every other
-connected monitor listed under `<disabled>`. So an ultrawide gets its full width
-with the prompt dead centre, a 1440p panel gets 1440p, the refresh ceiling
-applies either way, and the rest of the desk lights up a second later when the
-session starts.
-
-### Why the greeter only drives one monitor
-
-The first version enabled every connected output, and on 2026-09-10 that left the
-login prompt on a completely black desk with all three monitors attached. Mutter
-accepted the modeset and then failed *every* page flip:
-
-```
-gnome-shell[2361]: Added device '/dev/dri/card1' (amdgpu) using atomic mode setting.
-gnome-shell[2361]: Page flip failed: drmModeAtomicCommit: Invalid argument   (x hundreds)
-gnome-shell[2361]: Failed to post KMS update: drmModeAtomicCommit: Invalid argument
-```
-
-Unplugging the ultrawide's DisplayPort made the greeter appear on another panel;
-plugging it back in after logging into Hyprland was fine. The kernel logs for
-that boot and the previous one are equivalent — same card, same connectors, no
-DRM errors — so this is not the card giving out. Hyprland drives those same three
-outputs at those same modes without complaint, because it commits each output
-separately; mutter commits all CRTCs in one atomic update, and this DCE 11.2 part
-rejects the combined one.
-
-The reason a bad layout is fatal rather than merely ugly: mutter treats a *stored*
-configuration as policy and forces it, while a layout it picked itself gets
-downgraded until it works. The boot before this one had the old ultrawide-only pin
-that matched nothing, so mutter improvised, recovered on its own, and produced a
-greeter that was merely off-centre. Handing mutter a three-output config removed
-its licence to back off. One output removes the failing commit entirely.
-
-### The greeter repairs itself
-
-`teonix-greeter-watchdog.service` starts with the display manager, waits 25
-seconds, and if the greeter is wedged it deletes the generated layout, deletes the
-static `/etc/xdg` fallback for the rest of the boot, and restarts GDM once —
-handing the greeter back to mutter's own logic, which downgrades until it finds
-something the card will take. `teonix-greeter-monitor-pin` sees the stand-down
-marker on the way back up and does not regenerate the file it just lost. A note is
-left in `/run/teonix/greeter-repaired` and printed at the next interactive shell.
-Both files live in `/run`, so a reboot tries the pinned layout again.
-
-Two guards make it unable to disturb a working session: it acts only while no
-session of `Class=user` exists — checked once after the wait and again immediately
-before acting — and at most once per boot. The worst a false positive can cost is
-one restart of a greeter nobody was using.
-
-The trigger is the **count of page-flip failures since boot**, not the recent
-rate, and that distinction matters: a black greeter goes quiet. Of the 170
-failures on 2026-09-10, 57 landed in the first eight seconds and then stopped,
-because a static screen has nothing to repaint — so "is it still failing right
-now?" reads zero on a screen that is stone dead. Replayed against the journal, the
-threshold of 25 fires on both black boots (170 and 103) and stays silent on the
-healthy one (0) and the one mutter fixed by itself (6).
-
-Manual recovery, should it ever be needed: `Ctrl+Alt+F3` to a console, then
-`rm /var/lib/gdm/seat0/config/monitors.xml && systemctl restart display-manager`.
-No cable needs unplugging.
-
-`/etc/xdg/monitors.xml` remains as a static fallback for the single-ultrawide
-case only. Three things about that fallback file:
-
-- **It names the panel.** Unavoidable: mutter matches on connector plus EDID
-  vendor/product/serial. It is the only such hardcoding in the repo and it is
-  quarantined in the quirks file, so a GPU swap removes it. If the panel itself
-  is replaced, nothing matches and mutter just falls back to its own defaults.
-- **The rate must be exact.** mutter matches stored rates within 0.001 Hz, so a
-  wrong value fails silently and hands the greeter back to the banned mode.
-  Derive it as `pixel clock / (htotal x vtotal)` from `edid-decode`; the same
-  formula reproduces mutter's own `119.999` for the 120 Hz mode, which is how the
-  value was verified.
-- **Only "ultrawide alone" layouts are listed**, once per connector the card can
-  expose. Multi-monitor cases are handled by the generator above, not here.
+The original fear behind pinning — that improvised mutter would commit the
+banned `5120x1440@120` — never materialised: every unpinned boot (all of them
+before 13:07, plus 13:24 and 13:38) came up fine, and the kernel refuses
+over-budget multi-output combos on its own. The greeter dialog may sit
+off-centre on the ultrawide; that is cosmetic and is the price of a login
+screen that displays.
 
 Connector names move: reseating the card on 2026-09-10 swapped the ultrawide from
-`DP-2` to `DP-1`. Hyprland's `desc:` rules and the generator both absorbed that
-with no changes, which is exactly why neither may ever name a port.
+`DP-2` to `DP-1`. Hyprland's `desc:` rules absorbed that with no changes, which
+is exactly why nothing may ever name a port.
 
 Note that a stale `~/.config/monitors.xml` **overrides** `/etc/xdg` for a GNOME
 session. This machine had one left over from January pinning the ultrawide at
