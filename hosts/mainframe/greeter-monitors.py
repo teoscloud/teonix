@@ -3,8 +3,19 @@
 #
 # Nothing here names a monitor, a connector or a card index: outputs come from
 # sysfs, identity and timings come from the EDID, and the mode is chosen under
-# the same pixel-rate budget display-safe.sh uses. The largest panel becomes
-# primary at its biggest allowed mode, the rest keep their own native mode.
+# the same pixel-rate budget display-safe.sh uses.
+#
+# The greeter gets exactly ONE output — the largest panel, at its biggest allowed
+# mode — and every other connected monitor is listed as disabled. Mutter cannot
+# drive this card's three-output layout: with the ultrawide plus two 1080p panels
+# it accepted the modeset and then failed every page flip
+# ("drmModeAtomicCommit: Invalid argument"), leaving all screens black at the
+# login prompt on 2026-09-10. Hyprland runs the same three outputs happily, so
+# this is a mutter/DCE 11.2 limit, not a bandwidth ceiling — and a stored config
+# is treated as policy, so mutter forces it instead of falling back the way it
+# does with a layout of its own choosing. One output is the whole fix: fewest
+# CRTCs, fewest planes, and the prompt lands dead centre on the big panel.
+# Everything else lights up a second later when the session starts.
 
 import glob
 import os
@@ -101,47 +112,60 @@ def collect():
     return found
 
 
-def build(monitors, budget):
+def plan(monitors, budget):
+    """[(monitor, mode)], largest panel first. None if any output has no mode."""
     chosen = []
     for mon in monitors:
         mode = best_mode(mon["modes"], budget)
         if mode is None:
             return None
         chosen.append((mon, mode))
+    chosen.sort(key=lambda c: (c[1][0] * c[1][1], c[0]["connector"]), reverse=True)
+    return chosen
 
-    # Largest panel is primary and anchors the layout at 0,0; the others follow
-    # to its right, which is also mutter's own convention.
-    chosen.sort(key=lambda c: c[1][0] * c[1][1], reverse=True)
+
+def spec(mon, indent):
+    pad = " " * indent
+    return [
+        pad + "<monitorspec>",
+        pad + "  <connector>%s</connector>" % mon["connector"],
+        pad + "  <vendor>%s</vendor>" % mon["vendor"],
+        pad + "  <product>%s</product>" % mon["product"],
+        pad + "  <serial>%s</serial>" % mon["serial"],
+        pad + "</monitorspec>",
+    ]
+
+
+def build(chosen):
+    mon, (w, h, r) = chosen[0]
 
     out = ['<monitors version="2">', "  <configuration>",
-           "    <layoutmode>logical</layoutmode>"]
-    x = 0
-    for index, (mon, (w, h, r)) in enumerate(chosen):
-        out += [
-            "    <logicalmonitor>",
-            "      <x>%d</x>" % x,
-            "      <y>0</y>",
-            "      <scale>1</scale>",
-        ]
-        if index == 0:
-            out.append("      <primary>yes</primary>")
-        out += [
-            "      <monitor>",
-            "        <monitorspec>",
-            "          <connector>%s</connector>" % mon["connector"],
-            "          <vendor>%s</vendor>" % mon["vendor"],
-            "          <product>%s</product>" % mon["product"],
-            "          <serial>%s</serial>" % mon["serial"],
-            "        </monitorspec>",
-            "        <mode>",
-            "          <width>%d</width>" % w,
-            "          <height>%d</height>" % h,
-            "          <rate>%.3f</rate>" % r,
-            "        </mode>",
-            "      </monitor>",
-            "    </logicalmonitor>",
-        ]
-        x += w
+           "    <layoutmode>logical</layoutmode>",
+           "    <logicalmonitor>",
+           "      <x>0</x>",
+           "      <y>0</y>",
+           "      <scale>1</scale>",
+           "      <primary>yes</primary>",
+           "      <monitor>"]
+    out += spec(mon, 8)
+    out += [
+        "        <mode>",
+        "          <width>%d</width>" % w,
+        "          <height>%d</height>" % h,
+        "          <rate>%.3f</rate>" % r,
+        "        </mode>",
+        "      </monitor>",
+        "    </logicalmonitor>",
+    ]
+
+    # A stored configuration only applies if it accounts for every connected
+    # monitor, so the ones the greeter leaves dark have to be named here.
+    if len(chosen) > 1:
+        out.append("    <disabled>")
+        for rest, _ in chosen[1:]:
+            out += spec(rest, 6)
+        out.append("    </disabled>")
+
     out += ["  </configuration>", "</monitors>", ""]
     return "\n".join(out)
 
@@ -153,11 +177,12 @@ def main():
         print("no connected outputs with a usable EDID; leaving greeter alone",
               file=sys.stderr)
         return 0
-    xml = build(monitors, budget)
-    if xml is None:
+    chosen = plan(monitors, budget)
+    if chosen is None:
         print("no mode within the pixel budget; leaving greeter alone",
               file=sys.stderr)
         return 0
+    xml = build(chosen)
 
     target = sys.argv[1] if len(sys.argv) > 1 else "-"
     if target == "-":
@@ -170,11 +195,12 @@ def main():
         fh.write(xml)
     os.chmod(tmp, 0o644)
     os.replace(tmp, target)
-    for mon, mode in sorted(
-        ((m, best_mode(m["modes"], budget)) for m in monitors),
-        key=lambda c: c[1][0] * c[1][1], reverse=True,
-    ):
-        print("greeter: %s %dx%d@%.3f" % (mon["connector"], mode[0], mode[1], mode[2]))
+    for index, (mon, mode) in enumerate(chosen):
+        if index == 0:
+            print("greeter: %s %dx%d@%.3f" % (
+                mon["connector"], mode[0], mode[1], mode[2]))
+        else:
+            print("greeter: %s off until the session starts" % mon["connector"])
     return 0
 
 

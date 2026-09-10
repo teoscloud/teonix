@@ -146,9 +146,68 @@ The generator names no monitor, connector or card index. For each connected
 output it picks the largest mode inside the pixel-rate budget, then the refresh
 nearest 60 Hz at that size — that lands on the panel's native timing instead of a
 broadcast 50 Hz entry or a GTF-derived rate the kernel may not actually offer,
-and a mode mutter cannot find would invalidate the whole configuration. The
-largest panel becomes primary at 0,0. So an ultrawide gets its full width, a
-1440p panel gets 1440p, and the refresh ceiling still applies to both.
+and a mode mutter cannot find would invalidate the whole configuration.
+
+**The greeter gets exactly one output**, the largest panel, with every other
+connected monitor listed under `<disabled>`. So an ultrawide gets its full width
+with the prompt dead centre, a 1440p panel gets 1440p, the refresh ceiling
+applies either way, and the rest of the desk lights up a second later when the
+session starts.
+
+### Why the greeter only drives one monitor
+
+The first version enabled every connected output, and on 2026-09-10 that left the
+login prompt on a completely black desk with all three monitors attached. Mutter
+accepted the modeset and then failed *every* page flip:
+
+```
+gnome-shell[2361]: Added device '/dev/dri/card1' (amdgpu) using atomic mode setting.
+gnome-shell[2361]: Page flip failed: drmModeAtomicCommit: Invalid argument   (x hundreds)
+gnome-shell[2361]: Failed to post KMS update: drmModeAtomicCommit: Invalid argument
+```
+
+Unplugging the ultrawide's DisplayPort made the greeter appear on another panel;
+plugging it back in after logging into Hyprland was fine. The kernel logs for
+that boot and the previous one are equivalent — same card, same connectors, no
+DRM errors — so this is not the card giving out. Hyprland drives those same three
+outputs at those same modes without complaint, because it commits each output
+separately; mutter commits all CRTCs in one atomic update, and this DCE 11.2 part
+rejects the combined one.
+
+The reason a bad layout is fatal rather than merely ugly: mutter treats a *stored*
+configuration as policy and forces it, while a layout it picked itself gets
+downgraded until it works. The boot before this one had the old ultrawide-only pin
+that matched nothing, so mutter improvised, recovered on its own, and produced a
+greeter that was merely off-centre. Handing mutter a three-output config removed
+its licence to back off. One output removes the failing commit entirely.
+
+### The greeter repairs itself
+
+`teonix-greeter-watchdog.service` starts with the display manager, waits 25
+seconds, and if the greeter is wedged it deletes the generated layout, deletes the
+static `/etc/xdg` fallback for the rest of the boot, and restarts GDM once —
+handing the greeter back to mutter's own logic, which downgrades until it finds
+something the card will take. `teonix-greeter-monitor-pin` sees the stand-down
+marker on the way back up and does not regenerate the file it just lost. A note is
+left in `/run/teonix/greeter-repaired` and printed at the next interactive shell.
+Both files live in `/run`, so a reboot tries the pinned layout again.
+
+Two guards make it unable to disturb a working session: it acts only while no
+session of `Class=user` exists — checked once after the wait and again immediately
+before acting — and at most once per boot. The worst a false positive can cost is
+one restart of a greeter nobody was using.
+
+The trigger is the **count of page-flip failures since boot**, not the recent
+rate, and that distinction matters: a black greeter goes quiet. Of the 170
+failures on 2026-09-10, 57 landed in the first eight seconds and then stopped,
+because a static screen has nothing to repaint — so "is it still failing right
+now?" reads zero on a screen that is stone dead. Replayed against the journal, the
+threshold of 25 fires on both black boots (170 and 103) and stays silent on the
+healthy one (0) and the one mutter fixed by itself (6).
+
+Manual recovery, should it ever be needed: `Ctrl+Alt+F3` to a console, then
+`rm /var/lib/gdm/seat0/config/monitors.xml && systemctl restart display-manager`.
+No cable needs unplugging.
 
 `/etc/xdg/monitors.xml` remains as a static fallback for the single-ultrawide
 case only. Three things about that fallback file:

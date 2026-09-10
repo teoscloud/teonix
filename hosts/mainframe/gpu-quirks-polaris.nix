@@ -153,9 +153,106 @@ in
       RemainAfterExit = false;
     };
     script = ''
+      # Set by the watchdog below after it throws a layout mutter could not
+      # commit. Regenerating the same file would undo the repair, so for the rest
+      # of this boot the greeter is mutter's problem.
+      if [ -e /run/teonix/greeter-no-pin ]; then
+        echo "greeter repair in effect this boot; not generating a layout"
+        exit 0
+      fi
       install -d -m 0755 /var/lib/gdm/seat0
       [ -d /var/lib/gdm/seat0/config ] || install -d -m 0700 /var/lib/gdm/seat0/config
       python3 ${./greeter-monitors.py} /var/lib/gdm/seat0/config/monitors.xml
+    '';
+  };
+
+  # Last resort. Mutter forces a stored layout even when it cannot commit it, and
+  # the result is a black login screen whose only escape is unplugging a cable —
+  # which is exactly what happened on 2026-09-10. If page flips are still failing
+  # well after the greeter came up, and nobody has managed to log in, throw the
+  # generated layout away and hand the greeter back to mutter's own logic, which
+  # downgrades until it finds something the card will take.
+  #
+  # Two guards keep this from ever disturbing a working session: it acts only
+  # while no session of Class=user exists (checked twice, the second time
+  # immediately before acting), and at most once per boot. The worst a false
+  # positive can cost is one restart of a greeter nobody was using.
+  #
+  # The trigger is the count since boot, deliberately not the recent rate. A black
+  # greeter goes quiet: 57 of the 170 failures on 2026-09-10 landed in the first
+  # eight seconds and then stopped, because a static screen has nothing to repaint,
+  # so a "still failing right now" test reads zero on a screen that is stone dead.
+  # The counts separate cleanly anyway — 170 and 103 on the two broken boots
+  # against 6 on a boot mutter fixed by itself — so 25 sits in open water.
+  systemd.services.teonix-greeter-watchdog = {
+    description = "Recover the login greeter if this GPU cannot commit its layout";
+    wantedBy = [ "display-manager.service" ];
+    after = [ "display-manager.service" ];
+    path = with pkgs; [ systemd coreutils gnugrep gawk ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = false;
+    };
+    script = ''
+      flag=/run/teonix/greeter-repaired
+      stand_down=/run/teonix/greeter-no-pin
+      pin=/var/lib/gdm/seat0/config/monitors.xml
+
+      if [ -e "$flag" ]; then
+        echo "greeter already repaired this boot; standing by"
+        exit 0
+      fi
+
+      user_session() {
+        for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+          if [ "$(loginctl show-session "$s" -p Class --value 2>/dev/null)" = "user" ]; then
+            return 0
+          fi
+        done
+        return 1
+      }
+
+      # Let the greeter come up and settle before judging it.
+      sleep 25
+
+      if user_session; then
+        echo "someone is logged in; the greeter did its job"
+        exit 0
+      fi
+      if [ ! -f "$pin" ]; then
+        echo "no pinned layout to blame"
+        exit 0
+      fi
+
+      failures="$(journalctl -b -t gnome-shell --no-pager 2>/dev/null \
+        | grep -c 'Page flip failed' || true)"
+      if [ "''${failures:-0}" -lt 25 ]; then
+        echo "greeter healthy ($failures page-flip failures this boot)"
+        exit 0
+      fi
+
+      if user_session; then
+        echo "a session appeared while checking; leaving the greeter alone"
+        exit 0
+      fi
+
+      install -d -m 0755 /run/teonix
+      : > "$stand_down"
+      rm -f "$pin"
+      # The static single-panel fallback could fail the same way, so this boot
+      # gets no stored configuration at all. Activation restores it.
+      rm -f /etc/xdg/monitors.xml
+      cat > "$flag" <<'EOF'
+      teonix: the login greeter could not commit its pinned monitor layout, so the
+      teonix: layout was removed and GDM restarted once. See GPU.md, "Why the
+      teonix: greeter only drives one monitor". A reboot tries the layout again.
+      EOF
+      chmod 0644 "$flag"
+
+      echo "greeter failed $failures page flips with nobody logged in; dropping $pin and restarting the display manager"
+      # --no-block: restarting the unit we are ordered after would otherwise have
+      # us waiting on a job that is waiting on us.
+      systemctl restart --no-block display-manager.service
     '';
   };
 
@@ -203,9 +300,13 @@ in
     '';
   };
 
-  # Surface the staleness notice at login (mainframe only — the file is written
-  # by the service above, which disappears with this module).
+  # Surface this module's notices at login (mainframe only — both files are
+  # written by services above, which disappear with this module).
   environment.interactiveShellInit = ''
-    [ -f /run/teonix/gpu-quirks-stale ] && cat /run/teonix/gpu-quirks-stale || true
+    for _qf in /run/teonix/gpu-quirks-stale /run/teonix/greeter-repaired; do
+      [ -f "$_qf" ] && cat "$_qf"
+    done
+    unset _qf
+    true
   '';
 }
