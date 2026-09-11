@@ -269,6 +269,7 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
     nix-index
 
     qbittorrent
+    mission-center
 
     ghex
     obs-studio
@@ -313,6 +314,7 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
     discord-canary
     equibop
     eden
+    
 
   ] ++ (with stable-pkgs; [
     cava
