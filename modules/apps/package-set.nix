@@ -314,6 +314,7 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
     discord-canary
     equibop
     eden
+    btop
     
 
   ] ++ (with stable-pkgs; [

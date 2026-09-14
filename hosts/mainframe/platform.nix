@@ -26,13 +26,20 @@
   # installer and ships `swapDevices = [ ]`, so the swap partition is declared here
   # instead — otherwise it is only auto-activated by systemd-gpt-auto and there is
   # no resume= on the command line.
+  # Extra 64 GiB is a file on / (priority 10) so overflow does not fill the
+  # partition hibernate still resumes from. Do not point resumeDevice at the file.
   swapDevices = [
     { device = "/dev/disk/by-uuid/92bea4ff-dcf7-4201-a376-37c10bc4c7dc"; }
+    {
+      device = "/swapfile";
+      size = 64 * 1024; # MiB
+      priority = 10;
+    }
   ];
   boot.resumeDevice = "/dev/disk/by-uuid/92bea4ff-dcf7-4201-a376-37c10bc4c7dc";
 
   # Long sleeps land in S4, where the *firmware* POSTs the GPU on the way back —
-  # the path that always works on this board. 64 GB RAM, 34.4 GB swap, and a
-  # default 25 GB image budget, so the image fits.
+  # the path that always works on this board. 64 GB RAM, 34.4 GB hibernate swap
+  # plus 64 GiB on /, and a default 25 GB image budget, so the image fits.
   systemd.sleep.settings.Sleep.HibernateDelaySec = "30min";
 }

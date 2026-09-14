@@ -60,6 +60,7 @@ in
     (wrapBrowserPulse "brave-scarlett-pulse" pkgs.brave)
     (wrapBrowserPulse "google-chrome-scarlett-pulse" pkgs.google-chrome)
     (wrapBrowserPulse "chromium-scarlett-pulse" pkgs.chromium)
+    pkgs.mission-center
     # pkgs.lan-mouse  # Hyprland → Windows KVM; re-enable with the binds in hyprland.conf
   ];
 
