@@ -216,8 +216,10 @@
           # Board-level: this chassis has no onboard video, so a dead GPU means
           # no BIOS access. Keep across GPU swaps.
           ./hosts/mainframe/gpu-guard.nix
-          # GPU-specific: drop this line when the RX 580 is replaced (see GPU.md).
-          ./hosts/mainframe/gpu-quirks-polaris.nix
+          # GPU/display policy. Card-agnostic by design: boots the RX 580 or the
+          # Arc A750 unchanged and picks the display budgets from the fitted card
+          # at boot, so a swap needs no rebuild and can be undone. See GPU.md.
+          ./hosts/mainframe/gpu.nix
           ./modules/services/gnome.nix
         ];
       };

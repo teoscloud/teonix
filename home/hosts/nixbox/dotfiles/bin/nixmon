@@ -1,0 +1,1526 @@
+#!/usr/bin/env bash
+# nixmon — tabbed resource monitor (btop-like overview).
+# Linux, bash 4+. Read-only /proc + /sys. No network, no sudo, no eval of proc text.
+# No nvidia-smi / rocm-smi / intel_gpu_top. GPU metrics only if sysfs already has them.
+#
+# 1 overview  2 cores  3 memory  4 disk  5 net  6 tasks
+# 1-6  Tab/n  p  arrows  ?  q
+set -uo pipefail
+
+if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
+  printf 'nixmon: bash 4+ required\n' >&2
+  exit 1
+fi
+
+SAFE_RE='[^A-Za-z0-9._:+@/ -]'
+INTERVAL=0.6
+INTERVAL_MS=600
+SAN=""
+HUM=""
+FRQ=""
+BAR=""
+HIST_CAP=240
+TAB=1
+TAB_NAMES=(overview cores memory disk net tasks)
+HELP=0
+FRAME=""
+FRAME_LINES=0
+VIS=""
+REP=""
+HC=""
+CHIP=""
+CHIPS_PER=1
+CHIP_GAP='  '
+CHIP_IDW=2
+NROWS=0
+CARD_W=0
+CARD_I=1
+declare -a CARD OSC
+# Card buffers zipped side by side by emit_cols; *_W carries each card's width.
+declare -a NL NR MEMC SWPC NETC DSKC GPUC HOSTC
+NL_W=0 NR_W=0 MEMC_W=0 SWPC_W=0 NETC_W=0 DSKC_W=0 GPUC_W=0 HOSTC_W=0
+
+declare -a CPU_PREV_TOT CPU_PREV_IDLE CPU_PCT
+declare -a HIST_CPU HIST_MEM HIST_SWP HIST_RX HIST_TX HIST_DR HIST_DW HIST_GPU
+declare -a HIST_N0 HIST_N1 HIST_N2 HIST_N3
+declare -a NUMA_IDS NUMA_CPUS NUMA_PCT
+CPU_N=0
+ALL_PCT=0
+
+declare -A NET_RX NET_TX DSK_R DSK_W
+NET_RX_RATE=()
+NET_TX_RATE=()
+NET_IF=()
+DSK_R_RATE=()
+DSK_W_RATE=()
+DSK_NAME=()
+declare -a CORE_TEMP
+PKG_TEMP=""
+PKG_GHZ=""
+CPU_MODEL=""
+BOARD=""
+HOSTNAME_S=""
+KERN_S=""
+GPU_DRIVER=""
+GPU_PCI=""
+GPU_BUSY=""
+GPU_VRAM_USED=""
+GPU_VRAM_TOT=""
+GPU_TEMP=""
+GPU_POWER=""
+GPU_MHZ=""
+GPU_HAS_METRICS=0
+declare -a DF_LINES
+SUM_RX=0 SUM_TX=0 SUM_DR=0 SUM_DW=0
+
+# Glyphs. 3270 (and every other sane mono face) ships box-drawing + the eighth
+# blocks, so the chrome is drawn with real rules and the graphs with real
+# columns. Empty graph cells stay blank on purpose — no filler texture.
+BLK=(▁ ▂ ▃ ▄ ▅ ▆ ▇ █)
+G_H='─' G_V='│' G_TL='╭' G_TR='╮' G_BL='╰' G_BR='╯'
+G_DN='↓' G_UP='↑'
+
+# ---------------------------------------------------------------------------
+# Palette — 256 when the tty says so, else 16. Never paint a black page.
+# ---------------------------------------------------------------------------
+
+init_palette() {
+  local n=8
+  command -v tput >/dev/null 2>&1 && n=$(tput colors 2>/dev/null || echo 8)
+  [[ ${COLORTERM-} == *256* || ${COLORTERM-} == *truecolor* ]] && n=256
+  R=$'\033[0m'
+  B=$'\033[1m'
+  D=$'\033[2m'
+  RV=$'\033[7m'
+  if (( n >= 256 )); then
+    C_CHROME=$'\033[38;5;239m'
+    C_EDGE=$'\033[38;5;245m'
+    C_TITLE=$'\033[38;5;117m'
+    C_CPU=$'\033[38;5;81m'
+    C_H1=$'\033[38;5;74m'
+    C_H2=$'\033[38;5;114m'
+    C_H3=$'\033[38;5;179m'
+    C_H4=$'\033[38;5;174m'
+    C_MEM=$'\033[38;5;114m'
+    C_SWP=$'\033[38;5;179m'
+    C_NET=$'\033[38;5;110m'
+    C_NET2=$'\033[38;5;146m'
+    C_DSK=$'\033[38;5;139m'
+    C_DSK2=$'\033[38;5;181m'
+    C_GPU=$'\033[38;5;108m'
+    C_MUTE=$'\033[38;5;243m'
+    C_TEXT=$'\033[38;5;252m'
+    C_DANGER=$'\033[38;5;174m'
+  else
+    C_CHROME=$'\033[2m'
+    C_EDGE=$'\033[2m'
+    C_TITLE=$'\033[36m'
+    C_CPU=$'\033[36m'
+    C_H1=$'\033[34m'
+    C_H2=$'\033[32m'
+    C_H3=$'\033[33m'
+    C_H4=$'\033[31m'
+    C_MEM=$'\033[32m'
+    C_SWP=$'\033[33m'
+    C_NET=$'\033[34m'
+    C_NET2=$'\033[36m'
+    C_DSK=$'\033[35m'
+    C_DSK2=$'\033[36m'
+    C_GPU=$'\033[32m'
+    C_MUTE=$'\033[2m'
+    C_TEXT=$'\033[0m'
+    C_DANGER=$'\033[31m'
+  fi
+}
+
+# Sets HC. Called once per graph column and per thread chip, so it must not fork.
+heat_set() {
+  local p=$1
+  if   (( p >= 90 )); then HC=$C_H4
+  elif (( p >= 70 )); then HC=$C_H3
+  elif (( p >= 40 )); then HC=$C_H2
+  else HC=$C_H1
+  fi
+}
+
+heat() { heat_set "$1"; printf '%s' "$HC"; }
+
+# ---------------------------------------------------------------------------
+# Frame buffer — the only stdout write is flush_frame.
+# ---------------------------------------------------------------------------
+
+# Fork-free escape stripper; result in VIS.
+strip_esc() {
+  local s=$1 out=""
+  while [[ $s == *$'\033'* ]]; do
+    out+=${s%%$'\033'*}
+    s=${s#*$'\033'}
+    s=${s#\[}
+    s=${s#*[a-zA-Z]}
+  done
+  VIS=$out$s
+}
+
+rep() {
+  local ch=$1 n=$2 i
+  REP=""
+  for (( i = 0; i < n; i++ )); do REP+=$ch; done
+}
+
+fline() {
+  (( FRAME_LINES >= ROWS )) && return
+  strip_esc "$1"
+  local pad=$(( COLS - ${#VIS} ))
+  (( pad < 0 )) && pad=0
+  rep ' ' "$pad"
+  FRAME+="$1$REP"$'\033[K\n'
+  FRAME_LINES=$(( FRAME_LINES + 1 ))
+}
+
+frame_reset() { FRAME=""; FRAME_LINES=0; }
+
+flush_frame() {
+  while (( FRAME_LINES < ROWS )); do fline ""; done
+  printf '\033[H%s' "$FRAME"
+}
+
+# ---------------------------------------------------------------------------
+# Cards: ╭─ TITLE ────── meta ─╮ / │ body │ / ╰──────╯
+# One space of padding inside the rules, one blank line between card rows.
+# ---------------------------------------------------------------------------
+
+# CT is the title colour for the next card_top; each card sets its own accent.
+card_reset() {
+  CARD=()
+  CARD_W=$1
+  CARD_I=$(( $1 - 4 ))
+  (( CARD_I < 1 )) && CARD_I=1
+  CT=$C_TITLE
+}
+
+# ╭─ TITLE ────────────── meta ─╮
+card_top() {
+  local title=$1 meta=${2-} w=$CARD_W
+  local tvis mvis fill line
+  strip_esc "$title"; tvis=${#VIS}
+  mvis=0
+  if [[ -n $meta ]]; then strip_esc "$meta"; mvis=${#VIS}; fi
+  fill=$(( w - 6 - tvis - (mvis > 0 ? mvis + 2 : 0) ))
+  if (( fill < 1 && mvis > 0 )); then
+    meta=""; mvis=0
+    fill=$(( w - 6 - tvis ))
+  fi
+  (( fill < 0 )) && fill=0
+  rep "$G_H" "$fill"
+  line="${C_EDGE}${G_TL}${G_H}${R} ${B}${CT}${title}${R} ${C_CHROME}${REP}${R}"
+  (( mvis > 0 )) && line+=" ${meta}${R} "
+  line+="${C_EDGE}${G_H}${G_TR}${R}"
+  CARD+=("$line")
+}
+
+card_row() {
+  local content=$1
+  strip_esc "$content"
+  local n=${#VIS}
+  if (( n > CARD_I )); then
+    content=${VIS:0:CARD_I}
+    n=$CARD_I
+  fi
+  rep ' ' $(( CARD_I - n ))
+  CARD+=("${C_EDGE}${G_V}${R} ${content}${REP} ${C_EDGE}${G_V}${R}")
+}
+
+card_gap() { card_row ""; }
+
+card_bot() {
+  rep "$G_H" $(( CARD_W - 2 ))
+  CARD+=("${C_EDGE}${G_BL}${C_CHROME}${REP}${C_EDGE}${G_BR}${R}")
+}
+
+card_save() {
+  local -n _dst=$1
+  _dst=("${CARD[@]}")
+  printf -v "${1}_W" '%s' "$CARD_W"
+}
+
+emit_card() {
+  local line
+  for line in "${CARD[@]}"; do fline "$line"; done
+}
+
+# Zip N saved cards side by side, one space between them.
+emit_cols() {
+  local names=("$@") name ref wref maxn=0 i line
+  local -a cur
+  for name in "${names[@]}"; do
+    ref="${name}[@]"
+    cur=("${!ref}")
+    (( ${#cur[@]} > maxn )) && maxn=${#cur[@]}
+  done
+  for (( i = 0; i < maxn; i++ )); do
+    line=""
+    for name in "${names[@]}"; do
+      ref="${name}[@]"
+      wref="${name}_W"
+      cur=("${!ref}")
+      [[ -n $line ]] && line+=" "
+      if [[ -n ${cur[i]:-} ]]; then
+        line+=${cur[i]}
+      else
+        rep ' ' "${!wref}"
+        line+=$REP
+      fi
+    done
+    fline "$line"
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Graphs: btop-style block columns, newest sample on the right, blanks where
+# there is no data yet. OSC[] holds h coloured rows of width w.
+# ---------------------------------------------------------------------------
+
+push_hist() {
+  local -n _h=$1
+  _h+=("$2")
+  (( ${#_h[@]} > HIST_CAP )) && _h=("${_h[@]:1}")
+}
+
+# oscillate WIDTH HEIGHT HISTVAR SCALE COLOUR
+#   SCALE  100 | auto (window peak)
+#   COLOUR heat | an escape string
+oscillate() {
+  local w=$1 h=$2
+  local -n _oh=$3
+  local scale=${4:-100} colspec=${5:-heat}
+  local n=${#_oh[@]} first i j v lv base mx=100 cur c glyph row
+  OSC=()
+  (( w < 1 )) && w=1
+  (( h < 1 )) && h=1
+  if [[ $scale == auto ]]; then
+    mx=1
+    for v in "${_oh[@]+"${_oh[@]}"}"; do
+      [[ $v =~ ^[0-9]+$ ]] || continue
+      (( v > mx )) && mx=$v
+    done
+  fi
+  (( mx < 1 )) && mx=1
+  # Newest sample on the right. Columns left of the first sample stay blank.
+  first=$(( n - w ))
+  local vals=() pcts=()
+  for (( i = 0; i < w; i++ )); do
+    j=$(( first + i ))
+    if (( j < 0 )); then
+      vals+=(-1); pcts+=(0)
+      continue
+    fi
+    v=${_oh[j]:-0}
+    [[ $v =~ ^[0-9]+$ ]] || v=0
+    vals+=("$v")
+    pcts+=( $(( v * 100 / mx )) )
+  done
+  for (( j = h - 1; j >= 0; j-- )); do
+    row=""
+    cur=""
+    base=$(( j * 8 ))
+    for (( i = 0; i < w; i++ )); do
+      v=${vals[i]}
+      if (( v < 0 )); then
+        row+=' '
+        continue
+      fi
+      lv=$(( v * h * 8 / mx ))
+      (( lv > h * 8 )) && lv=$(( h * 8 ))
+      if (( lv <= base )); then
+        row+=' '
+        continue
+      fi
+      if (( lv >= base + 8 )); then
+        glyph=${BLK[7]}
+      else
+        glyph=${BLK[lv - base - 1]}
+      fi
+      if [[ $colspec == heat ]]; then
+        heat_set "${pcts[i]}"
+        c=$HC
+      else
+        c=$colspec
+      fi
+      if [[ $c != "$cur" ]]; then
+        row+=$c
+        cur=$c
+      fi
+      row+=$glyph
+    done
+    OSC+=("${row}${R}")
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Reads
+# ---------------------------------------------------------------------------
+
+# Fork-free: sets SAN. sanitize() is the $()-friendly wrapper for cold paths.
+san() {
+  local s=${1-}
+  s=${s//$'\n'/}
+  s=${s//$'\r'/}
+  SAN=${s//$SAFE_RE/?}
+}
+
+sanitize() { san "${1-}"; printf '%s' "$SAN"; }
+
+# Byte/KiB formatting without awk. Both set HUM.
+hum_fix() { HUM="$(( $1 / 10 )).$(( $1 % 10 ))$2"; }
+
+hkib() {
+  local n=$1
+  if   (( n >= 1048576 )); then hum_fix $(( n * 10 / 1048576 )) G
+  elif (( n >= 1024 ));    then hum_fix $(( n * 10 / 1024 )) M
+  else HUM="${n}K"
+  fi
+}
+
+hbps() {
+  local n=$1
+  if   (( n >= 1048576 )); then hum_fix $(( n * 10 / 1048576 )) M
+  elif (( n >= 1024 ));    then HUM="$(( n / 1024 ))K"
+  else HUM="${n}B"
+  fi
+}
+
+term_size() {
+  if command -v tput >/dev/null 2>&1; then
+    COLS=$(tput cols 2>/dev/null || echo 80)
+    ROWS=$(tput lines 2>/dev/null || echo 24)
+  else
+    COLS=${COLUMNS:-80}
+    ROWS=${LINES:-24}
+  fi
+  [[ $COLS =~ ^[0-9]+$ ]] || COLS=80
+  [[ $ROWS =~ ^[0-9]+$ ]] || ROWS=24
+  (( COLS < 48 )) && COLS=48
+  (( ROWS < 16 )) && ROWS=16
+}
+
+hide() { printf '\033[?25l\033[?7l'; }
+show() { printf '\033[?25h\033[?7h'; }
+
+cleanup() {
+  show
+  stty echo icanon 2>/dev/null || true
+  printf '\033[0m\033[2J\033[H'
+}
+trap cleanup EXIT INT TERM HUP
+
+read_cpu_sample() {
+  local line name rest tot idle i x
+  CPU_N=0
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ $line == cpu* ]] || break
+    read -r name rest <<<"$line"
+    tot=0 idle=0 i=0
+    # shellcheck disable=SC2086
+    set -- $rest
+    for x; do
+      [[ $x =~ ^[0-9]+$ ]] || continue
+      tot=$(( tot + x ))
+      (( i == 3 || i == 4 )) && idle=$(( idle + x ))
+      i=$(( i + 1 ))
+    done
+    if [[ -n ${CPU_PREV_TOT[CPU_N]+x} ]]; then
+      local dt di
+      dt=$(( tot - CPU_PREV_TOT[CPU_N] ))
+      di=$(( idle - CPU_PREV_IDLE[CPU_N] ))
+      if (( dt > 0 )); then
+        CPU_PCT[CPU_N]=$(( (100 * (dt - di)) / dt ))
+      else
+        CPU_PCT[CPU_N]=0
+      fi
+    else
+      CPU_PCT[CPU_N]=0
+    fi
+    CPU_PREV_TOT[CPU_N]=$tot
+    CPU_PREV_IDLE[CPU_N]=$idle
+    CPU_N=$(( CPU_N + 1 ))
+  done < /proc/stat
+  ALL_PCT=${CPU_PCT[0]:-0}
+  push_hist HIST_CPU "$ALL_PCT"
+}
+
+# Sets FRQ to the core's MHz, or '-'.
+freq_mhz() {
+  local n=$1 f
+  FRQ='-'
+  f=/sys/devices/system/cpu/cpu${n}/cpufreq/scaling_cur_freq
+  [[ -r $f ]] || return
+  read -r f <"$f"
+  [[ $f =~ ^[0-9]+$ ]] && FRQ=$(( f / 1000 ))
+}
+
+read_freq_pkg() {
+  local n=0 s=0 i avg
+  PKG_GHZ=""
+  for (( i = 0; i < 8 && i < CPU_N - 1; i++ )); do
+    freq_mhz "$i"
+    [[ $FRQ =~ ^[0-9]+$ ]] || continue
+    s=$(( s + FRQ ))
+    n=$(( n + 1 ))
+  done
+  (( n > 0 )) || return
+  avg=$(( s * 10 / n / 1000 ))
+  PKG_GHZ="$(( avg / 10 )).$(( avg % 10 ))"
+}
+
+read_cpu_model() {
+  local line raw=""
+  CPU_MODEL=""
+  while IFS= read -r line; do
+    case $line in
+      'model name'*)
+        raw=${line#*: }
+        break
+        ;;
+    esac
+  done < /proc/cpuinfo
+  # "Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz" — drop the marks before
+  # sanitize turns the parens into '?'.
+  raw=${raw//'(R)'/}
+  raw=${raw//'(TM)'/}
+  raw=${raw//' CPU '/ }
+  while [[ $raw == *'  '* ]]; do raw=${raw//'  '/ }; done
+  CPU_MODEL=$(sanitize "$raw")
+}
+
+read_mem() {
+  local k v
+  MEM_TOTAL=0 MEM_AVAIL=0 MEM_FREE=0 MEM_BUFF=0 MEM_CACHE=0 MEM_SRECL=0
+  SWP_TOTAL=0 SWP_FREE=0 MEM_DIRTY=0
+  while IFS=: read -r k v; do
+    v=${v%% kB*}
+    v=${v// /}
+    [[ $v =~ ^[0-9]+$ ]] || continue
+    case $k in
+      MemTotal)     MEM_TOTAL=$v ;;
+      MemAvailable) MEM_AVAIL=$v ;;
+      MemFree)      MEM_FREE=$v ;;
+      Buffers)      MEM_BUFF=$v ;;
+      Cached)       MEM_CACHE=$v ;;
+      SReclaimable) MEM_SRECL=$v ;;
+      SwapTotal)    SWP_TOTAL=$v ;;
+      SwapFree)     SWP_FREE=$v ;;
+      Dirty)        MEM_DIRTY=$v ;;
+    esac
+  done < /proc/meminfo
+  MEM_USED=$(( MEM_TOTAL - MEM_AVAIL ))
+  SWP_USED=$(( SWP_TOTAL - SWP_FREE ))
+  if (( MEM_TOTAL > 0 )); then MEM_PCT=$(( MEM_USED * 100 / MEM_TOTAL )); else MEM_PCT=0; fi
+  if (( SWP_TOTAL > 0 )); then SWP_PCT=$(( SWP_USED * 100 / SWP_TOTAL )); else SWP_PCT=0; fi
+  push_hist HIST_MEM "$MEM_PCT"
+  push_hist HIST_SWP "$SWP_PCT"
+}
+
+human_kib() { hkib "$1"; printf '%s' "$HUM"; }
+human_bps() { hbps "$1"; printf '%s' "$HUM"; }
+
+read_load() {
+  read -r LOAD _ _ < /proc/loadavg
+  read -r UPTIME _ < /proc/uptime
+  UPTIME=${UPTIME%%.*}
+  [[ $UPTIME =~ ^[0-9]+$ ]] || UPTIME=0
+}
+
+fmt_up() {
+  local s=$1 d h m
+  d=$(( s / 86400 )); h=$(( (s % 86400) / 3600 )); m=$(( (s % 3600) / 60 ))
+  if (( d > 0 )); then printf '%dd %02d:%02d' "$d" "$h" "$m"
+  else printf '%02d:%02d' "$h" "$m"
+  fi
+}
+
+read_net() {
+  local line iface rx tx rest rxd txd
+  NET_IF=()
+  NET_RX_RATE=()
+  NET_TX_RATE=()
+  SUM_RX=0 SUM_TX=0
+  while IFS= read -r line; do
+    [[ $line == *:* ]] || continue
+    iface=${line%%:*}
+    iface=${iface// /}
+    [[ $iface == lo ]] && continue
+    [[ $iface =~ ^[A-Za-z0-9._:+-]+$ ]] || continue
+    rest=${line#*:}
+    # shellcheck disable=SC2086
+    set -- $rest
+    rx=$1 tx=$9
+    [[ $rx =~ ^[0-9]+$ && $tx =~ ^[0-9]+$ ]] || continue
+    if [[ -n ${NET_RX[$iface]+x} ]]; then
+      rxd=$(( rx - NET_RX[$iface] )); txd=$(( tx - NET_TX[$iface] ))
+      (( rxd < 0 )) && rxd=0
+      (( txd < 0 )) && txd=0
+      NET_IF+=("$iface")
+      NET_RX_RATE+=($(( rxd * 1000 / INTERVAL_MS )))
+      NET_TX_RATE+=($(( txd * 1000 / INTERVAL_MS )))
+      SUM_RX=$(( SUM_RX + ${NET_RX_RATE[-1]} ))
+      SUM_TX=$(( SUM_TX + ${NET_TX_RATE[-1]} ))
+    fi
+    NET_RX[$iface]=$rx
+    NET_TX[$iface]=$tx
+  done < /proc/net/dev
+  push_hist HIST_RX "$SUM_RX"
+  push_hist HIST_TX "$SUM_TX"
+}
+
+read_disk() {
+  local name rd wr rxd txd
+  DSK_NAME=()
+  DSK_R_RATE=()
+  DSK_W_RATE=()
+  SUM_DR=0 SUM_DW=0
+  while read -r _ _ name _ _ rd _ _ _ wr _; do
+    [[ $name =~ ^[a-z]+[0-9]*$ || $name =~ ^nvme[0-9]+n[0-9]+$ || $name =~ ^vd[a-z]+$ || $name =~ ^mmcblk[0-9]+$ ]] || continue
+    [[ $name =~ [0-9]$ && $name != nvme*n[0-9] && $name != mmcblk[0-9] ]] && continue
+    [[ $name =~ p[0-9]+$ ]] && continue
+    [[ $rd =~ ^[0-9]+$ && $wr =~ ^[0-9]+$ ]] || continue
+    rd=$(( rd * 512 )); wr=$(( wr * 512 ))
+    if [[ -n ${DSK_R[$name]+x} ]]; then
+      rxd=$(( rd - DSK_R[$name] )); txd=$(( wr - DSK_W[$name] ))
+      (( rxd < 0 )) && rxd=0
+      (( txd < 0 )) && txd=0
+      DSK_NAME+=("$name")
+      DSK_R_RATE+=($(( rxd * 1000 / INTERVAL_MS )))
+      DSK_W_RATE+=($(( txd * 1000 / INTERVAL_MS )))
+      SUM_DR=$(( SUM_DR + ${DSK_R_RATE[-1]} ))
+      SUM_DW=$(( SUM_DW + ${DSK_W_RATE[-1]} ))
+    fi
+    DSK_R[$name]=$rd
+    DSK_W[$name]=$wr
+  done < /proc/diskstats
+  push_hist HIST_DR "$SUM_DR"
+  push_hist HIST_DW "$SUM_DW"
+}
+
+read_temps() {
+  local f lab t id
+  CORE_TEMP=()
+  PKG_TEMP=""
+  for f in /sys/class/hwmon/hwmon*/temp*_input; do
+    [[ -r $f ]] || continue
+    lab=""
+    [[ -r ${f%_input}_label ]] && IFS= read -r lab <"${f%_input}_label"
+    read -r t <"$f"
+    [[ $t =~ ^[0-9]+$ ]] || continue
+    t=$(( t / 1000 ))
+    (( t < 1 || t > 150 )) && continue
+    san "$lab"; lab=$SAN
+    case $lab in
+      'Package id '*|'Package Id '*|Tctl|Tdie)
+        PKG_TEMP=$t
+        ;;
+      'Core '*)
+        id=${lab#Core }
+        [[ $id =~ ^[0-9]+$ ]] && CORE_TEMP[id]=$t
+        ;;
+    esac
+  done
+  if [[ -z $PKG_TEMP ]]; then
+    for f in /sys/class/thermal/thermal_zone*/temp; do
+      [[ -r $f ]] || continue
+      read -r t <"$f"
+      [[ $t =~ ^[0-9]+$ ]] || continue
+      t=$(( t / 1000 ))
+      (( t > 0 && t < 150 )) && PKG_TEMP=$t && break
+    done
+  fi
+}
+
+read_board() {
+  BOARD=""
+  if [[ -r /sys/class/dmi/id/product_name ]]; then
+    IFS= read -r BOARD < /sys/class/dmi/id/product_name
+    BOARD=$(sanitize "$BOARD")
+  fi
+}
+
+read_host() {
+  HOSTNAME_S=$(sanitize "$(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)")
+  KERN_S=$(sanitize "$(uname -s 2>/dev/null) $(uname -r 2>/dev/null)")
+}
+
+read_df() {
+  local fs blocks used _pct mnt us tot
+  DF_LINES=()
+  while read -r fs blocks used _ _pct mnt; do
+    [[ $fs == Filesystem ]] && continue
+    case $fs in
+      tmpfs|devtmpfs|overlay|efivarfs|cgroup*|none) continue ;;
+    esac
+    [[ $mnt == /sys* || $mnt == /proc* || $mnt == /dev* || $mnt == /run* ]] && continue
+    [[ $blocks =~ ^[0-9]+$ && $used =~ ^[0-9]+$ ]] || continue
+    (( blocks == 0 )) && continue
+    san "$mnt"; mnt=$SAN
+    # Keep the column narrow: ~ for $HOME, and clip long paths from the left.
+    [[ -n ${HOME-} && $mnt == "$HOME"/* ]] && mnt="~${mnt#"$HOME"}"
+    (( ${#mnt} > 20 )) && mnt="..${mnt: -18}"
+    hkib "$used"; us=$HUM
+    hkib "$blocks"; tot=$HUM
+    DF_LINES+=("$mnt $(( used * 100 / blocks )) $us $tot")
+  done < <(df -Pk 2>/dev/null)
+}
+
+# NUMA: cpulist like 0-13,28-41
+expand_cpulist() {
+  local spec=$1 tok a b i
+  spec=${spec// /}
+  IFS=',' read -ra _toks <<< "$spec"
+  for tok in "${_toks[@]}"; do
+    [[ $tok =~ ^[0-9]+$ ]] && { printf '%s\n' "$tok"; continue; }
+    if [[ $tok =~ ^([0-9]+)-([0-9]+)$ ]]; then
+      a=${BASH_REMATCH[1]}; b=${BASH_REMATCH[2]}
+      for (( i = a; i <= b; i++ )); do printf '%s\n' "$i"; done
+    fi
+  done
+}
+
+read_numa() {
+  local node list cpu sum n p
+  NUMA_IDS=()
+  NUMA_CPUS=()
+  NUMA_PCT=()
+  if [[ -d /sys/devices/system/node ]]; then
+    for node in /sys/devices/system/node/node[0-9]*; do
+      [[ -r $node/cpulist ]] || continue
+      IFS= read -r list <"$node/cpulist"
+      list=$(expand_cpulist "$list" | tr '\n' ' ')
+      [[ -n ${list// /} ]] || continue
+      NUMA_IDS+=("${node##*/node}")
+      NUMA_CPUS+=("$list")
+    done
+  fi
+  if (( ${#NUMA_IDS[@]} == 0 )); then
+    list=""
+    local i
+    for (( i = 0; i < CPU_N - 1; i++ )); do list+="$i "; done
+    NUMA_IDS+=(0)
+    NUMA_CPUS+=("$list")
+  fi
+  local idx=0
+  for idx in "${!NUMA_IDS[@]}"; do
+    sum=0 n=0
+    # shellcheck disable=SC2086
+    for cpu in ${NUMA_CPUS[idx]}; do
+      [[ $cpu =~ ^[0-9]+$ ]] || continue
+      p=${CPU_PCT[cpu+1]:-0}
+      sum=$(( sum + p ))
+      n=$(( n + 1 ))
+    done
+    (( n > 0 )) && p=$(( sum / n )) || p=0
+    NUMA_PCT[idx]=$p
+    case $idx in
+      0) push_hist HIST_N0 "$p" ;;
+      1) push_hist HIST_N1 "$p" ;;
+      2) push_hist HIST_N2 "$p" ;;
+      3) push_hist HIST_N3 "$p" ;;
+    esac
+  done
+}
+
+read_gpu() {
+  local dev card uevent line drv pci busy vu vt tmp pw mhz hit
+  GPU_DRIVER=""; GPU_PCI=""; GPU_BUSY=""; GPU_VRAM_USED=""; GPU_VRAM_TOT=""
+  GPU_TEMP=""; GPU_POWER=""; GPU_MHZ=""; GPU_HAS_METRICS=0
+  for card in /sys/class/drm/card[0-9]*; do
+    [[ -d $card/device ]] || continue
+    [[ ${card##*/} == *-* ]] && continue
+    dev=$card/device
+    uevent=$dev/uevent
+    [[ -r $uevent ]] || continue
+    drv=""; pci=""; busy=""; vu=""; vt=""; tmp=""; pw=""; mhz=""; hit=0
+    while IFS= read -r line; do
+      case $line in
+        DRIVER=*) san "${line#DRIVER=}"; drv=$SAN ;;
+        PCI_ID=*) san "${line#PCI_ID=}"; pci=$SAN ;;
+      esac
+    done <"$uevent"
+    [[ $drv == simple-framebuffer || $drv == simpledrm || $drv == bochs* ]] && continue
+    if [[ -r $dev/gpu_busy_percent ]]; then
+      IFS= read -r busy <"$dev/gpu_busy_percent"
+      [[ $busy =~ ^[0-9]+$ ]] && hit=1
+    fi
+    if [[ -r $dev/mem_info_vram_used && -r $dev/mem_info_vram_total ]]; then
+      IFS= read -r vu <"$dev/mem_info_vram_used"
+      IFS= read -r vt <"$dev/mem_info_vram_total"
+      [[ $vu =~ ^[0-9]+$ && $vt =~ ^[0-9]+$ ]] && hit=1
+    fi
+    local hf
+    for hf in "$dev"/hwmon/hwmon*/temp1_input; do
+      [[ -r $hf ]] || continue
+      read -r tmp <"$hf"
+      [[ $tmp =~ ^[0-9]+$ ]] || continue
+      tmp=$(( tmp / 1000 ))
+      hit=1
+      break
+    done
+    for hf in "$dev"/hwmon/hwmon*/power1_average "$dev"/hwmon/hwmon*/power1_input; do
+      [[ -r $hf ]] || continue
+      read -r pw <"$hf"
+      [[ $pw =~ ^[0-9]+$ ]] || continue
+      pw=$(( pw / 1000000 ))
+      hit=1
+      break
+    done
+    for hf in "$dev"/gt_cur_freq_mhz "$dev"/gt/gt0/rps_act_freq_mhz; do
+      [[ -r $hf ]] || continue
+      IFS= read -r mhz <"$hf"
+      [[ $mhz =~ ^[0-9]+$ ]] && hit=1
+      break
+    done
+    GPU_DRIVER=$drv
+    GPU_PCI=$pci
+    if (( hit )); then
+      GPU_BUSY=$busy
+      GPU_VRAM_USED=$vu
+      GPU_VRAM_TOT=$vt
+      GPU_TEMP=$tmp
+      GPU_POWER=$pw
+      GPU_MHZ=$mhz
+      GPU_HAS_METRICS=1
+      break
+    fi
+  done
+  if [[ -n $GPU_BUSY && $GPU_BUSY =~ ^[0-9]+$ ]]; then
+    push_hist HIST_GPU "$GPU_BUSY"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Header / footer
+# ---------------------------------------------------------------------------
+
+draw_tabs() {
+  local i name left right pad
+  left="${B}${C_TITLE} nixmon${R}${C_MUTE} ·${R}"
+  for i in "${!TAB_NAMES[@]}"; do
+    name=${TAB_NAMES[$i]}
+    if (( i + 1 == TAB )); then
+      left+="  ${B}${C_TITLE}${name}${R}"
+    else
+      left+="  ${C_MUTE}${name}${R}"
+    fi
+  done
+  local now
+  if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 2) )); then
+    printf -v now '%(%H:%M:%S)T' -1
+  else
+    now=$(date +%H:%M:%S 2>/dev/null)
+  fi
+  right="${C_MUTE}${HOSTNAME_S}  ${R}${C_TEXT}${now}${R}"
+  strip_esc "$left"; pad=${#VIS}
+  strip_esc "$right"; pad=$(( COLS - pad - ${#VIS} - 1 ))
+  (( pad < 1 )) && pad=1
+  rep ' ' "$pad"
+  fline "${left}${REP}${right} "
+}
+
+draw_footer() {
+  local keys
+  keys=" ${C_TEXT}1-6${R}${C_MUTE} tab${R}   ${C_TEXT}n${R}${C_MUTE}/${R}${C_TEXT}p${R}${C_MUTE} next prev${R}"
+  keys+="   ${C_TEXT}?${R}${C_MUTE} keys${R}   ${C_TEXT}q${R}${C_MUTE} quit${R}"
+  (( HELP )) && keys+="   ${C_MUTE}tab and the arrow keys also switch tabs${R}"
+  fline "$keys"
+}
+
+# ---------------------------------------------------------------------------
+# Overview
+# ---------------------------------------------------------------------------
+
+# Thread chip: "T07 ▆ 100%". Fixed width so the grid inside a NUMA card lines
+# up. Sets CHIP (no fork — this runs once per thread per frame).
+thread_chip() {
+  local id=$1 p=$2 g k
+  heat_set "$p"
+  if (( p <= 0 )); then
+    g=' '
+  else
+    k=$(( p * 8 / 100 ))
+    (( k > 7 )) && k=7
+    g=${BLK[k]}
+  fi
+  printf -v CHIP '%sT%0*d%s %s%s %3d%%%s' \
+    "$C_MUTE" "$CHIP_IDW" "$id" "$R" "$HC" "$g" "$p" "$R"
+}
+
+# A chip is IDW+8 wide. Two spaces between them, dropping to one when that buys
+# another column. Sets CHIPS_PER and CHIP_GAP.
+chips_per_row() {
+  local inner=$1 cw=$(( CHIP_IDW + 8 )) k2 k1
+  k2=$(( (inner + 2) / (cw + 2) ))
+  k1=$(( (inner + 1) / (cw + 1) ))
+  if (( k1 > k2 )); then
+    CHIPS_PER=$k1
+    CHIP_GAP=' '
+  else
+    CHIPS_PER=$k2
+    CHIP_GAP='  '
+  fi
+  (( CHIPS_PER < 1 )) && CHIPS_PER=1
+}
+
+build_numa_card() {
+  local idx=$1 w=$2 gh=$3 maxrows=${4:-999}
+  local nid=${NUMA_IDS[idx]}
+  local p=${NUMA_PCT[idx]:-0}
+  local cpus=${NUMA_CPUS[idx]}
+  local nthreads=0 cpu
+  card_reset "$w"
+  # shellcheck disable=SC2086
+  for cpu in $cpus; do nthreads=$(( nthreads + 1 )); done
+  heat_set "$p"
+  CT=$C_CPU
+  card_top "NUMA ${nid}" "${HC}${p}%${R}${C_MUTE}  ${nthreads}t${R}"
+  if (( gh > 0 )); then
+    case $idx in
+      0) oscillate "$CARD_I" "$gh" HIST_N0 100 heat ;;
+      1) oscillate "$CARD_I" "$gh" HIST_N1 100 heat ;;
+      2) oscillate "$CARD_I" "$gh" HIST_N2 100 heat ;;
+      3) oscillate "$CARD_I" "$gh" HIST_N3 100 heat ;;
+    esac
+    local row
+    for row in "${OSC[@]}"; do card_row "$row"; done
+    card_gap
+  fi
+  local line acc tp rows=0
+  chips_per_row "$CARD_I"
+  line=""; acc=0
+  # shellcheck disable=SC2086
+  for cpu in $cpus; do
+    [[ $cpu =~ ^[0-9]+$ ]] || continue
+    (( rows >= maxrows )) && break
+    tp=${CPU_PCT[cpu+1]:-0}
+    if (( acc >= CHIPS_PER )); then
+      card_row "$line"
+      rows=$(( rows + 1 ))
+      line=""; acc=0
+      (( rows >= maxrows )) && break
+    fi
+    thread_chip "$cpu" "$tp"
+    [[ -n $line ]] && line+="$CHIP_GAP"
+    line+=$CHIP
+    acc=$(( acc + 1 ))
+  done
+  [[ -n $line ]] && (( rows < maxrows )) && card_row "$line"
+  card_bot
+}
+
+# Chip rows a NUMA card wants at this width. Sets NROWS.
+numa_chip_rows() {
+  local idx=$1 w=$2
+  local n=0 cpu
+  # shellcheck disable=SC2086
+  for cpu in ${NUMA_CPUS[idx]}; do n=$(( n + 1 )); done
+  chips_per_row $(( w - 4 ))
+  NROWS=$(( (n + CHIPS_PER - 1) / CHIPS_PER ))
+}
+
+# build_meter_card WIDTH TITLE META HISTVAR SCALE COLOUR HEIGHT VALUE
+build_meter_card() {
+  local w=$1 gh=$7
+  card_reset "$w"
+  CT=$6
+  card_top "$2" "$3"
+  local -n _h=$4
+  oscillate "$CARD_I" "$gh" _h "$5" "$6"
+  local row
+  for row in "${OSC[@]}"; do card_row "$row"; done
+  card_gap
+  card_row "$8"
+  card_bot
+}
+
+build_net_card() {
+  local w=$1 gh=${2:-1} row
+  card_reset "$w"
+  local dn up
+  hbps "$SUM_RX"; dn=$HUM
+  hbps "$SUM_TX"; up=$HUM
+  CT=$C_NET
+  card_top "NET" "${C_NET}${G_DN}${dn}${R}${C_MUTE}/s${R}  ${C_NET2}${G_UP}${up}${R}${C_MUTE}/s${R}"
+  # Up above, down below — the two halves read as one mirrored trace.
+  oscillate "$CARD_I" "$gh" HIST_TX auto "$C_NET2"
+  for row in "${OSC[@]}"; do card_row "$row"; done
+  oscillate "$CARD_I" "$gh" HIST_RX auto "$C_NET"
+  for row in "${OSC[@]}"; do card_row "$row"; done
+  card_gap
+  local ifs="" i
+  for i in "${!NET_IF[@]}"; do
+    (( ${NET_RX_RATE[i]:-0} + ${NET_TX_RATE[i]:-0} > 0 )) || continue
+    [[ -n $ifs ]] && ifs+=" "
+    ifs+="${NET_IF[i]}"
+  done
+  [[ -z $ifs ]] && ifs="idle"
+  card_row "${C_MUTE}${ifs}${R}"
+  card_bot
+}
+
+build_dsk_card() {
+  local w=$1 gh=${2:-1} row
+  card_reset "$w"
+  local rd wr
+  hbps "$SUM_DR"; rd=$HUM
+  hbps "$SUM_DW"; wr=$HUM
+  CT=$C_DSK
+  card_top "DSK" "${C_DSK}R${rd}${R}${C_MUTE}/s${R}  ${C_DSK2}W${wr}${R}${C_MUTE}/s${R}"
+  oscillate "$CARD_I" "$gh" HIST_DW auto "$C_DSK2"
+  for row in "${OSC[@]}"; do card_row "$row"; done
+  oscillate "$CARD_I" "$gh" HIST_DR auto "$C_DSK"
+  for row in "${OSC[@]}"; do card_row "$row"; done
+  card_gap
+  local names="" i n=0
+  for i in "${!DSK_NAME[@]}"; do
+    (( n >= 4 )) && break
+    [[ -n $names ]] && names+=" "
+    names+="${DSK_NAME[i]}"
+    n=$(( n + 1 ))
+  done
+  [[ -z $names ]] && names="none"
+  card_row "${C_MUTE}${names}${R}"
+  card_bot
+}
+
+build_gpu_card() {
+  local w=$1 gh=$2
+  card_reset "$w"
+  local meta=""
+  if [[ -n $GPU_BUSY ]]; then
+    heat_set "$GPU_BUSY"
+    meta="${HC}${GPU_BUSY}%${R}"
+  fi
+  [[ -n $GPU_DRIVER ]] && meta+="${meta:+  }${C_MUTE}${GPU_DRIVER}${R}"
+  CT=$C_GPU
+  card_top "GPU" "$meta"
+  if [[ -n $GPU_BUSY ]]; then
+    oscillate "$CARD_I" "$gh" HIST_GPU 100 "$C_GPU"
+    local row
+    for row in "${OSC[@]}"; do card_row "$row"; done
+    card_gap
+  fi
+  local line="" u t
+  if [[ -n $GPU_VRAM_USED && -n $GPU_VRAM_TOT && $GPU_VRAM_TOT -gt 0 ]]; then
+    u=$(( GPU_VRAM_USED * 10 / 1073741824 ))
+    t=$(( GPU_VRAM_TOT * 10 / 1073741824 ))
+    line+="${C_GPU}$(( u / 10 )).$(( u % 10 ))/$(( t / 10 )).$(( t % 10 ))G${R}"
+  fi
+  [[ -n $GPU_TEMP ]] && line+="${line:+  }${C_TEXT}${GPU_TEMP}C${R}"
+  [[ -n $GPU_POWER ]] && line+="${line:+  }${C_TEXT}${GPU_POWER}W${R}"
+  [[ -n $GPU_MHZ ]] && line+="${line:+  }${C_MUTE}${GPU_MHZ}MHz${R}"
+  [[ -z $line ]] && line="${C_MUTE}no counters${R}"
+  card_row "$line"
+  card_bot
+}
+
+build_host_card() {
+  local w=$1 maxdf=$2
+  local cores=$(( CPU_N > 0 ? CPU_N - 1 : 0 ))
+  card_reset "$w"
+  card_top "HOST" "${C_MUTE}up${R} ${C_TEXT}$(fmt_up "$UPTIME")${R}${C_MUTE}  load${R} ${C_TEXT}${LOAD}${R}"
+  card_row "${B}${C_TEXT}${HOSTNAME_S}${R}${C_MUTE}  ${KERN_S}${R}"
+  local h2="${C_TEXT}${CPU_MODEL}${R}${C_MUTE}  ${cores}t${R}"
+  [[ -n $BOARD ]] && h2+="${C_MUTE}  ${BOARD}${R}"
+  card_row "$h2"
+  card_gap
+  local dfl n=0 mp pct us tot pad line
+  for dfl in "${DF_LINES[@]+"${DF_LINES[@]}"}"; do
+    (( n >= maxdf )) && break
+    read -r mp pct us tot <<<"$dfl"
+    heat_set "$pct"
+    pad=$(( 20 - ${#mp} ))
+    (( pad < 1 )) && pad=1
+    rep ' ' "$pad"
+    printf -v line '%s%s%s%s%s%3d%%%s%s  %s of %s%s' \
+      "$C_TEXT" "$mp" "$R" "$REP" "$HC" "$pct" "$R" "$C_MUTE" "$us" "$tot" "$R"
+    card_row "$line"
+    n=$(( n + 1 ))
+  done
+  card_bot
+}
+
+# Page height for the current plan. Reads the plan variables from draw_overview
+# (dynamic scope) and sets PLAN_TOTAL; also derives gpu_h so that, when the GPU
+# card sits beside HOST, both cards close on the same row.
+PLAN_TOTAL=0
+plan_total() {
+  local host_rows gpu_rows numa_rows t
+  # MEM/SWP carry one graph of 2*net_h; NET/DSK carry two of net_h. Same height.
+  SMALL_ROWS=$(( 2 + 2 * net_h + 1 + 1 ))
+  host_rows=$(( 2 + 2 + 1 + maxdf ))
+  if (( gpu_row && two_col )); then
+    gpu_h=$(( host_rows - 4 ))
+    (( gpu_h < 1 )) && gpu_h=1
+    (( gpu_h > 6 )) && gpu_h=6
+  fi
+  gpu_rows=0
+  (( gpu_row )) && gpu_rows=$(( 2 + gpu_h + 1 + 1 ))
+
+  t=3                                   # tab bar, blank under it, footer
+  t=$(( t + 2 + cpu_h + 1 ))            # CPU card + spacer
+  if (( numa_show )); then
+    numa_rows=$(( 2 + (numa_h > 0 ? numa_h + 1 : 0) + chip_rows ))
+    t=$(( t + groups * (numa_rows + 1) ))
+  fi
+  if (( quad )); then
+    t=$(( t + SMALL_ROWS + 1 ))
+  elif (( two_col )); then
+    t=$(( t + 2 * (SMALL_ROWS + 1) ))
+  else
+    t=$(( t + 4 * (SMALL_ROWS + 1) ))
+  fi
+  if (( gpu_row && two_col )); then
+    t=$(( t + (gpu_rows > host_rows ? gpu_rows : host_rows) ))
+  else
+    t=$(( t + gpu_rows + gpu_row + host_rows ))
+  fi
+  PLAN_TOTAL=$t
+}
+
+draw_overview() {
+  local cores extra w
+  cores=$(( CPU_N > 0 ? CPU_N - 1 : 0 ))
+  w=$COLS
+
+  # Chip id width follows the highest thread number, so every chip lines up.
+  CHIP_IDW=2
+  (( cores > 100 )) && CHIP_IDW=3
+
+  local nnodes=${#NUMA_IDS[@]}
+  (( nnodes > 4 )) && nnodes=4
+
+  # Column plan. Halves are equal width so the thread grids in the two NUMA
+  # cards pack identically; any leftover column is left as margin.
+  local two_col=0 quad=0
+  (( COLS >= 100 )) && two_col=1
+  (( COLS >= 116 )) && quad=1
+  local numa_cols=1
+  (( two_col && nnodes >= 2 )) && numa_cols=2
+  local nw=$COLS
+  (( numa_cols == 2 )) && nw=$(( (COLS - 1) / 2 ))
+
+  local SMALL_ROWS=6
+  local q1 q2 q3 q4
+  if (( quad )); then
+    q1=$(( (COLS - 3) / 4 )); q2=$q1; q3=$q1; q4=$q1
+  elif (( two_col )); then
+    q1=$(( (COLS - 1) / 2 )); q2=$q1; q3=$q1; q4=$q1
+  else
+    q1=$w; q2=$w; q3=$w; q4=$w
+  fi
+
+  # How many NUMA card row-groups, and how many chip rows each one wants.
+  local groups chip_want=0
+  if (( numa_cols == 2 )); then
+    groups=$(( (nnodes + 1) / 2 ))
+  else
+    groups=$nnodes
+  fi
+  for (( i = 0; i < nnodes; i++ )); do
+    numa_chip_rows "$i" "$nw"
+    (( NROWS > chip_want )) && chip_want=$NROWS
+  done
+
+  local ndf=${#DF_LINES[@]}
+  (( ndf < 1 )) && ndf=1
+  local gpu_row=0
+  (( GPU_HAS_METRICS )) && gpu_row=1
+
+  # Height plan: fit first, then hand any leftover rows back to the graphs so
+  # the page ends at the footer instead of a hole.
+  local cpu_h=3 numa_h=2 gpu_h=3 net_h=1 maxdf=$ndf chip_rows=$chip_want numa_show=1
+  (( maxdf > 4 )) && maxdf=4
+  local pass slack
+  for (( pass = 0; pass < 32; pass++ )); do
+    plan_total
+    (( PLAN_TOTAL <= ROWS )) && break
+    if   (( numa_h > 1 ));    then numa_h=$(( numa_h - 1 ))
+    elif (( maxdf > 2 ));     then maxdf=$(( maxdf - 1 ))
+    elif (( cpu_h > 2 ));     then cpu_h=$(( cpu_h - 1 ))
+    elif (( numa_h > 0 ));    then numa_h=0
+    elif (( chip_rows > 0 )); then chip_rows=$(( chip_rows - 1 ))
+    elif (( maxdf > 1 ));     then maxdf=1
+    elif (( numa_show ));     then numa_show=0
+    elif (( cpu_h > 1 ));     then cpu_h=1
+    else break
+    fi
+  done
+  for (( pass = 0; pass < 32; pass++ )); do
+    plan_total
+    slack=$(( ROWS - PLAN_TOTAL ))
+    (( slack < 1 )) && break
+    if   (( numa_show && chip_rows < chip_want )); then chip_rows=$(( chip_rows + 1 ))
+    elif (( cpu_h < 6 ));  then cpu_h=$(( cpu_h + 1 ))
+    elif (( numa_show && numa_h < 4 )); then numa_h=$(( numa_h + 1 ))
+    elif (( maxdf < ndf )); then maxdf=$(( maxdf + 1 ))
+    elif (( net_h < 3 && slack >= 2 )); then net_h=$(( net_h + 1 ))
+    elif (( cpu_h < 10 )); then cpu_h=$(( cpu_h + 1 ))
+    elif (( numa_show && numa_h < 6 )); then numa_h=$(( numa_h + 1 ))
+    else break
+    fi
+  done
+  # A NUMA card with neither graph nor chips is just an empty frame.
+  (( numa_h == 0 && chip_rows == 0 )) && numa_show=0
+
+  fline ""
+
+  # CPU ---------------------------------------------------------------------
+  extra=""
+  if (( ! numa_show )); then
+    # No room for the node cards — carry the per-node numbers in the header.
+    for (( i = 0; i < nnodes; i++ )); do
+      heat_set "${NUMA_PCT[i]:-0}"
+      extra+="  ${C_MUTE}N${NUMA_IDS[i]}${R} ${HC}${NUMA_PCT[i]:-0}%${R}"
+    done
+  fi
+  [[ -n $PKG_TEMP ]] && extra+="  ${C_TEXT}${PKG_TEMP}C${R}"
+  [[ -n $PKG_GHZ ]] && extra+="  ${C_TEXT}${PKG_GHZ}GHz${R}"
+  card_reset "$w"
+  heat_set "$ALL_PCT"
+  CT=$C_CPU
+  card_top "CPU" "${HC}${ALL_PCT}%${R}${C_MUTE}  ${cores}t${R}${extra}"
+  oscillate "$CARD_I" "$cpu_h" HIST_CPU 100 heat
+  local row
+  for row in "${OSC[@]}"; do card_row "$row"; done
+  card_bot
+  emit_card
+  fline ""
+
+  # NUMA --------------------------------------------------------------------
+  if (( numa_show && numa_cols == 2 )); then
+    for (( i = 0; i < nnodes; i += 2 )); do
+      build_numa_card "$i" "$nw" "$numa_h" "$chip_rows"; card_save NL
+      if (( i + 1 < nnodes )); then
+        build_numa_card $(( i + 1 )) "$nw" "$numa_h" "$chip_rows"; card_save NR
+        emit_cols NL NR
+      else
+        CARD=("${NL[@]}"); emit_card
+      fi
+      fline ""
+    done
+  elif (( numa_show )); then
+    for (( i = 0; i < nnodes; i++ )); do
+      build_numa_card "$i" "$w" "$numa_h" "$chip_rows"
+      emit_card
+      fline ""
+    done
+  fi
+
+  # MEM / SWP / NET / DSK ---------------------------------------------------
+  local memmeta swpmeta memval swpval
+  heat_set "$MEM_PCT"; memmeta="${HC}${MEM_PCT}%${R}"
+  heat_set "$SWP_PCT"; swpmeta="${HC}${SWP_PCT}%${R}"
+  local used tot
+  hkib "$MEM_USED"; used=$HUM
+  hkib "$MEM_TOTAL"; tot=$HUM
+  memval="${C_MEM}${used}${R}${C_MUTE} of ${tot}${R}"
+  if (( q1 - 4 >= 30 )); then
+    hkib "$MEM_AVAIL"
+    memval+="${C_MUTE}   avail ${R}${C_TEXT}${HUM}${R}"
+  fi
+  if (( SWP_TOTAL > 0 )); then
+    hkib "$SWP_USED"; used=$HUM
+    hkib "$SWP_TOTAL"; tot=$HUM
+    swpval="${C_SWP}${used}${R}${C_MUTE} of ${tot}${R}"
+  else
+    swpval="${C_MUTE}no swap${R}"
+  fi
+
+  local mem_h=$(( 2 * net_h ))
+  if (( quad )); then
+    build_meter_card "$q1" "MEM" "$memmeta" HIST_MEM 100 "$C_MEM" "$mem_h" "$memval"; card_save MEMC
+    build_meter_card "$q2" "SWP" "$swpmeta" HIST_SWP 100 "$C_SWP" "$mem_h" "$swpval"; card_save SWPC
+    build_net_card "$q3" "$net_h"; card_save NETC
+    build_dsk_card "$q4" "$net_h"; card_save DSKC
+    emit_cols MEMC SWPC NETC DSKC
+    fline ""
+  elif (( two_col )); then
+    build_meter_card "$q1" "MEM" "$memmeta" HIST_MEM 100 "$C_MEM" "$mem_h" "$memval"; card_save MEMC
+    build_meter_card "$q2" "SWP" "$swpmeta" HIST_SWP 100 "$C_SWP" "$mem_h" "$swpval"; card_save SWPC
+    emit_cols MEMC SWPC
+    fline ""
+    build_net_card "$q3" "$net_h"; card_save NETC
+    build_dsk_card "$q4" "$net_h"; card_save DSKC
+    emit_cols NETC DSKC
+    fline ""
+  else
+    build_meter_card "$w" "MEM" "$memmeta" HIST_MEM 100 "$C_MEM" "$mem_h" "$memval"; emit_card; fline ""
+    build_meter_card "$w" "SWP" "$swpmeta" HIST_SWP 100 "$C_SWP" "$mem_h" "$swpval"; emit_card; fline ""
+    build_net_card "$w" "$net_h"; emit_card; fline ""
+    build_dsk_card "$w" "$net_h"; emit_card; fline ""
+  fi
+
+  # GPU / HOST --------------------------------------------------------------
+  if (( gpu_row && two_col )); then
+    local gw=$(( COLS / 3 ))
+    (( gw < 32 )) && gw=32
+    build_gpu_card "$gw" "$gpu_h"; card_save GPUC
+    build_host_card $(( COLS - gw - 1 )) "$maxdf"; card_save HOSTC
+    emit_cols GPUC HOSTC
+  else
+    if (( gpu_row )); then
+      build_gpu_card "$w" "$gpu_h"; emit_card; fline ""
+    fi
+    build_host_card "$w" "$maxdf"; emit_card
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Other tabs (same content, through the frame buffer)
+# ---------------------------------------------------------------------------
+
+# Filled portion in heat colour over a dark track. Sets BAR.
+bar() {
+  local w=$1 p=$2 fill
+  (( w < 2 )) && w=2
+  (( p < 0 )) && p=0
+  (( p > 100 )) && p=100
+  fill=$(( w * p / 100 ))
+  heat_set "$p"
+  rep "${BLK[7]}" "$fill"
+  BAR="${HC}${REP}"
+  rep "${BLK[7]}" $(( w - fill ))
+  BAR+="${C_CHROME}${REP}${R}"
+}
+
+draw_cores() {
+  local i p id tmp bw line
+  bw=$(( COLS - 34 ))
+  (( bw < 12 )) && bw=12
+  (( bw > 64 )) && bw=64
+  heat_set "$ALL_PCT"
+  fline ""
+  fline " ${B}${C_TEXT}$((CPU_N - 1)) threads${R}${C_MUTE}   all${R} ${HC}${ALL_PCT}%${R}${C_MUTE}   load ${LOAD}${R}"
+  fline ""
+  for (( i = 1; i < CPU_N; i++ )); do
+    p=${CPU_PCT[i]:-0}
+    id=$(( i - 1 ))
+    freq_mhz "$id"
+    tmp=${CORE_TEMP[id]:-}
+    bar "$bw" "$p"
+    heat_set "$p"
+    printf -v line ' %sT%02d%s %s %s%3d%%%s' \
+      "$C_MUTE" "$id" "$R" "$BAR" "$HC" "$p" "$R"
+    [[ $FRQ != - ]] && line+="  ${C_MUTE}${FRQ}MHz${R}"
+    [[ -n $tmp ]] && line+="  ${C_MUTE}${tmp}C${R}"
+    fline "$line"
+  done
+}
+
+draw_memory() {
+  local bw=$(( COLS - 36 ))
+  (( bw < 10 )) && bw=10
+  (( bw > 48 )) && bw=48
+  fline ""
+  fline " ${B}${C_MEM}memory${R}"
+  fline ""
+  # $1 label  $2 KiB  $3 percent
+  _row() {
+    local line
+    hkib "$2"
+    bar "$bw" "$3"
+    heat_set "$3"
+    printf -v line '  %s%-11s%s %s%8s%s  %s %s%3d%%%s' \
+      "$C_MUTE" "$1" "$R" "$C_TEXT" "$HUM" "$R" "$BAR" "$HC" "$3" "$R"
+    fline "$line"
+  }
+  local den=$MEM_TOTAL
+  (( den == 0 )) && den=1
+  _row used      "$MEM_USED"  "$MEM_PCT"
+  _row available "$MEM_AVAIL" $(( MEM_AVAIL * 100 / den ))
+  _row free      "$MEM_FREE"  $(( MEM_FREE * 100 / den ))
+  _row buffers   "$MEM_BUFF"  $(( MEM_BUFF * 100 / den ))
+  _row cached    "$((MEM_CACHE+MEM_SRECL))" $(( (MEM_CACHE+MEM_SRECL) * 100 / den ))
+  _row dirty     "$MEM_DIRTY" $(( MEM_DIRTY * 100 / den ))
+  fline ""
+  fline " ${B}${C_SWP}swap${R}"
+  fline ""
+  if (( SWP_TOTAL > 0 )); then
+    _row used "$SWP_USED" "$SWP_PCT"
+    _row free "$SWP_FREE" $(( SWP_FREE * 100 / SWP_TOTAL ))
+  else
+    fline "  ${C_MUTE}none${R}"
+  fi
+}
+
+draw_disk() {
+  local i
+  fline ""
+  fline " ${B}${C_DSK}block devices${R}  ${C_MUTE}bytes/s${R}"
+  fline ""
+  if (( ${#DSK_NAME[@]} == 0 )); then
+    fline "  ${C_MUTE}waiting for first sample${R}"
+    return
+  fi
+  for i in "${!DSK_NAME[@]}"; do
+    local n r w rp wp line
+    san "${DSK_NAME[i]}"; n=$SAN
+    r=${DSK_R_RATE[i]:-0}
+    w=${DSK_W_RATE[i]:-0}
+    rp=$(( r > 104857600 ? 100 : r * 100 / 104857600 ))
+    wp=$(( w > 104857600 ? 100 : w * 100 / 104857600 ))
+    hbps "$r"; bar 16 "$rp"
+    printf -v line '  %s%-12s%s  %sR%s %s%-8s%s %s' \
+      "$C_TEXT" "$n" "$R" "$C_MUTE" "$R" "$C_DSK" "$HUM" "$R" "$BAR"
+    hbps "$w"; bar 16 "$wp"
+    printf -v line '%s  %sW%s %s%-8s%s %s' \
+      "$line" "$C_MUTE" "$R" "$C_DSK2" "$HUM" "$R" "$BAR"
+    fline "$line"
+  done
+}
+
+draw_net() {
+  local i
+  fline ""
+  fline " ${B}${C_NET}interfaces${R}  ${C_MUTE}bytes/s  lo omitted${R}"
+  fline ""
+  if (( ${#NET_IF[@]} == 0 )); then
+    fline "  ${C_MUTE}waiting for first sample${R}"
+    return
+  fi
+  for i in "${!NET_IF[@]}"; do
+    local n line
+    san "${NET_IF[i]}"; n=$SAN
+    hbps "${NET_RX_RATE[i]:-0}"
+    printf -v line '  %s%-12s%s  %s%s %8s/s%s' \
+      "$C_TEXT" "$n" "$R" "$C_NET" "$G_DN" "$HUM" "$R"
+    hbps "${NET_TX_RATE[i]:-0}"
+    printf -v line '%s   %s%s %8s/s%s' "$line" "$C_NET2" "$G_UP" "$HUM" "$R"
+    fline "$line"
+  done
+}
+
+draw_tasks() {
+  local pid comm rss pages
+  pages=$(getconf PAGESIZE 2>/dev/null || echo 4096)
+  [[ $pages =~ ^[0-9]+$ ]] || pages=4096
+  fline ""
+  fline " ${B}${C_TEXT}top rss${R}  ${C_MUTE}read-only /proc${R}"
+  fline ""
+  fline " ${C_MUTE}$(printf '%8s %8s  %s' pid rss comm)${R}"
+  local limit=$(( ROWS - FRAME_LINES - 2 )) line
+  (( limit < 4 )) && limit=4
+  while read -r rss pid comm; do
+    hkib "$rss"
+    printf -v line ' %s%8s%s %s%8s%s  %s' \
+      "$C_MUTE" "$pid" "$R" "$C_TEXT" "$HUM" "$R" "$comm"
+    fline "$line"
+  done < <(
+    for pid in /proc/[0-9]*; do
+      pid=${pid#/proc/}
+      [[ $pid =~ ^[0-9]+$ ]] || continue
+      [[ -r /proc/$pid/comm && -r /proc/$pid/statm ]] || continue
+      IFS= read -r comm <"/proc/$pid/comm" || continue
+      san "$comm"; comm=$SAN
+      read -r _ rss _ <"/proc/$pid/statm" || continue
+      [[ $rss =~ ^[0-9]+$ ]] || continue
+      (( rss == 0 )) && continue
+      rss=$(( rss * pages / 1024 ))
+      printf '%d %s %s\n' "$rss" "$pid" "$comm"
+    done | sort -nr | head -n "$limit"
+  )
+}
+
+draw() {
+  term_size
+  frame_reset
+  draw_tabs
+  case $TAB in
+    1) draw_overview ;;
+    2) draw_cores ;;
+    3) draw_memory ;;
+    4) draw_disk ;;
+    5) draw_net ;;
+    6) draw_tasks ;;
+  esac
+  if (( FRAME_LINES < ROWS )); then
+    while (( FRAME_LINES < ROWS - 1 )); do fline ""; done
+    draw_footer
+  fi
+  flush_frame
+}
+
+next_tab() { TAB=$(( TAB % 6 + 1 )); }
+prev_tab() { TAB=$(( TAB == 1 ? 6 : TAB - 1 )); }
+
+handle_key() {
+  local k rest
+  IFS= read -rsn1 -t "$INTERVAL" k || return 0
+  if [[ $k == $'\e' ]]; then
+    IFS= read -rsn2 -t 0.02 rest || rest=""
+    case $rest in
+      '[C'|'[B') next_tab ;;
+      '[D'|'[A') prev_tab ;;
+    esac
+    return
+  fi
+  case $k in
+    q|Q) exit 0 ;;
+    1|2|3|4|5|6) TAB=$k ;;
+    $'\t'|n|N) next_tab ;;
+    p|P) prev_tab ;;
+    '?'|h|H) HELP=$(( 1 - HELP )) ;;
+  esac
+}
+
+TICK=0
+sample_all() {
+  read_cpu_sample
+  read_mem
+  read_load
+  read_net
+  read_disk
+  read_numa
+  read_gpu
+  # Temperatures and clocks mean dozens of sysfs reads and barely move between
+  # frames, so they run on every fourth tick.
+  if (( TICK % 4 == 0 )); then
+    read_temps
+    read_freq_pkg
+  fi
+  TICK=$(( TICK + 1 ))
+}
+
+main() {
+  [[ -r /proc/stat && -r /proc/meminfo ]] || {
+    printf 'nixmon: /proc missing — Linux only\n' >&2
+    exit 1
+  }
+  init_palette
+  read_cpu_model
+  read_board
+  read_host
+  read_df
+  # --once [TAB]: render a single frame and exit (screenshots, smoke tests).
+  if [[ ${1-} == --once ]]; then
+    [[ ${2-} =~ ^[1-6]$ ]] && TAB=$2
+    sample_all
+    sleep 0.15
+    sample_all
+    draw
+    printf '\n'
+    return 0
+  fi
+  stty -echo -icanon 2>/dev/null || true
+  hide
+  printf '\033[2J\033[H'
+  sample_all
+  sleep 0.15
+  sample_all
+  while :; do
+    draw
+    handle_key
+    sample_all
+    # df is slow-ish; refresh every ~15s
+    DF_TICK=$(( ${DF_TICK:-0} + 1 ))
+    (( DF_TICK % 20 == 0 )) && read_df
+  done
+}
+
+main "$@"

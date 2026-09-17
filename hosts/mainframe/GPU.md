@@ -100,9 +100,9 @@ Only reseat the card if a drain alone does not bring it back. If you have anothe
 machine, note that Linux itself boots fine while headless: SSH in and check
 `lspci | grep -i vga` to confirm whether the card is on the bus.
 
-## Fact 3: the display bandwidth ceiling
+## Fact 3: the display bandwidth ceiling (RX 580 only)
 
-The card is a Sapphire RX 580 (Polaris 10, `1002:67df`, DCE 11.2). The G9 at
+The RX 580 is a Sapphire RX 580 (Polaris 10, `1002:67df`, DCE 11.2). The G9 at
 `5120x1440@120` 8bpc needs about **25.4 Gbps** against DP 1.4 HBR3's **25.92 Gbps**
 usable. That leaves nothing for a second pipe, so DCE 11.2 cannot validate a second
 output while the G9 is at 120 Hz. It shows up as an endless
@@ -115,12 +115,19 @@ storm, or as Hyprland simply refusing the modeset and keeping the previous mode.
 
 This is a hard ceiling, not a configuration problem. **`5120x1440@120` is banned
 outright on this card** via a per-output pixel-rate budget
-(`TEONIX_MAX_PIXEL_RATE_MPS=500` in `/etc/teonix/display-bandwidth.conf`): that
-mode is ~885 Mpx/s, while the two sanctioned G9 modes — `2560x1440@120` (the
-default) and `5120x1440@60` (`Super+S`) — are both ~442 Mpx/s and were verified
-live on 2026-09-10 with two extra 1080p60 outputs attached. `display-safe.sh`
-never selects a mode above the budget, for any monitor in any port. A GPU swap
-drops the quirks file and with it the ban.
+(`TEONIX_MAX_PIXEL_RATE_MPS=500`): that mode is ~885 Mpx/s, while the two
+sanctioned G9 modes — `2560x1440@120` (the default) and `5120x1440@60` (`Super+S`)
+— are both ~442 Mpx/s and were verified live on 2026-09-10 with two extra 1080p60
+outputs attached. `display-safe.sh` never selects a mode above the budget, for any
+monitor in any port.
+
+The ban belongs to the card, not to the machine, so it is applied by card:
+`teonix-gpu-profile` reads the fitted display device from the PCI bus at every
+boot and writes the budgets to `/run/teonix/display-bandwidth.conf`. Fit a
+DSC-capable card and the ban is simply not written that boot. The profiles live in
+`hosts/mainframe/gpu.nix`; `/etc/teonix/display-bandwidth.conf` holds the RX 580's
+numbers as a fallback for the case where that service did not run, because being
+stuck at 60 Hz is cheaper than letting an over-budget mode through on Polaris.
 
 ### The greeter: NEVER give mutter a stored monitors.xml
 
@@ -169,30 +176,54 @@ a GNOME session.
 
 ### System (`hosts/mainframe/`)
 
-| File | Purpose | Survives a GPU swap? |
+| File | Purpose | Card-specific? |
 | --- | --- | --- |
-| `gpu-quirks-polaris.nix` | Everything specific to the RX 580 | **No** — delete the import |
-| `gpu-guard.nix` | Board-level no-video protection | Yes — keep it |
-| `platform.nix` | Hibernate tier (`resumeDevice`, swap, `HibernateDelaySec`) | Yes |
+| `gpu.nix` | GPU and display policy for whatever card is fitted | No — only the budget table inside it is |
+| `gpu-guard.nix` | Board-level no-video protection | No — keep it |
+| `platform.nix` | Hibernate tier (`resumeDevice`, swap, `HibernateDelaySec`) | No |
 
-`gpu-quirks-polaris.nix` sets:
+`gpu.nix` is written so that **the machine boots with either card and needs no
+rebuild to swap them**. That matters because the card in the slot is the only POST
+path: if the new card turns out to be a problem, the old one has to be able to go
+back in and boot, and asking a headless machine for a rebuild first is not a plan.
+It sets:
 
-- `hardware.amdgpu.initrd.enable` — amdgpu loads deterministically from the initrd.
-  On 2026-09-10 udev coldplug silently failed to insert it (all DRM deps loaded,
-  module never appeared) and the session degraded to simpledrm + llvmpipe: one fake
-  `Unknown-1` output, wrong resolution, no EDID. Never load amdgpu by hand while a
-  session is running on simpledrm — the takeover kills the compositor to a TTY.
+- `hardware.amdgpu.initrd.enable` plus `boot.initrd.kernelModules = [ "i915" ]` —
+  both display drivers load from the initrd, and the one whose card is absent
+  simply binds nothing. Coldplug is not trusted: on 2026-09-10 udev silently failed
+  to insert amdgpu (all DRM deps loaded, module never appeared) and the session
+  degraded to simpledrm + llvmpipe with one fake `Unknown-1` output and no EDID.
+  Never load a DRM driver by hand into such a session — the takeover kills the
+  compositor to a TTY. Having only `i915` in the initrd also settles who drives an
+  Arc card: kernel 6.18 has **both `i915` and `xe`** advertising `8086:56a0/56a1/56a5`
+  with empty `force_probe` lists, so first module loaded wins, and that is `i915`.
+- `hardware.enableRedistributableFirmware` — DG2 does not initialise without
+  `dg2_guc_70.bin`, `dg2_huc_gsc.bin` and `dg2_dmc_ver2_*.bin`. All three are in
+  the initrd (verified in the built image), so the card comes up in early KMS.
+- `intel-media-driver` and `vpl-gpu-rt` in `hardware.graphics.extraPackages` for
+  VAAPI/QSV on Gen12+. Mesa already supplies rendering (iris, ANV); the AMD ROCm
+  ICDs from `modules/hardware/hardware-x86.nix` stay, inert without their card.
+- `services.xserver.videoDrivers = [ "modesetting" ]`, overriding the `[ "amdgpu" ]`
+  pin that `modules/services/system-services.nix` applies to every x86 host. That
+  pin would leave Xorg with no driver the moment the card is not AMD. The Wayland
+  sessions do not consult it at all.
 - `mem_sleep_default=s2idle` and `SuspendState=freeze` — suspend still works, but
-  the GPU keeps power, so the resume re-POST that wedged the card never happens.
-- `amdgpu.runpm=0` — runtime D3cold is a second wedge path.
-- `amdgpu.gpu_recovery=1` — attempt a reset rather than staying hung.
-- `/etc/teonix/display-bandwidth.conf`, the single place both limits are defined:
-  the secondary-output refresh cap and the pixel-rate budget that bans
-  `5120x1440@120`. `display-safe.sh` reads it and applies **no limits at all** if
-  it is absent.
-- a boot service that warns loudly (journal plus a notice at login) if the fitted
-  display device is no longer `1002:67df`, so these quirks cannot silently outlive
-  the card they were written for.
+  the GPU keeps power, so the resume re-POST that wedged Polaris never happens.
+  Kept for the Arc too: Alchemist has no such known bug, but s2idle costs a few
+  watts while a failed resume on this chassis costs a power drain with no BIOS
+  access in between, and long sleeps land in S4 anyway.
+- `amdgpu.runpm=0` and `amdgpu.gpu_recovery=1` — module parameters, ignored when
+  amdgpu is not driving anything, so they can stay for the RX 580's sake.
+- `teonix-gpu-profile` — reads the fitted display device from the PCI bus before
+  the greeter starts and writes that card's budgets to
+  `/run/teonix/display-bandwidth.conf` (RX 580: 60 Hz / 500 Mpx/s; Arc DG2:
+  240 Hz / 2000 Mpx/s, which permits `5120x1440@240`). An unrecognised card gets
+  the permissive numbers plus a notice at login. `/etc/teonix/display-bandwidth.conf`
+  carries the RX 580 numbers as the fallback if the service never ran;
+  `display-safe.sh` prefers `/run`, falls back to `/etc`, and applies **no limits
+  at all** if neither exists.
+- `teonix-greeter-unpin` — see the greeter rule above. Kept across the swap because
+  its only cost is a greeter that does not remember its layout.
 
 `gpu-guard.nix` adds two units. Both locate the GPU by **PCI display class**
 (`0x03....`), never by bus address, vendor or driver name:
@@ -276,39 +307,86 @@ mode. The serial is deliberately omitted from the prefix: some panels report a
 different serial per port — the S27E590 gives `HTQGA01931` on DP but `0x304D4645`
 on HDMI. Get a prefix with `hyprctl monitors` and drop the trailing serial.
 
-## Replacing the GPU
+## Swapping the GPU
 
-The whole point of the split above is that this is a one-file change.
+Nothing to rebuild. `gpu.nix` already carries both drivers, both firmware sets and
+both userspace stacks, and the display budgets are chosen from the PCI bus at boot,
+so the swap is: shut down, change the card, boot. The same is true in reverse — the
+RX 580 goes back in and boots unchanged, which is the escape hatch for a card that
+does not work out.
 
-1. **Drop the quirks import.** Remove `./hosts/mainframe/gpu-quirks-polaris.nix`
-   from `flake.nix`. That alone restores stock behaviour: deep S3 suspend and no
-   refresh cap. Leave `gpu-guard.nix` imported — it is about the *chassis*, not the
-   card, and this board still has no onboard video.
-2. **Re-test suspend** with `cat /sys/power/mem_sleep` back to `s2idle [deep]`. Do
-   the first test with an SSH session open from another machine.
-3. **Check the refresh cap.** A DSC-capable card can drive the G9 at 120 Hz *and* a
-   second output. If you keep the quirks file for other reasons, raise
-   `maxRefreshMultiOutput` in it; if you drop the file, there is no cap at all and
-   `share` will simply use each panel's best mode.
-4. **Revisit `videoDrivers`.** `modules/services/system-services.nix:175` pins
-   `[ "amdgpu" ]` for all of `x86_64-linux`. An Intel or NVIDIA card needs that
-   changed. This is the one GPU assumption that lives outside the quirks file.
-5. **Keep the `desc:` monitor rules.** They are port- and card-agnostic already.
-6. **Re-check the primary display prefix** in `hyprland.conf` only if you also
-   change monitors.
+**Do a `nixos-rebuild boot` with the current card still fitted** before touching
+hardware, though. The point is that the *running* generation must already be the
+card-agnostic one; discovering it is not, on a machine whose only display output is
+the card you just removed, is the bad ending.
 
-If you forget step 1, the login notice from `teonix-gpu-quirks-staleness` will tell
-you: it fires whenever the fitted display device is not `1002:67df`.
+### Before the swap (with the old card still in)
+
+```bash
+cd ~/teonix && nixupgrade        # or: sudo nixos-rebuild switch --flake .#mainframe --impure
+systemctl status teonix-gpu-profile          # should report the RX 580 profile
+cat /run/teonix/display-bandwidth.conf       # 60 / 500 while Polaris is fitted
+```
+
+### Intel Arc A750 (DG2) specifics
+
+- **Firmware/BIOS must be UEFI, not legacy.** Arc cards ship a UEFI GOP only — they
+  have **no legacy VGA BIOS**. With CSM / legacy option ROMs driving video there is
+  no POST output at all on this board. This install already boots UEFI
+  (systemd-boot on the ESP), so leave it that way and prefer "UEFI only" in setup.
+- **Enable large-address decoding** ("Above 4GB decoding" / "Memory Mapped I/O
+  above 4GB") if the T7810 setup offers it. DG2 wants a big BAR window and old
+  firmware that keeps everything under 4 GB can fail to allocate it. If the card
+  enumerates but never binds (`i915` probe failure over BAR allocation), add
+  `pci=realloc` to `boot.kernelParams` in `platform.nix` as a fallback.
+- **No Resizable BAR on BIOS A25/A34.** Alchemist loses noticeable performance
+  without ReBAR. It is not a boot issue and there is no fix on this platform.
+- **PCIe 3.0 x16** is what this board offers; the A750 is PCIe 4.0 x8 and
+  negotiates 3.0 x8 fine.
+- Remember the firmware-UI trick from the top of this file: to reach F2/F12, run a
+  plain 1080p panel on HDMI, because the G9 will not sync the setup UI's mode.
+
+### After the first boot on the new card
+
+```bash
+lspci -nn | grep -iE 'vga|display'           # expect 8086:56a1 for the A750
+ls -l /sys/class/drm/card*/device/driver     # expect .../drivers/i915
+systemctl status teonix-gpu-profile          # expect the Arc profile
+cat /run/teonix/display-bandwidth.conf       # expect 240 / 2000
+journalctl -b -k | grep -iE 'i915|GuC|HuC|DMC' | head -30
+glxinfo -B 2>/dev/null | grep -i 'renderer'  # must NOT say llvmpipe
+vainfo 2>/dev/null | head -5                 # iHD driver, hardware decode
+```
+
+Then, in this order:
+
+1. **Suspend once with an SSH session open from another machine.** Policy is
+   unchanged (`s2idle`), so this should be uneventful; confirm the outputs come back
+   before trusting it.
+2. **Escalate the display**: `Super+D` now derives `5120x1440@240` for the G9
+   instead of `2560x1440@120`, and `verify-or-revert` still reverts if the commit
+   does not stick. Once it survives a reboot and a resume, raise the startup pin on
+   the `desc:Samsung Electric Company LC49G95T` line in `hyprland.conf` — it is
+   deliberately left at the mode that commits on either card.
+3. **Prune the AMD leftovers** only after the Arc has proven itself for a while:
+   the ROCm ICDs in `modules/hardware/hardware-x86.nix` (shared with `nixbox`, so
+   check that host first), `hardware.amdgpu.initrd.enable`, and the two
+   `amdgpu.*` kernel parameters. Keeping them is what makes putting the 580 back a
+   non-event, so there is no hurry.
+
+Unchanged by any swap: the `desc:` monitor rules (port- and card-agnostic), the
+greeter's no-`monitors.xml` rule, and `gpu-guard.nix`.
 
 ## Quick checks
 
 ```bash
 cat /sys/power/mem_sleep                      # expect: [s2idle] deep
 systemctl status gpu-resume-guard gpu-boot-guard
-systemctl status teonix-gpu-quirks-staleness  # loud if the card changed
+systemctl status teonix-gpu-profile           # which card, which budgets
+cat /run/teonix/display-bandwidth.conf        # budgets in force this boot
 systemctl status teonix-storage-health        # loud if NVMe error counters grew
-lspci -nn | grep -i ' vga '                   # is the card even on the bus?
-ls -l /sys/bus/pci/devices/*/driver | grep -i amdgpu   # driver actually bound?
+lspci -nn | grep -iE ' vga | display '        # is the card even on the bus?
+ls -l /sys/class/drm/card*/device/driver      # driver actually bound?
 for f in /sys/class/drm/card*-*/enabled; do echo "$f $(cat $f)"; done
 ~/.config/hypr/scripts/display-safe.sh safe   # recover a bad layout by hand
 ```

@@ -12,7 +12,7 @@
 # monitor keeps its own workspaces and gains main's on top.
 #
 # Modes:
-#   toggle       swap between the current main and the one before it
+#   toggle       bounce between the largest panel (G9) and the ASUS on its right
 #   next         advance to the next output, in description order
 #   set SEL      make SEL main (a connector name, or a `desc:` prefix)
 #   status       report the current main and what `toggle` would do
@@ -26,6 +26,9 @@ STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/teonix-display"
 CUR_FILE="$STATE_DIR/main-monitor"
 PREV_FILE="$STATE_DIR/main-monitor.prev"
 QS_IPC="$HOME/.config/quickshell/scripts/qs-live-ipc.sh"
+# Super+Esc pair: EDID prefix, same string as hyprland.conf / display-safe.sh.
+# Not a connector name — any port.
+TOGGLE_PARTNER="${TEONIX_MAIN_TOGGLE_PARTNER:-ASUSTek COMPUTER INC VG245}"
 
 log() { printf 'main-monitor: %s\n' "$*" >&2; }
 
@@ -238,12 +241,24 @@ next_after() {
 }
 
 cmd_toggle() {
-  local cur back
+  local cur partner largest
   cur="$(current_main)"
-  [ -r "$PREV_FILE" ] && back="$(tr -d '[:space:]' < "$PREV_FILE")" || back=""
+  partner="$(resolve_name "desc:$TOGGLE_PARTNER")"
+  largest="$(largest_name)"
 
-  # Prefer bouncing back to where we came from, so the bind is a true toggle even
-  # with three or more outputs attached.
+  # Dedicated pair: G9 (largest) ↔ ASUS. If the ASUS is unplugged, fall back to
+  # prev / next-in-description so the bind still does something.
+  if [ -n "$partner" ] && is_live "$partner"; then
+    if [ "$cur" = "$partner" ]; then
+      make_main "$largest"
+    else
+      make_main "$partner"
+    fi
+    return
+  fi
+
+  local back=""
+  [ -r "$PREV_FILE" ] && back="$(tr -d '[:space:]' < "$PREV_FILE")" || back=""
   if [ -n "$back" ] && [ "$back" != "$cur" ] && is_live "$back"; then
     make_main "$back"
   else

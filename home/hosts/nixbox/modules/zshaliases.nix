@@ -119,6 +119,8 @@ in
     alias qsglass='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qsglass.sh"'
     alias qstheme='bash "$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell-mainframe/scripts/qs-live-ipc.sh" theme toggle'
 
+    alias nixmon="$HOME/.local/bin/nixmon"
+
     # Mullvad VPN (GUI: mullvad-vpn | status: mvpn)
     alias mvpn='mullvad status'
     alias mvpnon='mullvad connect'

@@ -174,6 +174,12 @@ in {
     source = "${dotfilesPath}/config/hypr/scripts/ro-type.sh";
     executable = true;
   };
+  # Portable tabbed resource monitor (alias: nixmon).
+  home.file.".local/bin/nixmon" = {
+    source = "${dotfilesPath}/bin/nixmon";
+    executable = true;
+  };
+
   # ✅ Symlink ios font config
   home.file.".config/fontconfig/fonts.conf".source = "${dotfilesPath}/config/fontconfig/fonts.conf";
   home.file.".config/fontconfig/conf.d/50-michroma.conf".source = "${dotfilesPath}/config/fontconfig/conf.d/50-michroma.conf";

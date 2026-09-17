@@ -5,9 +5,11 @@
 # are discovered from `hyprctl monitors` and verified against sysfs, so any panel
 # works in any DP/HDMI port. Selectors may be a connector name or a `desc:` prefix.
 #
-# Two limits are read from /etc/teonix/display-bandwidth.conf, written by
-# hosts/mainframe/gpu-quirks-polaris.nix. If that file is absent (other hosts, or
-# after a GPU upgrade that drops the quirks) no limits are applied at all.
+# Two limits are read from /run/teonix/display-bandwidth.conf if it exists and
+# /etc/teonix/display-bandwidth.conf otherwise, both written by
+# hosts/mainframe/gpu.nix: the /run one per boot for whichever card is fitted, the
+# /etc one as a conservative fallback. If neither exists (other hosts) no limits
+# are applied at all.
 #
 #   TEONIX_MAX_PIXEL_RATE_MPS     hard per-output BAN: any mode whose w*h*refresh
 #                                 exceeds this many megapixels/s is never selected.
@@ -30,14 +32,17 @@ set -uo pipefail
 
 STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/teonix-display"
 SAVED="$STATE_DIR/saved-layout.json"
-BW_CONF=/etc/teonix/display-bandwidth.conf
+# Per-boot profile for the fitted card first, packaged fallback second.
+BW_CONFS="/run/teonix/display-bandwidth.conf /etc/teonix/display-bandwidth.conf"
 
 # The environment overrides the config file, for one-off testing. Capture it
 # BEFORE sourcing the file, which sets the same variable names.
 _env_cap="${TEONIX_MAX_REFRESH_MULTI_OUTPUT:-}"
 _env_px="${TEONIX_MAX_PIXEL_RATE_MPS:-}"
-# shellcheck source=/dev/null
-[ -r "$BW_CONF" ] && . "$BW_CONF"
+for _bw in $BW_CONFS; do
+  # shellcheck source=/dev/null
+  [ -r "$_bw" ] && { . "$_bw"; break; }
+done
 CAP="${_env_cap:-${TEONIX_MAX_REFRESH_MULTI_OUTPUT:-}}"
 PXRATE="${_env_px:-${TEONIX_MAX_PIXEL_RATE_MPS:-}}"
 
@@ -248,22 +253,25 @@ cmd_safe() {
   return 1
 }
 
-# Secondary placement: every other output sits ABOVE the primary, bottom edges
-# flush with the primary's top, packed right-to-left starting at the primary's
-# right edge. Rightmost-first order is a descending sort of the monitor
-# descriptions — on this desk that puts the Samsung S27E590 in the top-right
-# corner of the G9 and the ASUS VG245 to its left, in every primary mode.
-# Emits one "name,WxH@R,XxY" line per secondary (or auto-up when a mode or the
-# primary's geometry cannot be parsed).
+# Secondary placement. One output (EDID prefix, same as hyprland.conf) sits to
+# the RIGHT of the primary, top edges flush. Everyone else sits ABOVE, bottom
+# edges flush with the primary's top, packed right-to-left from the primary's
+# right edge. On this desk that is ASUS VG245 beside the G9 and Samsung S27E590
+# in the G9's top-right corner, in every primary mode.
+# Emits one "name,WxH@R,XxY" line per secondary (or auto-up / auto-right when a
+# mode or the primary's geometry cannot be parsed).
+RIGHT_OF_PRIMARY="${TEONIX_RIGHT_OF_PRIMARY:-ASUSTek COMPUTER INC VG245}"
+
 plan_secondaries() {
   local f
   f="$(snapshot)" || return 1
-  python3 - "$f" "$1" "$2" "$CAP" "$PXRATE" <<'PY'
+  python3 - "$f" "$1" "$2" "$CAP" "$PXRATE" "$RIGHT_OF_PRIMARY" <<'PY'
 import json, re, sys
 monitors = json.load(open(sys.argv[1]))
 primary, pmode = sys.argv[2], sys.argv[3]
 cap = float(sys.argv[4]) if sys.argv[4] else None
 px = float(sys.argv[5]) if sys.argv[5] else None
+right_prefix = sys.argv[6]
 
 g = re.match(r"(\d+)x(\d+)@", pmode)
 xright = int(g.group(1)) if g else None
@@ -285,23 +293,37 @@ def best(m):
     return found[1] if found else None
 
 secondaries = [m for m in monitors if m["name"] != primary]
-secondaries.sort(key=lambda m: m.get("description", ""), reverse=True)
-for m in secondaries:
+beside = [m for m in secondaries if m.get("description", "").startswith(right_prefix)]
+above = [m for m in secondaries if m not in beside]
+above.sort(key=lambda m: m.get("description", ""), reverse=True)
+
+def emit(m, x, y, fallback):
+    b = best(m)
+    if b is None or xright is None:
+        print("%s,preferred,%s" % (m["name"], fallback))
+        return
+    w, h, r = b
+    print("%s,%dx%d@%g,%dx%d" % (m["name"], w, h, r, x, y))
+
+for m in beside:
+    emit(m, xright, 0, "auto-right")
+for m in above:
     b = best(m)
     if b is None or xright is None:
         print("%s,preferred,auto-up" % m["name"])
         continue
     w, h, r = b
     x = xright - w
-    print("%s,%dx%d@%g,%dx%d" % (m["name"], w, h, r, x, -h))
+    emit(m, x, -h, "auto-up")
     xright = x
 PY
   rm -f "$f"
 }
 
-# Primary at its best allowed mode (by KEY) at 0x0, secondaries re-anchored above
-# it. Both live layouts go through here; the pixel-rate ban in best_mode means
-# nothing this GPU cannot survive is ever requested.
+# Primary at its best allowed mode (by KEY) at 0x0, secondaries re-anchored
+# (ASUS to the right, the rest above). Both live layouts go through here; the
+# pixel-rate ban in best_mode means nothing this GPU cannot survive is ever
+# requested.
 apply_multi() {
   local key="$1" label="$2"
   have_hypr || { log "hyprland not reachable"; return 1; }
@@ -312,7 +334,7 @@ apply_multi() {
 
   # No refresh cap on the primary: the pixel-rate budget is the real limit.
   mode="$(best_mode "$primary" "" "$key")"
-  log "$label: $primary at $mode plus every other output above it"
+  log "$label: $primary at $mode; ASUS to the right, remaining outputs above"
   hyprctl keyword monitor "$primary,$mode,0x0,1,bitdepth,8" >/dev/null 2>&1
 
   while IFS= read -r line; do

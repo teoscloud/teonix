@@ -4,6 +4,9 @@
     fonts = {
     packages = with pkgs; [
       nerd-fonts.fira-code
+      # Patched 3270: same metrics as _3270font below, plus the powerline/nerd
+      # glyphs drawn for *its* cell, so a prompt needs no second family.
+      nerd-fonts._3270
       font-awesome         # Icon font
       noto-fonts
       liberation_ttf
