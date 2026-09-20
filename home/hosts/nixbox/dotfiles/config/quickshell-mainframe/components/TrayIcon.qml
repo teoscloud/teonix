@@ -23,9 +23,11 @@ Item {
     property real lum: -1
     property real sat: -1
 
-    readonly property bool monochrome: measured && sat < 0.2
+    readonly property bool monochrome: measured && sat < 0.28
+    // Dark rail: any dim/mid grey glyph gets paper ink. Only already-bright
+    // marks (lum >= 0.78) are left alone so we don't flatten their holes.
     readonly property bool reInked: adapt && monochrome
-        && (Theme.mode === "dark" ? lum < 0.4 : lum > 0.6)
+        && (Theme.mode === "dark" ? lum < 0.78 : lum > 0.55)
 
     implicitWidth: size
     implicitHeight: size

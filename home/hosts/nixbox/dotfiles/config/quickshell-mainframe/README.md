@@ -51,8 +51,8 @@ marker while it travels — and the marker survives the delegate churn that
 Hyprland events cause. Modules are parted by straight `VRule` hairlines with
 tick caps; there are no parallelogram separators or selectors left.
 
-Bar interaction never warps the pointer: `Globals.dispatchKeepCursor()` saves
-`hyprctl cursorpos`, dispatches, then restores it.
+Bar interaction never warps the pointer: Hyprland `cursor:no_warps` suppresses
+automatic warps on focus. Super+` still teleports via `cyclemon.sh`.
 
 Overlays (launcher, emoji, notif drawer, power, menus) open TL→BR from mid scale via `MainframeReveal`.
 

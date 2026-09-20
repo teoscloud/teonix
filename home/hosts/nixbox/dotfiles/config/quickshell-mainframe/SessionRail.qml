@@ -387,7 +387,7 @@ Scope {
                                                     id: instIcon
                                                     anchors.fill: parent
                                                     source: root.iconSource(root.toplevelClass(client))
-                                                    ink: Theme.fg
+                                                    ink: Theme.palette === "dark" ? Theme.accentHot : Theme.fg
                                                 }
 
                                                 Text {
@@ -461,9 +461,10 @@ Scope {
                                 anchors.centerIn: parent
                                 size: Theme.trayIcon
                                 source: trayItem.iconSource
-                                // Only app-supplied pixmaps need re-inking; a themed
-                                // name already came back in the palette's own theme.
-                                adapt: trayItem.iconSource.indexOf("image://qspixmap") === 0
+                                ink: Theme.palette === "dark" ? Theme.accentHot : Theme.fg
+                                // Pixmaps and mid-grey themed names both get measured;
+                                // colour marks are left alone, dim mono ones are re-inked.
+                                adapt: true
                             }
 
                             QsMenuAnchor {
@@ -552,8 +553,13 @@ Scope {
                     }
 
                     Item {
-                        width: ntfRow.implicitWidth + 10
+                        id: ntfSlot
+                        // Same footprint empty or unread — badge overlays, never grows the row.
+                        width: Theme.moduleBtnWidth
                         height: rightRow.height
+
+                        readonly property bool lit: Globals.notifCount > 0
+                        readonly property bool hot: ntfMa.containsMouse || Globals.notifDrawerOpen
 
                         MfShape {
                             anchors.fill: parent
@@ -561,53 +567,56 @@ Scope {
                             anchors.bottomMargin: Theme.moduleInset
                             kind: "chamfer"
                             slant: Theme.chamfer
-                            fillColor: Globals.notifCount > 0 ? Theme.bgSelected : "transparent"
-                            strokeColor: Globals.notifCount > 0 ? Theme.accentHot : Theme.hairline
+                            fillColor: (ntfSlot.hot || ntfSlot.lit) ? Theme.bgSelected : "transparent"
+                            strokeColor: ntfSlot.lit ? Theme.accentHot : Theme.hairline
 
                             Behavior on fillColor { ColorAnimation { duration: Theme.animMed } }
+                            Behavior on strokeColor { ColorAnimation { duration: Theme.animMed } }
                         }
 
-                        Row {
-                            id: ntfRow
+                        Text {
                             anchors.centerIn: parent
-                            spacing: 5
+                            text: ntfSlot.lit ? "󰂚" : "󰂜"
+                            color: (ntfSlot.hot || ntfSlot.lit) ? Theme.fg : Theme.fgMuted
+                            font.family: "Symbols Nerd Font Mono, JetBrainsMono Nerd Font, " + Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeLg + 2
+                        }
 
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: Globals.notifCount > 0 ? "󰂚" : "󰂜"
-                                color: Globals.notifCount > 0 ? Theme.fg : Theme.fgMuted
-                                font.family: "Symbols Nerd Font Mono, JetBrainsMono Nerd Font, " + Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeLg + 2
+                        Item {
+                            width: 16
+                            height: 16
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.rightMargin: 3
+                            anchors.topMargin: 5
+                            opacity: ntfSlot.lit ? 1 : 0
+                            visible: true
+
+                            Behavior on opacity { NumberAnimation { duration: Theme.animMed } }
+
+                            MfShape {
+                                anchors.fill: parent
+                                kind: "oct"
+                                slant: 4
+                                fillColor: Theme.accentHot
+                                strokeColor: "transparent"
+                                strokeWidth: 0
                             }
 
-                            Item {
-                                anchors.verticalCenter: parent.verticalCenter
-                                visible: Globals.notifCount > 0
-                                width: visible ? countLab.implicitWidth + 12 : 0
-                                height: 18
-
-                                MfShape {
-                                    anchors.fill: parent
-                                    kind: "oct"
-                                    slant: 4
-                                    fillColor: Theme.accentHot
-                                    strokeColor: "transparent"
-                                    strokeWidth: 0
-                                }
-
-                                Text {
-                                    id: countLab
-                                    anchors.centerIn: parent
-                                    text: Globals.notifCount
-                                    color: Theme.bg
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeBar
-                                }
+                            Text {
+                                anchors.centerIn: parent
+                                text: Globals.notifCount > 9 ? "9+" : String(Globals.notifCount)
+                                color: Theme.bg
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeBar
                             }
                         }
 
                         MouseArea {
+                            id: ntfMa
                             anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
                             onClicked: Globals.toggleNotifs()
                         }
                     }

@@ -227,29 +227,11 @@ Scope {
         return s;
     }
 
-    // keepCursor: restore pointer after focus so dock scroll doesn't warp into the window
-    function activateToplevel(t, keepCursor) {
+    function activateToplevel(t) {
         if (!t)
             return;
         const addr = root.formatAddress(t.address || t.lastIpcObject?.address);
         const cls = root.toplevelClass(t);
-        const focusCmd = addr
-            ? ("hyprctl dispatch focuswindow address:" + addr)
-            : (cls ? ("hyprctl dispatch focuswindow class:" + cls) : "");
-        if (!focusCmd)
-            return;
-
-        if (keepCursor) {
-            focusKeepCursor.command = ["sh", "-c",
-                'pos=$(hyprctl cursorpos); ' +
-                'x=${pos%%,*}; y=${pos#*,}; y=${y// /}; ' +
-                focusCmd + '; ' +
-                'hyprctl dispatch movecursor "$x" "$y"'
-            ];
-            focusKeepCursor.running = true;
-            return;
-        }
-
         if (addr)
             Hyprland.dispatch("focuswindow address:" + addr);
         else if (cls)
@@ -294,8 +276,6 @@ Scope {
             root.refreshToplevelState();
         }
     }
-
-    Process { id: focusKeepCursor }
 
     Variants {
         model: Quickshell.screens
@@ -488,7 +468,7 @@ Scope {
             idx = (idx + delta + list.length * 8) % list.length;
             icon.cycleIndex = idx;
             // Keep pointer on the dock while scrolling through instances
-            root.activateToplevel(list[idx], true);
+            root.activateToplevel(list[idx]);
         }
 
         function closeAll() {

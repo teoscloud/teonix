@@ -254,7 +254,7 @@ cmd_safe() {
 }
 
 # Secondary placement. One output (EDID prefix, same as hyprland.conf) sits to
-# the RIGHT of the primary, top edges flush. Everyone else sits ABOVE, bottom
+# the RIGHT of the primary, bottom edges flush. Everyone else sits ABOVE, bottom
 # edges flush with the primary's top, packed right-to-left from the primary's
 # right edge. On this desk that is ASUS VG245 beside the G9 and Samsung S27E590
 # in the G9's top-right corner, in every primary mode.
@@ -275,6 +275,7 @@ right_prefix = sys.argv[6]
 
 g = re.match(r"(\d+)x(\d+)@", pmode)
 xright = int(g.group(1)) if g else None
+pheight = int(g.group(2)) if g else None
 
 def best(m):
     found = None
@@ -306,7 +307,9 @@ def emit(m, x, y, fallback):
     print("%s,%dx%d@%g,%dx%d" % (m["name"], w, h, r, x, y))
 
 for m in beside:
-    emit(m, xright, 0, "auto-right")
+    b = best(m)
+    y = (pheight - b[1]) if (b is not None and pheight is not None) else 0
+    emit(m, xright, y, "auto-right")
 for m in above:
     b = best(m)
     if b is None or xright is None:

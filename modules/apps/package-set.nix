@@ -61,20 +61,27 @@ let
     });
   })).bottles;
 
-  # scheme-full depends on Asymptote → PyQt5. PyQt5 cannot target Python 3.14
-  # ABI v12, so keep TeX Live 2025 and drop only asy/xasy.
-  texliveFull = unstable-pkgs.texlive.combine {
-    inherit (unstable-pkgs.texlive) scheme-full;
-    extraName = "full-no-asymptote";
-    pkgFilter = pkg:
-      pkg.pname != "asymptote"
-      && (
-        pkg.tlType == "run"
-        || pkg.tlType == "bin"
-        || pkg.pname == "core"
-        || pkg.hasManpages or false
-      );
-  };
+  # scheme-full pulls Asymptote → PyQt5, which cannot target Python 3.14 ABI
+  # v12. Drop asy from collection-binextra, then assemble with the supported
+  # withPackages API (texlive.combine is removed in Nixpkgs 27.05).
+  texliveFull = unstable-pkgs.texliveSmall.withPackages (ps:
+    let
+      depsOf = pkg: psp:
+        if !(pkg ? tlDeps) then [ ]
+        else if builtins.isFunction pkg.tlDeps then pkg.tlDeps psp
+        else pkg.tlDeps;
+      notAsy = p: (p.pname or "") != "asymptote";
+      binextra = ps.collection-binextra // {
+        tlDeps = psp: builtins.filter notAsy (depsOf ps.collection-binextra psp);
+      };
+      scheme = ps.scheme-full // {
+        tlDeps = psp:
+          map (p: if (p.pname or "") == "collection-binextra" then binextra else p)
+            (depsOf ps.scheme-full psp);
+      };
+    in
+    [ scheme ]
+  );
 
   # lutris-unwrapped puts libstrangle on PATH (FPS limiter). That package is
   # x86-only, so the unwrapped GUI still refuses to evaluate on aarch64.

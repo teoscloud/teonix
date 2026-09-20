@@ -81,7 +81,7 @@ Scope {
             function focusToplevel(t) {
                 const addr = formatAddress(t.address || t.lastIpcObject?.address)
                 if (addr)
-                    Globals.dispatchKeepCursor("focuswindow address:" + addr)
+                    Hyprland.dispatch("focuswindow address:" + addr)
             }
 
             function cycleTab(delta) {

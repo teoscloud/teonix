@@ -170,6 +170,10 @@ in {
     source = "${dotfilesPath}/config/hypr/scripts/scrolling-promote-new-window.sh";
     executable = true;
   };
+  home.file.".config/hypr/scripts/focus-column.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/focus-column.sh";
+    executable = true;
+  };
   home.file.".config/hypr/scripts/ro-type.sh" = {
     source = "${dotfilesPath}/config/hypr/scripts/ro-type.sh";
     executable = true;

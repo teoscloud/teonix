@@ -721,7 +721,7 @@ Singleton {
     }
 
     function switchWorkspace(id) {
-        dispatchKeepCursor("workspace " + id);
+        Hyprland.dispatch("workspace " + id);
     }
 
     function cycleWorkspace(delta) {
@@ -738,26 +738,6 @@ Singleton {
         }
         switchWorkspace(ids[(idx + delta + ids.length * 8) % ids.length]);
     }
-
-    // Hyprland warps the pointer into the focused window on workspace/window
-    // change. Bar scroll/click must leave the cursor where it is.
-    function dispatchKeepCursor(hyprArgs) {
-        const safe = String(hyprArgs || "").replace(/'/g, "");
-        if (!safe)
-            return;
-        if (cursorPin.running)
-            cursorPin.running = false;
-        cursorPin.command = ["sh", "-c",
-            'pos=$(hyprctl cursorpos); ' +
-            'x=${pos%%,*}; y=${pos#*,}; y=${y// /}; ' +
-            'hyprctl dispatch ' + safe + '; ' +
-            'sleep 0.03; hyprctl dispatch movecursor "$x" "$y"; ' +
-            'sleep 0.05; hyprctl dispatch movecursor "$x" "$y"'
-        ];
-        cursorPin.running = true;
-    }
-
-    Process { id: cursorPin }
 
     Timer {
         id: iconResolveTimer
