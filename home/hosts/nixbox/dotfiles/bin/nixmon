@@ -12,7 +12,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
   exit 1
 fi
 
-SAFE_RE='[^A-Za-z0-9._:+@/ -]'
+SAFE_RE='[^A-Za-z0-9._:+@/() -]'
 INTERVAL=0.6
 INTERVAL_MS=600
 SAN=""
@@ -30,6 +30,8 @@ REP=""
 HC=""
 CHIP=""
 CHIPS_PER=1
+CHIP_PER=1
+CHIP_GRP=0
 CHIP_GAP='  '
 CHIP_IDW=2
 NROWS=0
@@ -37,13 +39,13 @@ CARD_W=0
 CARD_I=1
 declare -a CARD OSC
 # Card buffers zipped side by side by emit_cols; *_W carries each card's width.
-declare -a NL NR MEMC SWPC NETC DSKC GPUC HOSTC
-NL_W=0 NR_W=0 MEMC_W=0 SWPC_W=0 NETC_W=0 DSKC_W=0 GPUC_W=0 HOSTC_W=0
+declare -a NL NR MEMC SWPC NETC DSKC GPUC HOSTC CPUC
+NL_W=0 NR_W=0 MEMC_W=0 SWPC_W=0 NETC_W=0 DSKC_W=0 GPUC_W=0 HOSTC_W=0 CPUC_W=0
 
 declare -a CPU_PREV_TOT CPU_PREV_IDLE CPU_PCT
 declare -a HIST_CPU HIST_MEM HIST_SWP HIST_RX HIST_TX HIST_DR HIST_DW HIST_GPU
 declare -a HIST_N0 HIST_N1 HIST_N2 HIST_N3
-declare -a NUMA_IDS NUMA_CPUS NUMA_PCT
+declare -a NUMA_IDS NUMA_CPUS NUMA_PCT NUMA_MTOT NUMA_MUSED NUMA_MPCT
 CPU_N=0
 ALL_PCT=0
 
@@ -61,6 +63,7 @@ CPU_MODEL=""
 BOARD=""
 HOSTNAME_S=""
 KERN_S=""
+OS_S=""
 GPU_DRIVER=""
 GPU_PCI=""
 GPU_BUSY=""
@@ -70,6 +73,14 @@ GPU_TEMP=""
 GPU_POWER=""
 GPU_MHZ=""
 GPU_HAS_METRICS=0
+GPU_NAME=""
+GPU_FAN=""
+GPU_VOLT=""
+GPU_RC6=""
+GPU_THROTTLE=""
+GPU_POWER_MAX=""
+GPU_MHZ_MAX=""
+GPU_LINK=""
 declare -a DF_LINES
 SUM_RX=0 SUM_TX=0 SUM_DR=0 SUM_DW=0
 
@@ -77,6 +88,11 @@ SUM_RX=0 SUM_TX=0 SUM_DR=0 SUM_DW=0
 # blocks, so the chrome is drawn with real rules and the graphs with real
 # columns. Empty graph cells stay blank on purpose — no filler texture.
 BLK=(▁ ▂ ▃ ▄ ▅ ▆ ▇ █)
+# Top-anchored eighths for the hanging half of a mirrored graph: U+2594, the
+# Symbols for Legacy Computing 2/8..7/8 blocks (U+1FB82..1FB86), U+2580, U+2588.
+# Real glyphs, so the reflection has the same 8 levels as the trace without
+# reverse video (which cool-retro-term renders as a faint box per cell).
+UBLK=(▔ 🮂 🮃 ▀ 🮄 🮅 🮆 █)
 G_H='─' G_V='│' G_TL='╭' G_TR='╮' G_BL='╰' G_BR='╯'
 G_DN='↓' G_UP='↑'
 
@@ -94,6 +110,7 @@ init_palette() {
   RV=$'\033[7m'
   if (( n >= 256 )); then
     C_CHROME=$'\033[38;5;239m'
+    C_CELL=$'\033[48;5;237m'
     C_EDGE=$'\033[38;5;245m'
     C_TITLE=$'\033[38;5;117m'
     C_CPU=$'\033[38;5;81m'
@@ -113,6 +130,7 @@ init_palette() {
     C_DANGER=$'\033[38;5;174m'
   else
     C_CHROME=$'\033[2m'
+    C_CELL=$'\033[100m'
     C_EDGE=$'\033[2m'
     C_TITLE=$'\033[36m'
     C_CPU=$'\033[36m'
@@ -248,14 +266,32 @@ emit_card() {
   for line in "${CARD[@]}"; do fline "$line"; done
 }
 
-# Zip N saved cards side by side, one space between them.
+# Zip N saved cards side by side, one space between them. Every card in a row
+# is stretched to the tallest one first — blank interior rows go in above the
+# bottom rule — so a row always closes on one line.
 emit_cols() {
-  local names=("$@") name ref wref maxn=0 i line
+  local names=("$@") name ref wref maxn=0 i line n w blank
   local -a cur
   for name in "${names[@]}"; do
     ref="${name}[@]"
     cur=("${!ref}")
     (( ${#cur[@]} > maxn )) && maxn=${#cur[@]}
+  done
+  for name in "${names[@]}"; do
+    ref="${name}[@]"
+    wref="${name}_W"
+    cur=("${!ref}")
+    n=${#cur[@]}
+    (( n >= maxn || n < 2 )) && continue
+    w=${!wref}
+    rep ' ' $(( w - 4 ))
+    blank="${C_EDGE}${G_V}${R} ${REP} ${C_EDGE}${G_V}${R}"
+    local -a padded=("${cur[@]:0:n-1}")
+    for (( i = n; i < maxn; i++ )); do padded+=("$blank"); done
+    padded+=("${cur[n-1]}")
+    unset -n _pad
+    local -n _pad=$name
+    _pad=("${padded[@]}")
   done
   for (( i = 0; i < maxn; i++ )); do
     line=""
@@ -284,6 +320,115 @@ push_hist() {
   local -n _h=$1
   _h+=("$2")
   (( ${#_h[@]} > HIST_CAP )) && _h=("${_h[@]:1}")
+}
+
+# mirrored WIDTH HEIGHT HISTVAR SCALE COLOUR
+# btop's CPU graph: the trace rises from the centre line and its reflection
+# hangs below it, so a sample is one symmetric spike about the middle. The
+# upper half uses the bottom-anchored eighths, the lower half the top-anchored
+# set in UBLK. HEIGHT is the rows on each side; the result is 2*HEIGHT rows.
+mirrored() {
+  local w=$1 h=$2
+  local -n _mh=$3
+  local scale=${4:-100} colspec=${5:-heat}
+  local n=${#_mh[@]} first i j v lv base mx=100 cur c glyph row
+  OSC=()
+  (( w < 1 )) && w=1
+  (( h < 1 )) && h=1
+  if [[ $scale == auto ]]; then
+    mx=1
+    for v in "${_mh[@]+"${_mh[@]}"}"; do
+      [[ $v =~ ^[0-9]+$ ]] || continue
+      (( v > mx )) && mx=$v
+    done
+  fi
+  (( mx < 1 )) && mx=1
+  first=$(( n - w ))
+  local vals=() pcts=()
+  for (( i = 0; i < w; i++ )); do
+    j=$(( first + i ))
+    if (( j < 0 )); then
+      vals+=(-1); pcts+=(0)
+      continue
+    fi
+    v=${_mh[j]:-0}
+    [[ $v =~ ^[0-9]+$ ]] || v=0
+    vals+=("$v")
+    pcts+=( $(( v * 100 / mx )) )
+  done
+  for (( j = h - 1; j >= 0; j-- )); do
+    row=""
+    cur=""
+    base=$(( j * 8 ))
+    for (( i = 0; i < w; i++ )); do
+      v=${vals[i]}
+      if (( v < 0 )); then
+        row+=' '
+        continue
+      fi
+      lv=$(( v * h * 8 / mx ))
+      (( lv > h * 8 )) && lv=$(( h * 8 ))
+      if (( lv <= base )); then
+        row+=' '
+        continue
+      fi
+      if (( lv >= base + 8 )); then
+        glyph=${BLK[7]}
+      else
+        glyph=${BLK[lv - base - 1]}
+      fi
+      if [[ $colspec == heat ]]; then
+        heat_set "${pcts[i]}"
+        c=$HC
+      else
+        c=$colspec
+      fi
+      if [[ $c != "$cur" ]]; then
+        row+=$c
+        cur=$c
+      fi
+      row+=$glyph
+    done
+    OSC+=("${row}${R}")
+  done
+  # Reflection: row j hangs j cells below the centre, nearest the centre first.
+  local k
+  for (( j = 0; j < h; j++ )); do
+    row=""
+    cur=""
+    base=$(( j * 8 ))
+    for (( i = 0; i < w; i++ )); do
+      v=${vals[i]}
+      if (( v < 0 )); then
+        row+=' '
+        continue
+      fi
+      lv=$(( v * h * 8 / mx ))
+      (( lv > h * 8 )) && lv=$(( h * 8 ))
+      if (( lv <= base )); then
+        row+=' '
+        continue
+      fi
+      if [[ $colspec == heat ]]; then
+        heat_set "${pcts[i]}"
+        c=$HC
+      else
+        c=$colspec
+      fi
+      if (( lv >= base + 8 )); then
+        glyph=${UBLK[7]}
+      else
+        k=$(( lv - base ))
+        glyph=${UBLK[k - 1]}
+      fi
+      if [[ $c != "$cur" ]]; then
+        row+=$c
+        cur=$c
+      fi
+      row+=$glyph
+    done
+    OSC+=("${row}${R}")
+  done
 }
 
 # oscillate WIDTH HEIGHT HISTVAR SCALE COLOUR
@@ -646,6 +791,15 @@ read_board() {
 read_host() {
   HOSTNAME_S=$(sanitize "$(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)")
   KERN_S=$(sanitize "$(uname -s 2>/dev/null) $(uname -r 2>/dev/null)")
+  local pretty=""
+  if [[ -r /etc/os-release ]]; then
+    while IFS= read -r pretty; do
+      case $pretty in
+        PRETTY_NAME=*) pretty=${pretty#PRETTY_NAME=}; pretty=${pretty//\"/}; break ;;
+      esac
+    done < /etc/os-release
+  fi
+  OS_S=$(sanitize "$pretty")
 }
 
 read_df() {
@@ -717,6 +871,30 @@ read_numa() {
     done
     (( n > 0 )) && p=$(( sum / n )) || p=0
     NUMA_PCT[idx]=$p
+    # Real occupancy, same idea as MemAvailable: MemUsed is total-free and
+    # counts the page cache, which on this box reads as ~98% while the machine
+    # is half empty. Drop file cache and reclaimable slab.
+    NUMA_MTOT[idx]=0; NUMA_MUSED[idx]=0; NUMA_MPCT[idx]=0
+    local mi="/sys/devices/system/node/node${NUMA_IDS[idx]}/meminfo"
+    local line k v tot=0 free=0 afile=0 ifile=0 srec=0 used=0
+    if [[ -r $mi ]]; then
+      while IFS=: read -r k v; do
+        v=${v%% kB*}; v=${v// /}
+        [[ $v =~ ^[0-9]+$ ]] || continue
+        case $k in
+          'Node '[0-9]*' MemTotal')       tot=$v ;;
+          'Node '[0-9]*' MemFree')        free=$v ;;
+          'Node '[0-9]*' Active(file)')   afile=$v ;;
+          'Node '[0-9]*' Inactive(file)') ifile=$v ;;
+          'Node '[0-9]*' SReclaimable')   srec=$v ;;
+        esac
+      done <"$mi"
+      used=$(( tot - free - afile - ifile - srec ))
+      (( used < 0 )) && used=0
+      NUMA_MTOT[idx]=$tot
+      NUMA_MUSED[idx]=$used
+      (( tot > 0 )) && NUMA_MPCT[idx]=$(( used * 100 / tot ))
+    fi
     case $idx in
       0) push_hist HIST_N0 "$p" ;;
       1) push_hist HIST_N1 "$p" ;;
@@ -730,8 +908,12 @@ read_gpu() {
   local dev card uevent line drv pci busy vu vt tmp pw mhz hit
   GPU_DRIVER=""; GPU_PCI=""; GPU_BUSY=""; GPU_VRAM_USED=""; GPU_VRAM_TOT=""
   GPU_TEMP=""; GPU_POWER=""; GPU_MHZ=""; GPU_HAS_METRICS=0
+  GPU_FAN=""; GPU_VOLT=""; GPU_RC6=""; GPU_THROTTLE=""
+  GPU_POWER_MAX=""; GPU_MHZ_MAX=""; GPU_LINK=""
   for card in /sys/class/drm/card[0-9]*; do
     [[ -d $card/device ]] || continue
+    # card1-DP-1 and friends are connectors, not cards, and they symlink at the
+    # same device directory — reading them would clobber the real card's data.
     [[ ${card##*/} == *-* ]] && continue
     dev=$card/device
     uevent=$dev/uevent
@@ -770,7 +952,7 @@ read_gpu() {
       hit=1
       break
     done
-    for hf in "$dev"/gt_cur_freq_mhz "$dev"/gt/gt0/rps_act_freq_mhz; do
+    for hf in "$dev"/gt_cur_freq_mhz "$card"/gt/gt0/rps_act_freq_mhz; do
       [[ -r $hf ]] || continue
       IFS= read -r mhz <"$hf"
       [[ $mhz =~ ^[0-9]+$ ]] && hit=1
@@ -786,9 +968,71 @@ read_gpu() {
       GPU_POWER=$pw
       GPU_MHZ=$mhz
       GPU_HAS_METRICS=1
+      # Extras, all optional and read only when present. Power is derived from
+      # the energy counter (microjoules) rather than a power input, which i915
+      # does not expose.
+      local hf val
+      for hf in "$dev"/hwmon/hwmon*/fan1_input; do
+        [[ -r $hf ]] && IFS= read -r val <"$hf" && [[ $val =~ ^[0-9]+$ ]] && GPU_FAN=$val && break
+      done
+      for hf in "$dev"/hwmon/hwmon*/in0_input; do
+        [[ -r $hf ]] && IFS= read -r val <"$hf" && [[ $val =~ ^[0-9]+$ ]] && GPU_VOLT=$val && break
+      done
+      # i915 has no power input, only an energy counter (microjoules). The delta
+      # between frames, scaled by the sample interval, is the draw in watts.
+      for hf in "$dev"/hwmon/hwmon*/energy1_input; do
+        [[ -r $hf ]] || continue
+        IFS= read -r val <"$hf"
+        [[ $val =~ ^[0-9]+$ ]] || continue
+        if [[ -n ${GPU_ENERGY_PREV:-} && $val -ge $GPU_ENERGY_PREV ]]; then
+          pw=$(( (val - GPU_ENERGY_PREV) * 1000 / INTERVAL_MS / 1000000 ))
+        fi
+        GPU_ENERGY_PREV=$val
+        break
+      done
+      for hf in "$dev"/hwmon/hwmon*/power1_max; do
+        [[ -r $hf ]] && IFS= read -r val <"$hf" && [[ $val =~ ^[0-9]+$ && $val -gt 0 ]] \
+          && GPU_POWER_MAX=$(( val / 1000000 )) && break
+      done
+      for hf in "$card"/gt/gt0/rc6_residency_ms; do
+        [[ -r $hf ]] && IFS= read -r val <"$hf" && [[ $val =~ ^[0-9]+$ ]] && GPU_RC6=$val
+      done
+      for hf in "$card"/gt/gt0/throttle_reason_status; do
+        [[ -r $hf ]] && IFS= read -r val <"$hf" && [[ $val =~ ^[0-9]+$ ]] && GPU_THROTTLE=$val
+      done
+      for hf in "$card"/gt/gt0/rps_max_freq_mhz; do
+        [[ -r $hf ]] && IFS= read -r val <"$hf" && [[ $val =~ ^[0-9]+$ ]] && GPU_MHZ_MAX=$val
+      done
+      if [[ -r $dev/current_link_speed && -r $dev/current_link_width ]]; then
+        local sp wd
+        IFS= read -r sp <"$dev/current_link_speed"
+        IFS= read -r wd <"$dev/current_link_width"
+        case $sp in
+          '2.5 '*) sp=1 ;; '5.0 '*) sp=2 ;; '8.0 '*) sp=3 ;; '16.0 '*) sp=4 ;; '32.0 '*) sp=5 ;;
+          *) sp="" ;;
+        esac
+        # x1 at idle is the link powering down, not the card. Skip it.
+        [[ -n $sp && $wd =~ ^[0-9]+$ && $wd -gt 1 ]] && GPU_LINK="PCIe ${sp}.0 x${wd}"
+      fi
       break
     fi
   done
+  # Human name once, from lspci. The device field is the 4th quoted column;
+  # "DG2 [Arc A750]" keeps the bracketed marketing name.
+  if [[ -z $GPU_NAME && -n $GPU_PCI ]] && command -v lspci >/dev/null 2>&1; then
+    local rec
+    rec=$(lspci -mm -d "$GPU_PCI" 2>/dev/null | head -1)
+    rec=$(printf '%s' "$rec" | awk -F'"' '{print $6}')
+    [[ $rec == *'['*']'* ]] && rec=${rec#*[} && rec=${rec%]*}
+    GPU_NAME=$(sanitize "$rec")
+  fi
+  # i915 exposes no utilization counter, so the graph tracks how far the
+  # clock is above its idle floor (600 MHz on this card) toward its max.
+  if [[ -z $GPU_BUSY && -n $GPU_MHZ && -n $GPU_MHZ_MAX && $GPU_MHZ_MAX -gt 600 ]]; then
+    GPU_BUSY=$(( (GPU_MHZ - 600) * 100 / (GPU_MHZ_MAX - 600) ))
+    (( GPU_BUSY < 0 )) && GPU_BUSY=0
+    (( GPU_BUSY > 100 )) && GPU_BUSY=100
+  fi
   if [[ -n $GPU_BUSY && $GPU_BUSY =~ ^[0-9]+$ ]]; then
     push_hist HIST_GPU "$GPU_BUSY"
   fi
@@ -835,36 +1079,57 @@ draw_footer() {
 # Overview
 # ---------------------------------------------------------------------------
 
-# Thread chip: "T07 ▆ 100%". Fixed width so the grid inside a NUMA card lines
-# up. Sets CHIP (no fork — this runs once per thread per frame).
-thread_chip() {
-  local id=$1 p=$2 g k
+# Thread cell: one 2-wide, 1-row tile per thread, no number. The tile itself
+# is a painted background (C_CELL), so an idle thread is a solid dim tile you
+# can count; load fills the tile from the bottom in the heat colour, 8 levels.
+# One row per tile on purpose: two stacked rows read as two cells. Sets CHIP.
+thread_box() {
+  local p=$1 level
   heat_set "$p"
-  if (( p <= 0 )); then
-    g=' '
+  level=$(( p * 8 / 100 ))
+  (( level > 8 )) && level=8
+  if (( level >= 8 )); then
+    printf -v CHIP '%s%s%s%s' "$HC" "${BLK[7]}" "${BLK[7]}" "$R"
+  elif (( level > 0 )); then
+    printf -v CHIP '%s%s%s%s%s' "$C_CELL" "$HC" "${BLK[level - 1]}" "${BLK[level - 1]}" "$R"
   else
-    k=$(( p * 8 / 100 ))
-    (( k > 7 )) && k=7
-    g=${BLK[k]}
+    printf -v CHIP '%s  %s' "$C_CELL" "$R"
   fi
-  printf -v CHIP '%sT%0*d%s %s%s %3d%%%s' \
-    "$C_MUTE" "$CHIP_IDW" "$id" "$R" "$HC" "$g" "$p" "$R"
 }
 
-# A chip is IDW+8 wide. Two spaces between them, dropping to one when that buys
-# another column. Sets CHIPS_PER and CHIP_GAP.
+# Tiles are 2 wide with a 1-column gutter so they read as separate cells.
+# Sets CHIPS_PER (max tiles that fit on one row) and CHIP_GAP.
 chips_per_row() {
-  local inner=$1 cw=$(( CHIP_IDW + 8 )) k2 k1
-  k2=$(( (inner + 2) / (cw + 2) ))
-  k1=$(( (inner + 1) / (cw + 1) ))
-  if (( k1 > k2 )); then
-    CHIPS_PER=$k1
-    CHIP_GAP=' '
-  else
-    CHIPS_PER=$k2
-    CHIP_GAP='  '
+  local inner=$1
+  CHIPS_PER=$(( (inner + 1) / 3 ))
+  CHIP_GAP=' '
+  if (( CHIPS_PER < 1 )); then
+    CHIPS_PER=$(( inner / 2 ))
+    CHIP_GAP=''
   fi
   (( CHIPS_PER < 1 )) && CHIPS_PER=1
+}
+
+# Spread N tiles evenly over the rows they need (28 threads at 20/row is
+# 14+14, not 20+8) and pick a tally group so a row can be counted at a
+# glance: a second gutter after every GRP tiles, when that still fits INNER.
+# Sets CHIP_PER (tiles on each row) and CHIP_GRP (0 = no grouping).
+chip_layout() {
+  local n=$1 inner=$2 rows g
+  chips_per_row "$inner"
+  rows=$(( (n + CHIPS_PER - 1) / CHIPS_PER ))
+  (( rows < 1 )) && rows=1
+  CHIP_PER=$(( (n + rows - 1) / rows ))
+  (( CHIP_PER < 1 )) && CHIP_PER=1
+  CHIP_GRP=0
+  for g in 7 4 5 6 8; do
+    (( CHIP_PER > g && CHIP_PER % g == 0 )) || continue
+    # width: tiles, gutters, plus one extra gutter per group boundary
+    if (( CHIP_PER * 2 + (CHIP_PER - 1) + (CHIP_PER / g - 1) <= inner )); then
+      CHIP_GRP=$g
+      break
+    fi
+  done
 }
 
 build_numa_card() {
@@ -879,58 +1144,79 @@ build_numa_card() {
   heat_set "$p"
   CT=$C_CPU
   card_top "NUMA ${nid}" "${HC}${p}%${R}${C_MUTE}  ${nthreads}t${R}"
+  # Node memory as a capacity bar. The number is real occupancy (cache excluded),
+  # so it lines up with the MEM card instead of reading ~98%.
+  if (( ${NUMA_MTOT[idx]:-0} > 0 )); then
+    local nu nt bw
+    hkib "${NUMA_MUSED[idx]}"; nu=$HUM
+    hkib "${NUMA_MTOT[idx]}"; nt=$HUM
+    bw=$(( CARD_I - ${#nu} - ${#nt} - 8 ))
+    (( bw < 4 )) && bw=4
+    bar "$bw" "${NUMA_MPCT[idx]}"
+    card_row "${C_MUTE}ram${R} ${BAR} ${C_TEXT}${nu}${R}${C_MUTE}/${nt}${R}"
+  fi
   if (( gh > 0 )); then
     case $idx in
-      0) oscillate "$CARD_I" "$gh" HIST_N0 100 heat ;;
-      1) oscillate "$CARD_I" "$gh" HIST_N1 100 heat ;;
-      2) oscillate "$CARD_I" "$gh" HIST_N2 100 heat ;;
-      3) oscillate "$CARD_I" "$gh" HIST_N3 100 heat ;;
+      0) mirrored "$CARD_I" "$gh" HIST_N0 100 heat ;;
+      1) mirrored "$CARD_I" "$gh" HIST_N1 100 heat ;;
+      2) mirrored "$CARD_I" "$gh" HIST_N2 100 heat ;;
+      3) mirrored "$CARD_I" "$gh" HIST_N3 100 heat ;;
     esac
     local row
     for row in "${OSC[@]}"; do card_row "$row"; done
     card_gap
   fi
-  local line acc tp rows=0
-  chips_per_row "$CARD_I"
-  line=""; acc=0
+  # Thread tiles: one row of tiles per CHIP_PER threads, a blank row between
+  # tile rows so tiles never stack into taller shapes.
+  local -a ids=()
   # shellcheck disable=SC2086
-  for cpu in $cpus; do
-    [[ $cpu =~ ^[0-9]+$ ]] || continue
-    (( rows >= maxrows )) && break
-    tp=${CPU_PCT[cpu+1]:-0}
-    if (( acc >= CHIPS_PER )); then
-      card_row "$line"
-      rows=$(( rows + 1 ))
-      line=""; acc=0
-      (( rows >= maxrows )) && break
-    fi
-    thread_chip "$cpu" "$tp"
-    [[ -n $line ]] && line+="$CHIP_GAP"
-    line+=$CHIP
-    acc=$(( acc + 1 ))
+  for cpu in $cpus; do [[ $cpu =~ ^[0-9]+$ ]] && ids+=("$cpu"); done
+  chip_layout "${#ids[@]}" "$CARD_I"
+  local start end rows=0 line id tp need
+  for (( start = 0; start < ${#ids[@]}; start += CHIP_PER )); do
+    need=$(( start > 0 ? 2 : 1 ))
+    (( rows + need <= maxrows )) || break
+    if (( start > 0 )); then card_gap; rows=$(( rows + 1 )); fi
+    end=$(( start + CHIP_PER ))
+    (( end > ${#ids[@]} )) && end=${#ids[@]}
+    line=""
+    for (( id = start; id < end; id++ )); do
+      tp=${CPU_PCT[${ids[id]}+1]:-0}
+      thread_box "$tp"
+      if (( id > start )); then
+        line+="$CHIP_GAP"
+        (( CHIP_GRP > 0 && (id - start) % CHIP_GRP == 0 )) && line+=' '
+      fi
+      line+=$CHIP
+    done
+    card_row "$line"
+    rows=$(( rows + 1 ))
   done
-  [[ -n $line ]] && (( rows < maxrows )) && card_row "$line"
   card_bot
 }
 
-# Chip rows a NUMA card wants at this width. Sets NROWS.
+# Rows a NUMA card's tiles want at this width: one per tile row plus the
+# blank row between tile rows. Sets NROWS.
 numa_chip_rows() {
   local idx=$1 w=$2
-  local n=0 cpu
+  local n=0 cpu rows
   # shellcheck disable=SC2086
   for cpu in ${NUMA_CPUS[idx]}; do n=$(( n + 1 )); done
   chips_per_row $(( w - 4 ))
-  NROWS=$(( (n + CHIPS_PER - 1) / CHIPS_PER ))
+  rows=$(( (n + CHIPS_PER - 1) / CHIPS_PER ))
+  (( rows < 1 )) && rows=1
+  NROWS=$(( 2 * rows - 1 ))
 }
 
 # build_meter_card WIDTH TITLE META HISTVAR SCALE COLOUR HEIGHT VALUE
+# HEIGHT is the number of rows ABOVE the centre line; the trace is mirrored.
 build_meter_card() {
   local w=$1 gh=$7
   card_reset "$w"
   CT=$6
   card_top "$2" "$3"
   local -n _h=$4
-  oscillate "$CARD_I" "$gh" _h "$5" "$6"
+  mirrored "$CARD_I" "$gh" _h "$5" "$6"
   local row
   for row in "${OSC[@]}"; do card_row "$row"; done
   card_gap
@@ -963,122 +1249,163 @@ build_net_card() {
   card_bot
 }
 
+# Capacity, one bar per mounted filesystem. The throughput graph moved out:
+# how full a drive is matters here, the bytes/s stay in the header.
 build_dsk_card() {
-  local w=$1 gh=${2:-1} row
+  local w=$1 gh=${2:-1}
+  # Same height as the SWP/NET cards beside it: their 2*gh graph, gap and label.
+  local body=$(( 2 * gh + 2 ))
   card_reset "$w"
   local rd wr
   hbps "$SUM_DR"; rd=$HUM
   hbps "$SUM_DW"; wr=$HUM
   CT=$C_DSK
   card_top "DSK" "${C_DSK}R${rd}${R}${C_MUTE}/s${R}  ${C_DSK2}W${wr}${R}${C_MUTE}/s${R}"
-  oscillate "$CARD_I" "$gh" HIST_DW auto "$C_DSK2"
-  for row in "${OSC[@]}"; do card_row "$row"; done
-  oscillate "$CARD_I" "$gh" HIST_DR auto "$C_DSK"
-  for row in "${OSC[@]}"; do card_row "$row"; done
-  card_gap
-  local names="" i n=0
-  for i in "${!DSK_NAME[@]}"; do
-    (( n >= 4 )) && break
-    [[ -n $names ]] && names+=" "
-    names+="${DSK_NAME[i]}"
+  local n=0 dfl mp pct us tot name bw line
+  for dfl in "${DF_LINES[@]+"${DF_LINES[@]}"}"; do
+    (( n >= body )) && break
+    read -r mp pct us tot <<<"$dfl"
+    name=${mp##*/}
+    [[ -z $name || $name == "~" ]] && name=$mp
+    (( ${#name} > 10 )) && name="${name: -10}"
+    bw=$(( CARD_I - ${#name} - 5 ))
+    (( bw < 4 )) && bw=4
+    (( bw > 16 )) && bw=16
+    bar "$bw" "$pct"
+    printf -v line '%s%-10s%s %s %s%3d%%%s' \
+      "$C_TEXT" "$name" "$R" "$BAR" "$C_MUTE" "$pct" "$R"
+    card_row "$line"
     n=$(( n + 1 ))
   done
-  [[ -z $names ]] && names="none"
-  card_row "${C_MUTE}${names}${R}"
+  while (( n < body )); do card_row ""; n=$(( n + 1 )); done
   card_bot
 }
 
+# One labelled stat, fixed label width so the rows line up. Sets KV.
+# Arguments, not locals: this is called from inside another function, and a
+# `local` would shadow the caller's parameters.
+kv_row() {
+  local kv_pad=$(( 8 - ${#1} ))
+  (( kv_pad < 1 )) && kv_pad=1
+  rep ' ' "$kv_pad"
+  printf -v KV '%s%s%s%s%s%s' "$C_MUTE" "$1" "$R" "$REP" "$C_TEXT" "$2" "$R"
+}
+
 build_gpu_card() {
-  local w=$1 gh=$2
+  local w=$1 target=${2:-0}
   card_reset "$w"
   local meta=""
   if [[ -n $GPU_BUSY ]]; then
     heat_set "$GPU_BUSY"
     meta="${HC}${GPU_BUSY}%${R}"
   fi
-  [[ -n $GPU_DRIVER ]] && meta+="${meta:+  }${C_MUTE}${GPU_DRIVER}${R}"
+  [[ -n $GPU_THROTTLE && $GPU_THROTTLE != 0 ]] && meta+="${meta:+  }${C_DANGER}throttled${R}"
   CT=$C_GPU
   card_top "GPU" "$meta"
-  if [[ -n $GPU_BUSY ]]; then
-    oscillate "$CARD_I" "$gh" HIST_GPU 100 "$C_GPU"
-    local row
-    for row in "${OSC[@]}"; do card_row "$row"; done
-    card_gap
-  fi
-  local line="" u t
+  # Live stats, one per row, then the fixed specs.
+  local line u t
   if [[ -n $GPU_VRAM_USED && -n $GPU_VRAM_TOT && $GPU_VRAM_TOT -gt 0 ]]; then
     u=$(( GPU_VRAM_USED * 10 / 1073741824 ))
     t=$(( GPU_VRAM_TOT * 10 / 1073741824 ))
-    line+="${C_GPU}$(( u / 10 )).$(( u % 10 ))/$(( t / 10 )).$(( t % 10 ))G${R}"
+    kv_row "vram" "$(( u / 10 )).$(( u % 10 )) / $(( t / 10 )).$(( t % 10 ))G"
+    card_row "$KV"
   fi
-  [[ -n $GPU_TEMP ]] && line+="${line:+  }${C_TEXT}${GPU_TEMP}C${R}"
-  [[ -n $GPU_POWER ]] && line+="${line:+  }${C_TEXT}${GPU_POWER}W${R}"
-  [[ -n $GPU_MHZ ]] && line+="${line:+  }${C_MUTE}${GPU_MHZ}MHz${R}"
-  [[ -z $line ]] && line="${C_MUTE}no counters${R}"
-  card_row "$line"
+  line=""
+  [[ -n $GPU_TEMP ]] && line+="${GPU_TEMP}C"
+  if [[ -n $GPU_POWER ]]; then
+    line+="${line:+  }${GPU_POWER}W"
+    [[ -n $GPU_POWER_MAX ]] && line+="/${GPU_POWER_MAX}W"
+  fi
+  [[ -n $line ]] && { kv_row "therm" "$line"; card_row "$KV"; }
+  line=""
+  [[ -n $GPU_MHZ ]] && line+="${GPU_MHZ}MHz"
+  [[ -n $GPU_MHZ_MAX ]] && line+="${line:+  }max ${GPU_MHZ_MAX}"
+  [[ -n $GPU_FAN ]] && line+="${line:+  }fan ${GPU_FAN}"
+  [[ -n $GPU_VOLT ]] && line+="${line:+  }${GPU_VOLT}mV"
+  [[ -n $line ]] && { kv_row "clock" "$line"; card_row "$KV"; }
+  if [[ -n $GPU_RC6 ]]; then
+    local up=${UPTIME:-0} rc
+    (( up > 0 )) && rc=$(( 100 - GPU_RC6 / (up * 10) )) || rc=0
+    (( rc < 0 )) && rc=0
+    (( rc > 100 )) && rc=100
+    kv_row "rc6" "active ${rc}%"
+    card_row "$KV"
+  fi
+  card_gap
+  [[ -n $GPU_NAME ]] && { kv_row "card" "$GPU_NAME"; card_row "$KV"; }
+  line=""
+  [[ -n $GPU_DRIVER ]] && line+="$GPU_DRIVER"
+  [[ -n $GPU_LINK ]] && line+="${line:+  }$GPU_LINK"
+  [[ -n $line ]] && { kv_row "link" "$line"; card_row "$KV"; }
+  # Whatever is left of the MEM card's height becomes the mirrored trace, so
+  # the two cards close on the same row and the waveform sits in the middle.
+  local room=$(( target - ${#CARD[@]} - 1 ))
+  if [[ -n $GPU_BUSY && $room -ge 3 ]]; then
+    local sides=$(( (room - 1) / 2 ))
+    (( sides < 1 )) && sides=1
+    card_gap
+    # Odd leftover: one spacer so the trace still centres on the card.
+    (( (room - 1) % 2 == 1 )) && card_gap
+    mirrored "$CARD_I" "$sides" HIST_GPU 100 "$C_GPU"
+    local row
+    for row in "${OSC[@]}"; do card_row "$row"; done
+  fi
   card_bot
 }
 
 build_host_card() {
-  local w=$1 maxdf=$2
+  local w=$1
   local cores=$(( CPU_N > 0 ? CPU_N - 1 : 0 ))
   card_reset "$w"
   card_top "HOST" "${C_MUTE}up${R} ${C_TEXT}$(fmt_up "$UPTIME")${R}${C_MUTE}  load${R} ${C_TEXT}${LOAD}${R}"
-  card_row "${B}${C_TEXT}${HOSTNAME_S}${R}${C_MUTE}  ${KERN_S}${R}"
-  local h2="${C_TEXT}${CPU_MODEL}${R}${C_MUTE}  ${cores}t${R}"
-  [[ -n $BOARD ]] && h2+="${C_MUTE}  ${BOARD}${R}"
-  card_row "$h2"
+  card_row "${B}${C_TEXT}${HOSTNAME_S}${R}"
+  [[ -n $OS_S ]] && card_row "${C_MUTE}${OS_S}${R}"
+  card_row "${C_MUTE}${KERN_S}${R}"
   card_gap
-  local dfl n=0 mp pct us tot pad line
-  for dfl in "${DF_LINES[@]+"${DF_LINES[@]}"}"; do
-    (( n >= maxdf )) && break
-    read -r mp pct us tot <<<"$dfl"
-    heat_set "$pct"
-    pad=$(( 20 - ${#mp} ))
-    (( pad < 1 )) && pad=1
-    rep ' ' "$pad"
-    printf -v line '%s%s%s%s%s%3d%%%s%s  %s of %s%s' \
-      "$C_TEXT" "$mp" "$R" "$REP" "$HC" "$pct" "$R" "$C_MUTE" "$us" "$tot" "$R"
-    card_row "$line"
-    n=$(( n + 1 ))
-  done
+  kv_row "cpu" "${CPU_MODEL}  ${cores}t"
+  card_row "$KV"
+  [[ -n $BOARD ]] && { kv_row "board" "$BOARD"; card_row "$KV"; }
+  hkib "$MEM_TOTAL"
+  kv_row "ram" "$HUM"
+  card_row "$KV"
+  if [[ -n $GPU_NAME || -n $GPU_DRIVER ]]; then
+    kv_row "gpu" "${GPU_NAME:-$GPU_DRIVER}"
+    card_row "$KV"
+    # Only a real framebuffer size. The Arc's visible BAR is 256 MiB without
+    # ReBAR, and the live link width drops to x1 at idle — neither is the spec.
+    if [[ -n $GPU_VRAM_TOT && $GPU_VRAM_TOT -ge 1073741824 ]]; then
+      local t=$(( GPU_VRAM_TOT * 10 / 1073741824 ))
+      kv_row "" "$(( t / 10 )).$(( t % 10 ))G"
+      card_row "$KV"
+    fi
+  fi
   card_bot
 }
 
 # Page height for the current plan. Reads the plan variables from draw_overview
-# (dynamic scope) and sets PLAN_TOTAL; also derives gpu_h so that, when the GPU
-# card sits beside HOST, both cards close on the same row.
+# (dynamic scope) and sets PLAN_TOTAL.
+#
+# Rows, top to bottom:
+#   HOST | CPU        host_rows tall (CPU's graph flexes to match)
+#   NUMA ...           one row-group per pair of nodes
+#   MEM | GPU          mem_h rows of graph; GPU's stat rows flex to match
+#   SWP | NET | DSK    two rows of graph each
 PLAN_TOTAL=0
 plan_total() {
-  local host_rows gpu_rows numa_rows t
-  # MEM/SWP carry one graph of 2*net_h; NET/DSK carry two of net_h. Same height.
-  SMALL_ROWS=$(( 2 + 2 * net_h + 1 + 1 ))
-  host_rows=$(( 2 + 2 + 1 + maxdf ))
-  if (( gpu_row && two_col )); then
-    gpu_h=$(( host_rows - 4 ))
-    (( gpu_h < 1 )) && gpu_h=1
-    (( gpu_h > 6 )) && gpu_h=6
-  fi
-  gpu_rows=0
-  (( gpu_row )) && gpu_rows=$(( 2 + gpu_h + 1 + 1 ))
-
+  local numa_rows t
   t=3                                   # tab bar, blank under it, footer
-  t=$(( t + 2 + cpu_h + 1 ))            # CPU card + spacer
+  t=$(( t + host_rows + 1 ))
   if (( numa_show )); then
-    numa_rows=$(( 2 + (numa_h > 0 ? numa_h + 1 : 0) + chip_rows ))
+    # Frame, ram capacity bar, mirrored graph (2*numa_h) plus a gap, boxes.
+    numa_rows=$(( 3 + (numa_h > 0 ? 2 * numa_h + 1 : 0) + chip_rows ))
     t=$(( t + groups * (numa_rows + 1) ))
   fi
-  if (( quad )); then
-    t=$(( t + SMALL_ROWS + 1 ))
-  elif (( two_col )); then
-    t=$(( t + 2 * (SMALL_ROWS + 1) ))
+  # MEM card: header, mirrored graph (2*mem_h), gap, value, footer.
+  t=$(( t + 5 + 2 * mem_h ))
+  if (( two_col )); then
+    t=$(( t + 5 + 2 * net_h ))          # one row of the three small cards
   else
-    t=$(( t + 4 * (SMALL_ROWS + 1) ))
-  fi
-  if (( gpu_row && two_col )); then
-    t=$(( t + (gpu_rows > host_rows ? gpu_rows : host_rows) ))
-  else
-    t=$(( t + gpu_rows + gpu_row + host_rows ))
+    t=$(( t + 3 * (5 + 2 * net_h) ))
   fi
   PLAN_TOTAL=$t
 }
@@ -1088,34 +1415,29 @@ draw_overview() {
   cores=$(( CPU_N > 0 ? CPU_N - 1 : 0 ))
   w=$COLS
 
-  # Chip id width follows the highest thread number, so every chip lines up.
-  CHIP_IDW=2
-  (( cores > 100 )) && CHIP_IDW=3
-
   local nnodes=${#NUMA_IDS[@]}
   (( nnodes > 4 )) && nnodes=4
 
   # Column plan. Halves are equal width so the thread grids in the two NUMA
   # cards pack identically; any leftover column is left as margin.
-  local two_col=0 quad=0
+  local two_col=0
   (( COLS >= 100 )) && two_col=1
-  (( COLS >= 116 )) && quad=1
   local numa_cols=1
   (( two_col && nnodes >= 2 )) && numa_cols=2
-  local nw=$COLS
-  (( numa_cols == 2 )) && nw=$(( (COLS - 1) / 2 ))
+  local nw=$COLS hw=$COLS cw=$COLS
+  (( two_col )) && hw=$(( (COLS - 1) / 2 )) && cw=$hw
+  (( numa_cols == 2 )) && nw=$hw
 
-  local SMALL_ROWS=6
-  local q1 q2 q3 q4
-  if (( quad )); then
-    q1=$(( (COLS - 3) / 4 )); q2=$q1; q3=$q1; q4=$q1
-  elif (( two_col )); then
-    q1=$(( (COLS - 1) / 2 )); q2=$q1; q3=$q1; q4=$q1
-  else
-    q1=$w; q2=$w; q3=$w; q4=$w
+  # The bottom row holds three cards; the middle row holds MEM beside GPU.
+  local sw=$(( (COLS - 2) / 3 ))
+  local mw=$COLS gw=$COLS
+  if (( two_col )); then
+    gw=$(( COLS * 2 / 5 ))
+    (( gw < 36 )) && gw=36
+    mw=$(( COLS - gw - 1 ))
   fi
 
-  # How many NUMA card row-groups, and how many chip rows each one wants.
+  # How many NUMA card row-groups, and how many box rows each one wants.
   local groups chip_want=0
   if (( numa_cols == 2 )); then
     groups=$(( (nnodes + 1) / 2 ))
@@ -1127,27 +1449,25 @@ draw_overview() {
     (( NROWS > chip_want )) && chip_want=$NROWS
   done
 
-  local ndf=${#DF_LINES[@]}
-  (( ndf < 1 )) && ndf=1
-  local gpu_row=0
-  (( GPU_HAS_METRICS )) && gpu_row=1
+  # HOST is fixed content. Base is title, name, kernel, gap, cpu, ram, footer;
+  # gpu sits in the same group as cpu/board/ram.
+  local host_rows=7
+  [[ -n $OS_S ]] && host_rows=$(( host_rows + 1 ))
+  [[ -n $BOARD ]] && host_rows=$(( host_rows + 1 ))
+  [[ -n $GPU_NAME || -n $GPU_DRIVER ]] && host_rows=$(( host_rows + 1 ))
+  [[ -n $GPU_VRAM_TOT && $GPU_VRAM_TOT -ge 1073741824 ]] && host_rows=$(( host_rows + 1 ))
 
-  # Height plan: fit first, then hand any leftover rows back to the graphs so
-  # the page ends at the footer instead of a hole.
-  local cpu_h=3 numa_h=2 gpu_h=3 net_h=1 maxdf=$ndf chip_rows=$chip_want numa_show=1
-  (( maxdf > 4 )) && maxdf=4
+  # Height plan: fit first, then hand leftover rows back to the graphs.
+  local numa_h=2 mem_h=2 net_h=1 chip_rows=$chip_want numa_show=1
   local pass slack
   for (( pass = 0; pass < 32; pass++ )); do
     plan_total
     (( PLAN_TOTAL <= ROWS )) && break
     if   (( numa_h > 1 ));    then numa_h=$(( numa_h - 1 ))
-    elif (( maxdf > 2 ));     then maxdf=$(( maxdf - 1 ))
-    elif (( cpu_h > 2 ));     then cpu_h=$(( cpu_h - 1 ))
+    elif (( mem_h > 1 ));     then mem_h=$(( mem_h - 1 ))
     elif (( numa_h > 0 ));    then numa_h=0
-    elif (( chip_rows > 0 )); then chip_rows=$(( chip_rows - 1 ))
-    elif (( maxdf > 1 ));     then maxdf=1
+    elif (( chip_rows > 2 )); then chip_rows=$(( chip_rows - 2 ))
     elif (( numa_show ));     then numa_show=0
-    elif (( cpu_h > 1 ));     then cpu_h=1
     else break
     fi
   done
@@ -1155,41 +1475,48 @@ draw_overview() {
     plan_total
     slack=$(( ROWS - PLAN_TOTAL ))
     (( slack < 1 )) && break
-    if   (( numa_show && chip_rows < chip_want )); then chip_rows=$(( chip_rows + 1 ))
-    elif (( cpu_h < 6 ));  then cpu_h=$(( cpu_h + 1 ))
-    elif (( numa_show && numa_h < 4 )); then numa_h=$(( numa_h + 1 ))
-    elif (( maxdf < ndf )); then maxdf=$(( maxdf + 1 ))
-    elif (( net_h < 3 && slack >= 2 )); then net_h=$(( net_h + 1 ))
-    elif (( cpu_h < 10 )); then cpu_h=$(( cpu_h + 1 ))
-    elif (( numa_show && numa_h < 6 )); then numa_h=$(( numa_h + 1 ))
+    if   (( numa_show && chip_rows < chip_want && slack >= 2 )); then chip_rows=$(( chip_rows + 2 ))
+    elif (( numa_show && numa_h < 3 && slack >= 2 )); then numa_h=$(( numa_h + 1 ))
+    elif (( mem_h < 4 && slack >= 2 )); then mem_h=$(( mem_h + 1 ))
+    elif (( net_h < 2 && slack >= 2 )); then net_h=$(( net_h + 1 ))
     else break
     fi
   done
-  # A NUMA card with neither graph nor chips is just an empty frame.
+  # A NUMA card with neither graph nor boxes is just an empty frame.
   (( numa_h == 0 && chip_rows == 0 )) && numa_show=0
 
   fline ""
 
-  # CPU ---------------------------------------------------------------------
+  # HOST | CPU --------------------------------------------------------------
+  build_host_card "$hw"
+  # Half the host card's interior, so the mirrored trace fills it and meets in
+  # the middle instead of sitting on the floor of an empty box.
+  local cpu_inner=$(( ${#CARD[@]} - 2 ))
+  local cpu_h=$(( cpu_inner / 2 ))
+  (( cpu_h < 1 )) && cpu_h=1
+  card_save HOSTC
+
   extra=""
-  if (( ! numa_show )); then
-    # No room for the node cards — carry the per-node numbers in the header.
-    for (( i = 0; i < nnodes; i++ )); do
-      heat_set "${NUMA_PCT[i]:-0}"
-      extra+="  ${C_MUTE}N${NUMA_IDS[i]}${R} ${HC}${NUMA_PCT[i]:-0}%${R}"
-    done
-  fi
   [[ -n $PKG_TEMP ]] && extra+="  ${C_TEXT}${PKG_TEMP}C${R}"
   [[ -n $PKG_GHZ ]] && extra+="  ${C_TEXT}${PKG_GHZ}GHz${R}"
-  card_reset "$w"
+  card_reset "$cw"
   heat_set "$ALL_PCT"
   CT=$C_CPU
   card_top "CPU" "${HC}${ALL_PCT}%${R}${C_MUTE}  ${cores}t${R}${extra}"
-  oscillate "$CARD_I" "$cpu_h" HIST_CPU 100 heat
+  (( cpu_inner % 2 == 1 )) && card_row ""
+  mirrored "$CARD_I" "$cpu_h" HIST_CPU 100 heat
   local row
   for row in "${OSC[@]}"; do card_row "$row"; done
   card_bot
-  emit_card
+  if (( two_col )); then
+    card_save CPUC
+    emit_cols HOSTC CPUC
+  else
+    emit_card
+    fline ""
+    CARD=("${HOSTC[@]}")
+    emit_card
+  fi
   fline ""
 
   # NUMA --------------------------------------------------------------------
@@ -1212,18 +1539,33 @@ draw_overview() {
     done
   fi
 
-  # MEM / SWP / NET / DSK ---------------------------------------------------
-  local memmeta swpmeta memval swpval
+  # MEM | GPU ---------------------------------------------------------------
+  local memmeta memval
   heat_set "$MEM_PCT"; memmeta="${HC}${MEM_PCT}%${R}"
-  heat_set "$SWP_PCT"; swpmeta="${HC}${SWP_PCT}%${R}"
   local used tot
   hkib "$MEM_USED"; used=$HUM
   hkib "$MEM_TOTAL"; tot=$HUM
   memval="${C_MEM}${used}${R}${C_MUTE} of ${tot}${R}"
-  if (( q1 - 4 >= 30 )); then
+  if (( mw - 4 >= 30 )); then
     hkib "$MEM_AVAIL"
     memval+="${C_MUTE}   avail ${R}${C_TEXT}${HUM}${R}"
   fi
+  build_meter_card "$mw" "MEM" "$memmeta" HIST_MEM 100 "$C_MEM" "$mem_h" "$memval"
+  card_save MEMC
+
+  if (( two_col )); then
+    # The graph is the flexible part: it grows so the GPU card closes level
+    # with MEM. Stats are fixed at 4 rows, so the graph gets whatever is left.
+    build_gpu_card "$gw" "${#MEMC[@]}"; card_save GPUC
+    emit_cols MEMC GPUC
+  else
+    emit_card
+  fi
+  fline ""
+
+  # SWP | NET | DSK ---------------------------------------------------------
+  local swpmeta swpval
+  heat_set "$SWP_PCT"; swpmeta="${HC}${SWP_PCT}%${R}"
   if (( SWP_TOTAL > 0 )); then
     hkib "$SWP_USED"; used=$HUM
     hkib "$SWP_TOTAL"; tot=$HUM
@@ -1231,43 +1573,15 @@ draw_overview() {
   else
     swpval="${C_MUTE}no swap${R}"
   fi
-
-  local mem_h=$(( 2 * net_h ))
-  if (( quad )); then
-    build_meter_card "$q1" "MEM" "$memmeta" HIST_MEM 100 "$C_MEM" "$mem_h" "$memval"; card_save MEMC
-    build_meter_card "$q2" "SWP" "$swpmeta" HIST_SWP 100 "$C_SWP" "$mem_h" "$swpval"; card_save SWPC
-    build_net_card "$q3" "$net_h"; card_save NETC
-    build_dsk_card "$q4" "$net_h"; card_save DSKC
-    emit_cols MEMC SWPC NETC DSKC
-    fline ""
-  elif (( two_col )); then
-    build_meter_card "$q1" "MEM" "$memmeta" HIST_MEM 100 "$C_MEM" "$mem_h" "$memval"; card_save MEMC
-    build_meter_card "$q2" "SWP" "$swpmeta" HIST_SWP 100 "$C_SWP" "$mem_h" "$swpval"; card_save SWPC
-    emit_cols MEMC SWPC
-    fline ""
-    build_net_card "$q3" "$net_h"; card_save NETC
-    build_dsk_card "$q4" "$net_h"; card_save DSKC
-    emit_cols NETC DSKC
-    fline ""
+  if (( two_col )); then
+    build_meter_card "$sw" "SWP" "$swpmeta" HIST_SWP 100 "$C_SWP" "$net_h" "$swpval"; card_save SWPC
+    build_net_card "$sw" "$net_h"; card_save NETC
+    build_dsk_card "$sw" "$net_h"; card_save DSKC
+    emit_cols SWPC NETC DSKC
   else
-    build_meter_card "$w" "MEM" "$memmeta" HIST_MEM 100 "$C_MEM" "$mem_h" "$memval"; emit_card; fline ""
-    build_meter_card "$w" "SWP" "$swpmeta" HIST_SWP 100 "$C_SWP" "$mem_h" "$swpval"; emit_card; fline ""
+    build_meter_card "$w" "SWP" "$swpmeta" HIST_SWP 100 "$C_SWP" "$net_h" "$swpval"; emit_card; fline ""
     build_net_card "$w" "$net_h"; emit_card; fline ""
-    build_dsk_card "$w" "$net_h"; emit_card; fline ""
-  fi
-
-  # GPU / HOST --------------------------------------------------------------
-  if (( gpu_row && two_col )); then
-    local gw=$(( COLS / 3 ))
-    (( gw < 32 )) && gw=32
-    build_gpu_card "$gw" "$gpu_h"; card_save GPUC
-    build_host_card $(( COLS - gw - 1 )) "$maxdf"; card_save HOSTC
-    emit_cols GPUC HOSTC
-  else
-    if (( gpu_row )); then
-      build_gpu_card "$w" "$gpu_h"; emit_card; fline ""
-    fi
-    build_host_card "$w" "$maxdf"; emit_card
+    build_dsk_card "$w" "$net_h"; emit_card
   fi
 }
 
