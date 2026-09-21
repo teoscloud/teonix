@@ -34,7 +34,12 @@
 #   watchdog                loop: if no output is enabled at all, recover
 #   follow                  loop: after every monitoradded event (the G9 toggling
 #                           PIP is a DP reconnect with a smaller EDID), re-anchor
-#                           the layout as `ultrawide` would; no-op if already right
+#                           the layout as `ultrawide` would (no-op if already
+#                           right) and restore scrolling-layout column widths in
+#                           pixels (scroll-columns.py). Every 5 quiet seconds,
+#                           re-place secondaries that drifted off the primary's
+#                           current footprint. Logs to
+#                           $XDG_RUNTIME_DIR/teonix-display/follow.log
 #   save-and-deescalate     remember the layout then go safe (pre-suspend)
 #   restore                 re-apply the remembered layout (post-resume)
 set -uo pipefail
@@ -506,6 +511,77 @@ follow_settle() {
   apply_multi area "follow" noverify
 }
 
+# Are the secondaries anchored to the primary's CURRENT footprint? Positions
+# only — the primary's mode is whatever it is (Super+Ctrl+S may have chosen the
+# 120 fallback on purpose, and that must not be undone). Used by the periodic
+# reconcile in `follow`, so a hotplug whose event was missed or arrived after
+# the debounce still ends in a contiguous layout within a few seconds.
+anchors_current() {
+  local f primary mode plan
+  primary="$(pick_primary)"
+  [ -n "$primary" ] || return 0
+  mode="$(current_mode "$primary")"
+  case "$mode" in [0-9]*x[0-9]*@*) ;; *) return 0 ;; esac
+  plan="$(plan_secondaries "$primary" "$mode")"
+  f="$(snapshot)" || return 0
+  python3 - "$f" "$primary" "$plan" <<'PY'
+import json, re, sys
+monitors = {m["name"]: m for m in json.load(open(sys.argv[1]))}
+p = monitors.get(sys.argv[2])
+if p is None or p.get("disabled") or (p.get("x"), p.get("y")) != (0, 0):
+    sys.exit(1)
+for line in sys.argv[3].splitlines():
+    if not line.strip():
+        continue
+    name, _mode, pos = line.split(",")
+    m = monitors.get(name)
+    g = re.match(r"(-?\d+)x(-?\d+)$", pos)
+    if m is None or not g:
+        sys.exit(0)  # cannot verify; do not thrash
+    if m.get("disabled") or (m.get("x"), m.get("y")) != (int(g.group(1)), int(g.group(2))):
+        sys.exit(1)
+sys.exit(0)
+PY
+  local rc=$?
+  rm -f "$f"
+  return $rc
+}
+
+# Re-place the secondaries around the primary's current mode, nothing else.
+follow_reanchor() {
+  local primary mode line
+  primary="$(pick_primary)"
+  [ -n "$primary" ] || return 0
+  mode="$(current_mode "$primary")"
+  log "follow: secondaries off their anchors for $primary at $mode; re-placing"
+  # Same mode, so this is a move at most, never a modeset.
+  hyprctl keyword monitor "$primary,$mode,0x0,1,bitdepth,8" >/dev/null 2>&1
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    hyprctl keyword monitor "$line,1,bitdepth,8" >/dev/null 2>&1
+  done < <(plan_secondaries "$primary" "$mode")
+}
+
+# Scrolling-layout column widths are fractions of the workspace width, so a
+# 5120 -> 2560 primary squashes every column by half. scroll-columns.py keeps
+# a per-window pixel-width snapshot (taken on the quiet ticks) and re-issues
+# each column at intended_px / new_width after a resize.
+COLUMNS_PY="$(dirname "$(readlink -f "$0")")/scroll-columns.py"
+follow_columns() {
+  local what="$1" primary
+  [ -f "$COLUMNS_PY" ] || return 0
+  primary="$(pick_primary)"
+  [ -n "$primary" ] || return 0
+  python3 "$COLUMNS_PY" "$what" "$primary" 2>&1 | while IFS= read -r line; do log "$line"; done
+}
+
+# Quiet-time tick: anchors right? Column snapshot current?
+follow_tick() {
+  have_hypr || return 0
+  anchors_current || follow_reanchor
+  follow_columns snapshot
+}
+
 # Keep the layout right across hotplugs. The G9 toggling PIP is a real DP
 # disconnect + reconnect with a *different EDID* (2-block, tops out at
 # 2560x1440@120), so Hyprland's config pin (5120x1440@240) no longer exists and it
@@ -521,21 +597,39 @@ cmd_follow() {
   [ -n "$sig" ] || { log "follow: HYPRLAND_INSTANCE_SIGNATURE is unset"; return 1; }
   command -v socat >/dev/null 2>&1 || { log "follow: socat not found"; return 1; }
 
-  log "follow started"
+  # exec-once gives this no useful stderr; keep a per-session log so a layout
+  # that "just got ruined" can be read back afterwards.
+  mkdir -p "$STATE_DIR"
+  exec 2>>"$STATE_DIR/follow.log"
+  log() { printf '%s display-safe: %s\n' "$(date +%T)" "$*" >&2; }
+
+  log "follow started (pid $$)"
   # A session that starts while the G9 is already in PIP mode gets the same
   # treatment as a live toggle.
   follow_settle
+  follow_columns snapshot
 
-  local ev
+  local ev rc
   while :; do
     if [ -S "$sock" ]; then
-      while IFS= read -r ev; do
-        case "$ev" in monitoradded*) ;; *) continue ;; esac
+      while :; do
+        IFS= read -r -t 5 ev; rc=$?
+        if [ "$rc" -gt 128 ]; then
+          # 5 s with no event at all: quiet time, reconcile and snapshot.
+          follow_tick
+          continue
+        fi
+        [ "$rc" -eq 0 ] || break   # socat gone
+        case "$ev" in monitoradded*|monitorremoved*) ;; *) continue ;; esac
+        log "follow: event ${ev%%>>*}"
+        case "$ev" in monitorremoved*) continue ;; esac
         # Debounce: a reconnect emits several events and the panel needs a
         # moment to settle on its mode. Drain whatever else arrives meanwhile.
         sleep 1.5
         while IFS= read -r -t 0.2 ev; do :; done
         follow_settle
+        sleep 0.5
+        follow_columns rescale
       done < <(socat -u UNIX-CONNECT:"$sock" - 2>/dev/null)
     fi
     have_hypr || { log "follow: hyprland is gone, exiting"; return 0; }

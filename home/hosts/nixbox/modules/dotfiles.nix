@@ -50,6 +50,12 @@ in {
     source = "${dotfilesPath}/config/hypr/scripts/display-safe.sh";
     executable = true;
   };
+  # Helper for display-safe.sh `follow`: scrolling-layout column widths in
+  # pixels across the G9's PIP <-> full resize.
+  home.file.".config/hypr/scripts/scroll-columns.py" = {
+    source = "${dotfilesPath}/config/hypr/scripts/scroll-columns.py";
+    executable = true;
+  };
 
   home.file.".config/hypr/scripts/main-monitor.sh" = {
     source = "${dotfilesPath}/config/hypr/scripts/main-monitor.sh";

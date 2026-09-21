@@ -315,6 +315,11 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
 
     kitty
 
+    # CRT terminal. Theme (IBM 3278 face, qs-mainframe dark/light phosphor) is
+    # pushed into its Qt OfflineStorage DB by
+    # quickshell-mainframe/scripts/qs-system-appearance.sh.
+    cool-retro-term
+
     whatsapp-electron
 
     vesktop

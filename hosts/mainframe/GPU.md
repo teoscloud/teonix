@@ -273,7 +273,7 @@ atomic commit failed.
 | `save-and-deescalate` | `hypridle` pre-sleep | Remember the layout, then go safe |
 | `restore` | `hypridle` post-sleep | Put the layout back, or go safe if it cannot |
 | `watchdog` | `exec-once` | If every output is ever dark, reload and recover in-session |
-| `follow` | `exec-once` | After every `monitoradded` burst, re-anchor the layout as `ultrawide` would (no-op if already right). Makes the G9's PIP toggle — a DP reconnect with a 2-block EDID, 2560x1440@120 max — land in a contiguous layout instead of leaving the secondaries at their 5120-wide anchors |
+| `follow` | `exec-once` | After every `monitoradded` burst, re-anchor the layout as `ultrawide` would (no-op if already right), then restore scrolling-layout column widths in pixels via `scroll-columns.py` (Hyprland stores them as fractions of the workspace, so 5120→2560 would otherwise halve every column). Every 5 quiet seconds, re-place any secondary that drifted off the primary's *current* footprint (positions only, so a deliberate Super+Ctrl+S fallback is left alone). Makes the G9's PIP toggle — a DP reconnect with a 2-block EDID, 2560x1440@120 max — land in a contiguous layout instead of leaving the secondaries at their 5120-wide anchors. Logs to `$XDG_RUNTIME_DIR/teonix-display/follow.log` |
 
 `scripts/main-monitor.sh` is the one display script that changes **no** mode, so
 it sits entirely outside the pixel-rate ban. It only moves the *designation* of

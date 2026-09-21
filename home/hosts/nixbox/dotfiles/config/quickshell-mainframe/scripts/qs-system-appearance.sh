@@ -24,3 +24,7 @@ fi
 gsettings set org.gnome.desktop.interface color-scheme "$scheme" || true
 gsettings set org.gnome.desktop.interface gtk-theme "$gtk" || true
 gsettings set org.gnome.desktop.interface gtk-application-prefer-dark-theme "$prefer" 2>/dev/null || true
+
+# cool-retro-term reads its theme from a Qt OfflineStorage DB at startup, so
+# push the palette now and the next terminal opened picks it up.
+python3 "$(dirname "$0")/qs-retro-term.py" "$mode" || true
