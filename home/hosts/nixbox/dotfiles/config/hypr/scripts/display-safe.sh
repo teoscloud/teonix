@@ -13,19 +13,28 @@
 #
 #   TEONIX_MAX_PIXEL_RATE_MPS     hard per-output BAN: any mode whose w*h*refresh
 #                                 exceeds this many megapixels/s is never selected.
-#                                 On the RX 580 this outlaws 5120x1440@120 (~885)
-#                                 while allowing 5120x1440@60 and 2560x1440@120
-#                                 (both ~442) with extra outputs attached.
+#                                 On the Arc A750 (2000) nothing is banned: the G9
+#                                 runs 5120x1440@240 (~1767). Passing 900 in the
+#                                 environment (Super+Ctrl+S) admits only the
+#                                 single-pipe modes 5120x1440@120 and 2560x1440@240
+#                                 (both ~885). On the RX 580 (450) it outlaws
+#                                 5120x1440@120 (~885) while allowing 5120x1440@60
+#                                 and 2560x1440@120 (~442).
 #   TEONIX_MAX_REFRESH_MULTI_OUTPUT  refresh cap for SECONDARY outputs.
 #
 # Modes:
 #   safe                    reduce to one output at a mode that actually commits
-#   ultrawide               primary at its largest-area allowed mode (5120x1440@60
-#                           on the G9), every other output on
-#   highrefresh             primary at its highest-refresh allowed mode
-#                           (2560x1440@120 on the G9), every other output on
+#   ultrawide               primary at its largest-area allowed mode, fastest refresh
+#                           (G9: Arc 5120x1440@240, RX 580 5120x1440@60), every other
+#                           output on
+#   highrefresh             primary at its highest-refresh allowed mode (G9: Arc
+#                           5120x1440@240 too, RX 580 2560x1440@120), every other
+#                           output on
 #   verify-or-revert SEL    fall back to `safe` if SEL did not really light up
 #   watchdog                loop: if no output is enabled at all, recover
+#   follow                  loop: after every monitoradded event (the G9 toggling
+#                           PIP is a DP reconnect with a smaller EDID), re-anchor
+#                           the layout as `ultrawide` would; no-op if already right
 #   save-and-deescalate     remember the layout then go safe (pre-suspend)
 #   restore                 re-apply the remembered layout (post-resume)
 set -uo pipefail
@@ -172,7 +181,11 @@ for m in monitors:
             continue
         if pxrate is not None and w * h * r / 1e6 > pxrate + 1:
             continue
-        key = (r, w * h) if by_refresh else (w * h, r)
+        # Rank refresh by its nominal value: the G9 advertises its 240 Hz modes as
+        # 239.76 (5120x1440), 239.90 (2560x1440) and 239.97 (3840x1080), and a raw
+        # float compare would crown 3840x1080 the "fastest" mode. Same tier, so
+        # pixel count decides; the exact rate only breaks real ties.
+        key = (round(r), w * h, r) if by_refresh else (w * h, round(r), r)
         if best is None or key > best[0]:
             best = (key, "%dx%d@%g" % (w, h, r))
     print(best[1] if best else "preferred")
@@ -323,12 +336,64 @@ PY
   rm -f "$f"
 }
 
+# Is the live layout already what `ultrawide` would produce? Primary at its best
+# allowed area mode at 0x0, every secondary enabled at the mode and position
+# plan_secondaries wants. Used by `follow` so a hotplug that Hyprland's own config
+# rules already handled correctly (PIP -> full) costs no extra modeset.
+layout_is_current() {
+  local f primary mode plan
+  primary="$(pick_primary)"
+  [ -n "$primary" ] || return 1
+  mode="$(best_mode "$primary" "" area)"
+  plan="$(plan_secondaries "$primary" "$mode")"
+  f="$(snapshot)" || return 1
+  python3 - "$f" "$primary" "$mode" "$plan" <<'PY'
+import json, re, sys
+monitors = {m["name"]: m for m in json.load(open(sys.argv[1]))}
+primary, pmode, plan = sys.argv[2], sys.argv[3], sys.argv[4]
+
+def parse(s):
+    g = re.match(r"(\d+)x(\d+)@([\d.]+)", s or "")
+    return (int(g.group(1)), int(g.group(2)), float(g.group(3))) if g else None
+
+def at(m, w, h, r, x, y):
+    if m.get("disabled"):
+        return False
+    if (m.get("width"), m.get("height")) != (w, h):
+        return False
+    if abs(float(m.get("refreshRate", 0)) - r) > 1.5:
+        return False
+    return (m.get("x"), m.get("y")) == (x, y)
+
+p = monitors.get(primary)
+want = parse(pmode)
+if p is None or want is None or not at(p, *want, 0, 0):
+    sys.exit(1)
+for line in plan.splitlines():
+    if not line.strip():
+        continue
+    name, mode, pos = line.split(",")
+    m = monitors.get(name)
+    want = parse(mode)
+    g = re.match(r"(-?\d+)x(-?\d+)$", pos)
+    if m is None or want is None or not g:
+        sys.exit(1)  # "preferred"/"auto-*" fallbacks: cannot verify, so re-apply
+    if not at(m, *want, int(g.group(1)), int(g.group(2))):
+        sys.exit(1)
+sys.exit(0)
+PY
+  local rc=$?
+  rm -f "$f"
+  return $rc
+}
+
 # Primary at its best allowed mode (by KEY) at 0x0, secondaries re-anchored
 # (ASUS to the right, the rest above). Both live layouts go through here; the
 # pixel-rate ban in best_mode means nothing this GPU cannot survive is ever
-# requested.
+# requested. A third argument "noverify" skips verify-or-revert (used by
+# `follow`, where a mid-hotplug snapshot must not be allowed to trigger `safe`).
 apply_multi() {
-  local key="$1" label="$2"
+  local key="$1" label="$2" verify="${3:-verify}"
   have_hypr || { log "hyprland not reachable"; return 1; }
 
   local primary mode line
@@ -338,19 +403,43 @@ apply_multi() {
   # No refresh cap on the primary: the pixel-rate budget is the real limit.
   mode="$(best_mode "$primary" "" "$key")"
   log "$label: $primary at $mode; ASUS to the right, remaining outputs above"
-  hyprctl keyword monitor "$primary,$mode,0x0,1,bitdepth,8" >/dev/null 2>&1
 
-  while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    hyprctl keyword monitor "$line,1,bitdepth,8" >/dev/null 2>&1
-  done < <(plan_secondaries "$primary" "$mode")
+  # Hyprland re-validates the layout after every single `keyword monitor`, and a
+  # transient overlap earns a sticky "Monitor DP-2 overlaps with other monitors"
+  # banner. So order the steps so that no intermediate layout overlaps: when the
+  # primary GROWS (2560 -> 5120 wide) the secondaries are anchored to the new,
+  # wider edge, which is clear of both the old and the new footprint, so move them
+  # first; when it SHRINKS the old anchors are clear of the new footprint, so
+  # shrink first and pull the secondaries in afterwards.
+  local secondaries old_w new_w
+  secondaries="$(plan_secondaries "$primary" "$mode")"
+  old_w="$(current_mode "$primary")"; old_w="${old_w%%x*}"
+  new_w="${mode%%x*}"
+  case "$old_w" in *[!0-9]*|"") old_w=0 ;; esac
+  case "$new_w" in *[!0-9]*|"") new_w=0 ;; esac
 
+  place_secondaries() {
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      hyprctl keyword monitor "$line,1,bitdepth,8" >/dev/null 2>&1
+    done <<< "$secondaries"
+  }
+
+  if [ "$new_w" -gt "$old_w" ]; then
+    place_secondaries
+    hyprctl keyword monitor "$primary,$mode,0x0,1,bitdepth,8" >/dev/null 2>&1
+  else
+    hyprctl keyword monitor "$primary,$mode,0x0,1,bitdepth,8" >/dev/null 2>&1
+    place_secondaries
+  fi
+
+  [ "$verify" = "noverify" ] && return 0
   cmd_verify_or_revert "$primary" "$mode"
 }
 
-# Largest picture: most pixels first (5120x1440@60 on the G9).
+# Largest picture: most pixels first, then refresh (5120x1440@240 on the G9 with the Arc).
 cmd_ultrawide()   { apply_multi area "ultrawide mode"; }
-# Fastest picture: highest refresh first (2560x1440@120 on the G9).
+# Fastest picture: highest refresh first, then pixels (also 5120x1440@240 on the G9 with the Arc).
 cmd_highrefresh() { apply_multi refresh "high-refresh mode"; }
 
 # Two distinct failure modes, which deserve different reactions:
@@ -401,6 +490,56 @@ cmd_watchdog() {
     any_output_enabled && { log "recovered via reload"; continue; }
 
     cmd_safe || log "recovery failed; will retry"
+  done
+}
+
+# One `follow` pass: if the live layout is not what ultrawide would build, build
+# it. No verify-or-revert here — a panel mid-reconnect must not collapse the desk
+# to `safe`; the next monitoradded event gets another pass anyway.
+follow_settle() {
+  have_hypr || return 0
+  if layout_is_current; then
+    log "follow: layout already correct"
+    return 0
+  fi
+  log "follow: outputs changed, re-anchoring layout"
+  apply_multi area "follow" noverify
+}
+
+# Keep the layout right across hotplugs. The G9 toggling PIP is a real DP
+# disconnect + reconnect with a *different EDID* (2-block, tops out at
+# 2560x1440@120), so Hyprland's config pin (5120x1440@240) no longer exists and it
+# falls back to the panel's preferred mode — but the secondaries keep their
+# 5120-wide anchors from hyprland.conf and end up floating 2560 px away, with no
+# edge to drag the cursor across. Listen on Hyprland's event socket, and after
+# every monitoradded burst re-run the ultrawide placement (best advertised mode
+# for the primary, secondaries re-anchored to its real width). PIP -> full is
+# handled by Hyprland's own rules already; layout_is_current makes that a no-op.
+cmd_follow() {
+  local sig="${HYPRLAND_INSTANCE_SIGNATURE:-}"
+  local sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypr/$sig/.socket2.sock"
+  [ -n "$sig" ] || { log "follow: HYPRLAND_INSTANCE_SIGNATURE is unset"; return 1; }
+  command -v socat >/dev/null 2>&1 || { log "follow: socat not found"; return 1; }
+
+  log "follow started"
+  # A session that starts while the G9 is already in PIP mode gets the same
+  # treatment as a live toggle.
+  follow_settle
+
+  local ev
+  while :; do
+    if [ -S "$sock" ]; then
+      while IFS= read -r ev; do
+        case "$ev" in monitoradded*) ;; *) continue ;; esac
+        # Debounce: a reconnect emits several events and the panel needs a
+        # moment to settle on its mode. Drain whatever else arrives meanwhile.
+        sleep 1.5
+        while IFS= read -r -t 0.2 ev; do :; done
+        follow_settle
+      done < <(socat -u UNIX-CONNECT:"$sock" - 2>/dev/null)
+    fi
+    have_hypr || { log "follow: hyprland is gone, exiting"; return 0; }
+    sleep 2
   done
 }
 
@@ -458,10 +597,11 @@ case "${1:-}" in
   highrefresh)         cmd_highrefresh ;;
   verify-or-revert)    shift; cmd_verify_or_revert "${1:-}" "${2:-}" ;;
   watchdog)            cmd_watchdog ;;
+  follow)              cmd_follow ;;
   save-and-deescalate) cmd_save_and_deescalate ;;
   restore)             cmd_restore ;;
   *)
-    printf 'usage: %s {safe|ultrawide|highrefresh|verify-or-revert SEL|watchdog|save-and-deescalate|restore}\n' \
+    printf 'usage: %s {safe|ultrawide|highrefresh|verify-or-revert SEL|watchdog|follow|save-and-deescalate|restore}\n' \
       "$(basename "$0")" >&2
     exit 2
     ;;

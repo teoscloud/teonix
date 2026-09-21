@@ -139,9 +139,9 @@ in
         rm -f "$marker"
 
         # Device present — but also make sure a kernel driver actually bound.
-        # On 2026-09-10 the GPU enumerated fine yet amdgpu was never inserted, and
-        # the session silently degraded to simpledrm + llvmpipe. Warn only: such a
-        # session is usable and a clean reboot fixes it (amdgpu is in the initrd).
+        # On 2026-09-10 the GPU enumerated fine yet its driver was never inserted,
+        # and the session silently degraded to simpledrm + llvmpipe. Warn only:
+        # such a session is usable and a clean reboot fixes it.
         i=1
         while [ "$i" -le 30 ]; do
           if [ -e "$dev/driver" ]; then exit 0; fi
@@ -154,7 +154,7 @@ in
           echo ""
           echo "  teonix: the display GPU at $(basename "$dev") has NO kernel driver bound."
           echo "  This session is on the firmware framebuffer with software rendering."
-          echo "  Fix: finish your work and reboot; amdgpu loads from the initrd."
+          echo "  Fix: finish your work and reboot; the display driver loads from the initrd."
           echo ""
         } > /run/teonix/gpu-driverless
         cat /run/teonix/gpu-driverless

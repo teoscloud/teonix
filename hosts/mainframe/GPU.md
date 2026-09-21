@@ -115,7 +115,7 @@ storm, or as Hyprland simply refusing the modeset and keeping the previous mode.
 
 This is a hard ceiling, not a configuration problem. **`5120x1440@120` is banned
 outright on this card** via a per-output pixel-rate budget
-(`TEONIX_MAX_PIXEL_RATE_MPS=500`): that mode is ~885 Mpx/s, while the two
+(`TEONIX_MAX_PIXEL_RATE_MPS=450`): that mode is ~885 Mpx/s, while the two
 sanctioned G9 modes — `2560x1440@120` (the default) and `5120x1440@60` (`Super+S`)
 — are both ~442 Mpx/s and were verified live on 2026-09-10 with two extra 1080p60
 outputs attached. `display-safe.sh` never selects a mode above the budget, for any
@@ -129,7 +129,10 @@ DSC-capable card and the ban is simply not written that boot. The profiles live 
 numbers as a fallback for the case where that service did not run, because being
 stuck at 60 Hz is cheaper than letting an over-budget mode through on Polaris.
 
-### The greeter: NEVER give mutter a stored monitors.xml
+### The greeter: NEVER give mutter a stored monitors.xml (RX 580 era — lifted 2026-09-21)
+
+*Historical, Polaris-only. `teonix-greeter-unpin` was removed with the Arc fitted;
+on i915 a stored greeter layout is what pins GDM to the single-pipe 120 Hz mode.*
 
 **Hard rule, written in six boots of scar tissue (2026-09-10): any stored
 `monitors.xml` that matches the connected monitors leaves the login screen
@@ -207,23 +210,21 @@ It sets:
   pin that `modules/services/system-services.nix` applies to every x86 host. That
   pin would leave Xorg with no driver the moment the card is not AMD. The Wayland
   sessions do not consult it at all.
-- `mem_sleep_default=s2idle` and `SuspendState=freeze` — suspend still works, but
-  the GPU keeps power, so the resume re-POST that wedged Polaris never happens.
-  Kept for the Arc too: Alchemist has no such known bug, but s2idle costs a few
-  watts while a failed resume on this chassis costs a power drain with no BIOS
-  access in between, and long sleeps land in S4 anyway.
-- `amdgpu.runpm=0` and `amdgpu.gpu_recovery=1` — module parameters, ignored when
-  amdgpu is not driving anything, so they can stay for the RX 580's sake.
 - `teonix-gpu-profile` — reads the fitted display device from the PCI bus before
   the greeter starts and writes that card's budgets to
-  `/run/teonix/display-bandwidth.conf` (RX 580: 60 Hz / 500 Mpx/s; Arc DG2:
-  240 Hz / 2000 Mpx/s, which permits `5120x1440@240`). An unrecognised card gets
-  the permissive numbers plus a notice at login. `/etc/teonix/display-bandwidth.conf`
-  carries the RX 580 numbers as the fallback if the service never ran;
-  `display-safe.sh` prefers `/run`, falls back to `/etc`, and applies **no limits
-  at all** if neither exists.
-- `teonix-greeter-unpin` — see the greeter rule above. Kept across the swap because
-  its only cost is a greeter that does not remember its layout.
+  `/run/teonix/display-bandwidth.conf` (RX 580: 60 Hz / 450 Mpx/s; Arc DG2:
+  240 Hz / 2000 Mpx/s, no ban — the two-pipe `5120x1440@240` works once the G9 is
+  in the last DP connector, see the 2026-09-21 notes below). An unrecognised
+  card gets permissive numbers plus a notice at login.
+  `/etc/teonix/display-bandwidth.conf` carries the RX 580 numbers as the fallback
+  if the service never ran; `display-safe.sh` prefers `/run`, falls back to `/etc`,
+  and applies **no limits at all** if neither exists.
+
+Removed 2026-09-21 with the Arc fitted (Polaris-only; history above still
+explains why they existed): `mem_sleep_default=s2idle` + `SuspendState=freeze`,
+`amdgpu.runpm=0` + `amdgpu.gpu_recovery=1`, `hardware.amdgpu.initrd.enable`, and
+`teonix-greeter-unpin` (the greeter may keep its `monitors.xml` again — on the
+Arc that is how GDM remembers `5120x1440@120`).
 
 `gpu-guard.nix` adds two units. Both locate the GPU by **PCI display class**
 (`0x03....`), never by bus address, vendor or driver name:
@@ -264,13 +265,15 @@ atomic commit failed.
 
 | Command | Used by | Behaviour |
 | --- | --- | --- |
-| `ultrawide` | `Super+S` | Primary at its largest allowed mode (`5120x1440@60`), others on |
-| `highrefresh` | `Super+D` | Primary at its fastest allowed mode (`2560x1440@120`), others on — the default |
+| `ultrawide` | `Super+S` | Primary at its largest allowed mode, fastest refresh (Arc: `5120x1440@240`, the default; RX 580: `5120x1440@60`), others on |
+| `ultrawide` with `TEONIX_MAX_PIXEL_RATE_MPS=900` | `Super+Ctrl+S` | Single-pipe fallback (Arc: `5120x1440@120`) for when the two-pipe 240 comes up wrong; works blind |
+| `highrefresh` | `Super+D` | Primary at its fastest allowed mode (Arc: also `5120x1440@240`; RX 580: `2560x1440@120`), others on |
 | `safe` | `Super+Shift+D` | Panic: collapse to one known-good output |
 | `verify-or-revert` | both live modes | Reverts if the output went dark; warns if the mode was merely refused |
 | `save-and-deescalate` | `hypridle` pre-sleep | Remember the layout, then go safe |
 | `restore` | `hypridle` post-sleep | Put the layout back, or go safe if it cannot |
 | `watchdog` | `exec-once` | If every output is ever dark, reload and recover in-session |
+| `follow` | `exec-once` | After every `monitoradded` burst, re-anchor the layout as `ultrawide` would (no-op if already right). Makes the G9's PIP toggle — a DP reconnect with a 2-block EDID, 2560x1440@120 max — land in a contiguous layout instead of leaving the secondaries at their 5120-wide anchors |
 
 `scripts/main-monitor.sh` is the one display script that changes **no** mode, so
 it sits entirely outside the pixel-rate ban. It only moves the *designation* of
@@ -325,7 +328,7 @@ the card you just removed, is the bad ending.
 ```bash
 cd ~/teonix && nixupgrade        # or: sudo nixos-rebuild switch --flake .#mainframe --impure
 systemctl status teonix-gpu-profile          # should report the RX 580 profile
-cat /run/teonix/display-bandwidth.conf       # 60 / 500 while Polaris is fitted
+cat /run/teonix/display-bandwidth.conf       # 60 / 450 while Polaris is fitted
 ```
 
 ### Intel Arc A750 (DG2) specifics
@@ -358,29 +361,56 @@ glxinfo -B 2>/dev/null | grep -i 'renderer'  # must NOT say llvmpipe
 vainfo 2>/dev/null | head -5                 # iHD driver, hardware decode
 ```
 
-Then, in this order:
+### What the first day on the Arc taught (2026-09-21)
 
-1. **Suspend once with an SSH session open from another machine.** Policy is
-   unchanged (`s2idle`), so this should be uneventful; confirm the outputs come back
-   before trusting it.
-2. **Escalate the display**: `Super+D` now derives `5120x1440@240` for the G9
-   instead of `2560x1440@120`, and `verify-or-revert` still reverts if the commit
-   does not stick. Once it survives a reboot and a resume, raise the startup pin on
-   the `desc:Samsung Electric Company LC49G95T` line in `hyprland.conf` — it is
-   deliberately left at the mode that commits on either card.
-3. **Prune the AMD leftovers** only after the Arc has proven itself for a while:
-   the ROCm ICDs in `modules/hardware/hardware-x86.nix` (shared with `nixbox`, so
-   check that host first), `hardware.amdgpu.initrd.enable`, and the two
-   `amdgpu.*` kernel parameters. Keeping them is what makes putting the 580 back a
-   non-event, so there is no hurry.
+- **240 Hz works — but the G9 must be in the card's last DisplayPort connector.**
+  The G9 in full (non-PIP) mode hands i915 a 3-block EDID with `5120x1440@239.76`
+  as preferred, and the kernel keeps it — no EDID override needed. That mode's
+  1.94 GHz pixel clock needs two DG2 pipes ("bigjoiner") plus DSC, and i915 takes
+  the pipe *right after* the primary's as the second one. Pipes are handed out
+  first-fit in connector order — by the kernel console at boot, by mutter
+  (`find_unassigned_crtc`) and by Hyprland's aquamarine (`recheckCRTCs`) — and no
+  compositor lets you pick one. With the G9 in `DP-2` it sat on pipe B, the S27 in
+  `DP-4` held pipe C, and every 240 modeset from Hyprland failed the atomic test
+  with `EINVAL`; the 240 that GDM/GNOME did manage came out as a magnified top-left
+  quarter. Moving the G9 to `DP-4` (swapped with the S27) gives A=ASUS, B=S27, C=G9,
+  D free: `5120x1440@239.76` committed with all three outputs lit and renders
+  correctly. Note the card's HDMI port is a DP output behind a PCON and enumerates
+  as `DP-1` (`subconnector = HDMI`). The Arc budget is **2000 Mpx/s** (no ban);
+  `Super+Ctrl+S` passes 900 to fall back to the single-pipe `5120x1440@120` blind.
+  The GDM greeter is deliberately pinned to `5120x1440@120` in `/etc/xdg/monitors.xml`
+  — a login screen gains nothing from 240 and a broken greeter is a blind login.
+- **In PIP mode the G9 sends a 2-block EDID** that stops at `2560x1440@120`.
+  That is where the "Linux only sees 1440p" symptom comes from; it is the panel,
+  not the driver. Toggling PIP is a full DP disconnect/reconnect; Hyprland then
+  falls back to the PIP EDID's preferred mode but keeps the secondaries at their
+  5120-wide anchors, so `display-safe.sh follow` (an `exec-once`) re-anchors the
+  layout after every `monitoradded` burst. The pipe assignment survives the
+  reconnect (aquamarine hands `DP-4` the first free CRTC again, which is C), so
+  240 comes straight back in full mode.
+- **Dropped as Polaris-only** (all removable in one commit if the 580 ever comes
+  back): `hardware.amdgpu.initrd.enable`, `amdgpu.runpm=0`,
+  `amdgpu.gpu_recovery=1`, the `s2idle` pin and `SuspendState=freeze`, the
+  greeter `monitors.xml` purge (`teonix-greeter-unpin`), and the `g9-edid.nix`
+  override (kept in the tree, import commented out in `flake.nix`; only useful to
+  change which mode the panel calls *preferred*).
+- **Never re-probe a connector under a running compositor.** Applying an EDID
+  override live via `nixos-rebuild switch` is what first produced the zoomed
+  picture in Hyprland; the mode list changed under it and it re-committed to the
+  new preferred mode.
 
-Unchanged by any swap: the `desc:` monitor rules (port- and card-agnostic), the
-greeter's no-`monitors.xml` rule, and `gpu-guard.nix`.
+Still to do on the Arc: **suspend once with an SSH session open** — sleep is
+back on the kernel default (deep S3), which the 580 could not survive; nothing
+says the Arc can't, but confirm it before trusting it unattended.
+
+Unchanged by any swap: the `desc:` monitor rules (port- and card-agnostic) and
+`gpu-guard.nix`. The ROCm ICDs in `modules/hardware/hardware-x86.nix` are shared
+with `nixbox` and stay.
 
 ## Quick checks
 
 ```bash
-cat /sys/power/mem_sleep                      # expect: [s2idle] deep
+cat /sys/power/mem_sleep                      # kernel default since 2026-09-21: s2idle [deep]
 systemctl status gpu-resume-guard gpu-boot-guard
 systemctl status teonix-gpu-profile           # which card, which budgets
 cat /run/teonix/display-bandwidth.conf        # budgets in force this boot

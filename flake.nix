@@ -220,6 +220,11 @@
           # Arc A750 unchanged and picks the display budgets from the fitted card
           # at boot, so a swap needs no rebuild and can be undone. See GPU.md.
           ./hosts/mainframe/gpu.nix
+          # Fixed Odyssey G9 EDID. Disabled 2026-09-21: in full (non-PIP) mode the
+          # panel's own EDID already carries 5120x1440@240 on i915, and that mode
+          # is the one the driver renders wrong. Re-enable only to change which
+          # mode the panel calls preferred.
+          # ./hosts/mainframe/g9-edid.nix
           ./modules/services/gnome.nix
         ];
       };

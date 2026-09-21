@@ -10,7 +10,12 @@
 #
 # Cards this has been written against:
 #   1002:67df  Sapphire RX 580 (Polaris 10, DCE 11.2) — no DSC, hard mode ban
-#   8086:56xx  Intel Arc A750/A770 (DG2 Alchemist, i915) — DSC, no ban needed
+#   8086:56xx  Intel Arc A750/A770 (DG2 Alchemist, i915) — DSC, no ban; G9 must
+#              be the last DP connector for the two-pipe 240 mode (see below)
+#
+# 2026-09-21, Arc fitted: the Polaris-specific workarounds (amdgpu initrd and
+# module params, s2idle pin, greeter monitors.xml purge, the G9 EDID override)
+# were removed. What is left is the card-agnostic budget mechanism.
 #
 # Board-level protection (no-video recovery, storage health) lives in
 # ./gpu-guard.nix and is not card-specific either. See ./GPU.md for the history.
@@ -19,20 +24,18 @@
 {
   # ------------------------------------------------------------------ early KMS
   #
-  # Load the display driver from the initrd rather than trusting udev coldplug: on
-  # 2026-09-10 coldplug silently failed to insert amdgpu (all DRM deps loaded, the
-  # module never appeared) and the session degraded to simpledrm + llvmpipe, with
-  # one fake Unknown-1 output and no EDID. Never insert a DRM driver by hand into
-  # such a session — the takeover kills the compositor to a TTY. Doing it from the
-  # initrd also gives native-res consoles and removes the simpledrm handover gap.
-  hardware.amdgpu.initrd.enable = true;
-
-  # i915 for DG2/Alchemist. It is in the initrd for the same determinism, and for
-  # a second reason: kernel 6.18 has *both* i915 and xe advertising the Arc PCI IDs
-  # (56a0/56a1/56a5) with empty force_probe lists, so whichever loads first binds
-  # the card. Only i915 is in the initrd, so i915 wins every time — the mature
-  # display stack for Alchemist. If a future Intel card needs xe instead, add it
-  # here and drop i915. Harmless with an AMD card fitted: no device, no bind.
+  # i915 for DG2/Alchemist, loaded from the initrd for two reasons. Determinism:
+  # udev coldplug once silently failed to insert a DRM driver here (2026-09-10)
+  # and the session degraded to simpledrm + llvmpipe. Driver choice: kernel 6.18
+  # has *both* i915 and xe advertising the Arc PCI IDs (56a0/56a1/56a5) with
+  # empty force_probe lists, so whichever loads first binds the card. Only i915 is
+  # in the initrd, so i915 wins every time — the mature display stack for
+  # Alchemist. If a future Intel card needs xe instead, add it here and drop i915.
+  # Harmless with a non-Intel card fitted: no device, no bind.
+  #
+  # The Polaris-era extras (hardware.amdgpu.initrd, amdgpu.runpm=0,
+  # amdgpu.gpu_recovery=1) were dropped on 2026-09-21 with the Arc fitted; with
+  # an AMD card back in, amdgpu still loads from udev like on any other host.
   boot.initrd.kernelModules = [ "i915" ];
 
   # DG2 will not initialise without its GuC/HuC/DMC blobs (dg2_guc_70.bin,
@@ -58,24 +61,12 @@
   # host server, neither of which needs a vendor DDX.
   services.xserver.videoDrivers = lib.mkForce [ "modesetting" ];
 
-  boot.kernelParams = [
-    # Freeze instead of entering S3. Polaris failed to re-POST on resume from deep
-    # and wedged the card (2026-09-10, one suspend followed by six boots with zero
-    # PCI lines for it). Alchemist is not known to have that bug, but the cost of
-    # s2idle here is a few watts while the cost of a failed resume on this chassis
-    # is a full power drain with no BIOS access in between — and long sleeps land
-    # in S4 anyway (HibernateDelaySec in ./platform.nix), where the firmware POSTs
-    # the card on the way back. Revisit only with an SSH session open.
-    "mem_sleep_default=s2idle"
-    # Both are amdgpu module parameters: ignored outright when amdgpu is not the
-    # driver, so they can stay for the RX 580's sake either way. Runtime D3cold is
-    # a second Polaris wedge path, and a reset attempt beats staying hung.
-    "amdgpu.runpm=0"
-    "amdgpu.gpu_recovery=1"
-  ];
-
-  # Belt and braces: even if the kernel param is lost, systemd must not pick deep.
-  systemd.sleep.settings.Sleep.SuspendState = "freeze";
+  # Suspend policy is the kernel default again (deep S3 where the firmware offers
+  # it). The s2idle pin and SuspendState=freeze were a Polaris workaround: the RX
+  # 580 failed to re-POST on resume from deep on 2026-09-10 and wedged the card.
+  # Dropped 2026-09-21 with the Arc fitted. If a resume ever comes back dark on
+  # this chassis, gpu-guard.nix powers off rather than reboots, and the first
+  # thing to try is `mem_sleep_default=s2idle` back in boot.kernelParams.
 
   # ------------------------------------------------- display bandwidth budgets
   #
@@ -90,7 +81,7 @@
     # Fallback budgets, written by hosts/mainframe/gpu.nix. The per-card profile in
     # /run/teonix/display-bandwidth.conf overrides these; see teonix-gpu-profile.
     TEONIX_MAX_REFRESH_MULTI_OUTPUT=60
-    TEONIX_MAX_PIXEL_RATE_MPS=500
+    TEONIX_MAX_PIXEL_RATE_MPS=450
   '';
 
   # Pick the budgets from the card that is actually fitted, before anything can
@@ -136,13 +127,27 @@
           name="Radeon RX 580 (Polaris 10, DCE 11.2)"
           # 5120x1440@120 is ~885 Mpx/s and has proven destructive here, while
           # both sanctioned G9 modes (5120x1440@60, 2560x1440@120) are ~442.
+          # 450, not 500: the G9's full EDID also carries 3840x1080@120 (~498),
+          # which is untested on Polaris and would otherwise become the pick
+          # for high-refresh mode once refresh rates are ranked by tier.
           cap=60
-          px=500
+          px=450
           ;;
         8086:56*)
           name="Intel Arc (DG2/Alchemist)"
-          # DSC over DP 1.4 covers the G9 at 5120x1440@240 (~1769 Mpx/s), so the
-          # budget only exists to keep something absurd from being selected.
+          # No ban. DSC over DP 1.4 carries the G9 at 5120x1440@240 (~1767
+          # Mpx/s); that mode's 1.94 GHz pixel clock exceeds one DG2 pipe, so
+          # i915 drives it with two ("bigjoiner": the primary's pipe plus the
+          # NEXT one). Verified clean in Hyprland on 6.18.52 with all three
+          # outputs lit, 2026-09-21 — but only once the G9 sat in the last DP
+          # connector. Pipes are handed out first-fit in connector order by the
+          # kernel, mutter and aquamarine alike, so with the G9 in DP-2 (pipe B)
+          # the S27 in DP-4 held pipe C, every 240 modeset failed EINVAL in
+          # Hyprland, and the 240 that GDM/GNOME did manage that day (pipe
+          # pairing unknown) came out as a magnified top-left quarter. Cabling
+          # is therefore part of the config: see the greeter layout below. If
+          # 240 ever misbehaves again, 900 is the value that admits only the
+          # single-pipe modes (5120x1440@120 ~885, 2560x1440@240 ~885).
           cap=240
           px=2000
           ;;
@@ -182,34 +187,93 @@
     '';
   };
 
-  # The greeter must have NO stored monitors.xml — ever. Proven across six boots
-  # on 2026-09-10 with the RX 580: every stored config that matched the connected
-  # monitors left the login screen black with endless "Page flip failed:
-  # drmModeAtomicCommit: Invalid argument", including a single plain 1080p60
-  # panel (104 to 170 failures each). With no matching config mutter negotiates
-  # its own layout and degrades it until something sticks, which worked every
-  # time. Mutter treats a stored config as policy and hammers a commit the driver
-  # rejects, so the fix is the absence of a file.
-  #
-  # Kept across the GPU swap on purpose: it may well be an amdgpu/DCE 11.2 bug and
-  # not apply to i915 at all, but the only thing it costs is a greeter that does
-  # not remember its layout, and a black login screen on this chassis is expensive
-  # to debug. Drop it once the new card has proven it can survive a stored config.
-  #
-  # RemainAfterExit off, so this runs before every greeter start: the file persists
-  # on disk between boots and mutter can write a new one at any time.
-  systemd.services.teonix-greeter-unpin = {
-    description = "Remove stored greeter monitor configs (mutter must improvise here)";
-    wantedBy = [ "display-manager.service" ];
-    before = [ "display-manager.service" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = false;
-    };
-    script = ''
-      rm -f /var/lib/gdm/seat0/config/monitors.xml
-    '';
-  };
+  # The greeter is allowed to keep its monitors.xml again. teonix-greeter-unpin
+  # (delete /var/lib/gdm/seat0/config/monitors.xml before every greeter start)
+  # was an amdgpu/DCE 11.2 workaround: on 2026-09-10 every stored config the RX
+  # 580 was handed ended in a black login screen of "Page flip failed" loops.
+  # Dropped 2026-09-21. On the Arc a stored greeter layout is *wanted*: left to
+  # itself mutter takes the panel's preferred 5120x1440@240, the two-pipe mode,
+  # and the one time it went wrong (2026-09-21) the result was a magnified
+  # quarter that hid GDM's session chooser — a blind login screen. A login
+  # screen gains nothing from 240 Hz, so the greeter is pinned to the
+  # single-pipe 5120x1440@120; sessions pick their own mode (Hyprland: 240).
+  # Mutter reads $XDG_CONFIG_DIRS/monitors.xml as its system default; a
+  # user's own ~/.config/monitors.xml still wins inside a GNOME session. The
+  # entries must match connector+vendor+product+serial and cover every connected
+  # output, or mutter ignores the file and improvises (i.e. falls back to today's
+  # behaviour, no worse). Serials are the panels' own — no EDID override in play.
+  # Connector names: the G9 lives in the LAST DisplayPort connector (DP-4) on
+  # purpose, since 2026-09-21. 5120x1440@240 needs two display pipes and i915
+  # takes the pipe right after the primary's; kernel, mutter and aquamarine all
+  # hand pipes out first-fit in connector order, so the panel that needs a spare
+  # neighbour must enumerate last: A=ASUS (DP-1, the HDMI port is a DP PCON),
+  # B=S27 (DP-2), C=G9 (DP-4), D free for the joiner. With the G9 in DP-2 the S27
+  # held pipe C and every 240 modeset failed with EINVAL.
+  # Coordinates must be non-negative (mutter's parser rejects "-1080" outright),
+  # so the layout is shifted down by the S27's height: G9 at y=1080, ASUS
+  # bottom-flush at (5120,1440), S27 in the G9's top-right corner at (3200,0).
+  environment.etc."xdg/monitors.xml".text = ''
+    <monitors version="2">
+      <configuration>
+        <layoutmode>logical</layoutmode>
+        <logicalmonitor>
+          <x>0</x>
+          <y>1080</y>
+          <scale>1</scale>
+          <primary>yes</primary>
+          <monitor>
+            <monitorspec>
+              <connector>DP-4</connector>
+              <vendor>SAM</vendor>
+              <product>LC49G95T</product>
+              <serial>H4ZN900468</serial>
+            </monitorspec>
+            <mode>
+              <width>5120</width>
+              <height>1440</height>
+              <rate>119.999</rate>
+            </mode>
+          </monitor>
+        </logicalmonitor>
+        <logicalmonitor>
+          <x>5120</x>
+          <y>1440</y>
+          <scale>1</scale>
+          <monitor>
+            <monitorspec>
+              <connector>DP-1</connector>
+              <vendor>AUS</vendor>
+              <product>VG245</product>
+              <serial>JBLMQS097970</serial>
+            </monitorspec>
+            <mode>
+              <width>1920</width>
+              <height>1080</height>
+              <rate>60.000</rate>
+            </mode>
+          </monitor>
+        </logicalmonitor>
+        <logicalmonitor>
+          <x>3200</x>
+          <y>0</y>
+          <scale>1</scale>
+          <monitor>
+            <monitorspec>
+              <connector>DP-2</connector>
+              <vendor>SAM</vendor>
+              <product>S27E590</product>
+              <serial>HTQGA01931</serial>
+            </monitorspec>
+            <mode>
+              <width>1920</width>
+              <height>1080</height>
+              <rate>60.000</rate>
+            </mode>
+          </monitor>
+        </logicalmonitor>
+      </configuration>
+    </monitors>
+  '';
 
   # Surface the profile note at login (mainframe only — the file is written by the
   # service above, which disappears with this module).
