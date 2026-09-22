@@ -66,6 +66,38 @@
           }
         ];
       };
+      # Clock master. PipeWire drives the whole graph off one node, elected by
+      # priority.driver, and WirePlumber hands capture nodes +1000 over playback.
+      # So any capture device that is running (the PCM2902 codec feeding a
+      # BusChain track, the webcam mic) out-ranks the Scarlett you listen on,
+      # and the PCM2902 — a full-speed USB 1.1 codec that only does 48 kHz,
+      # resampled to the forced 96 kHz graph — drops a period about once a
+      # second, which every follower then hears as a flicker. Make the Scarlett
+      # win the election outright and give the codec the slack it needs once
+      # it is a follower.
+      wireplumber.extraConfig."60-scarlett-clock-master" = lib.mkIf (system == "x86_64-linux") {
+        "monitor.alsa.rules" = [
+          {
+            matches = [ { "api.alsa.card.name" = "Scarlett 2i4 USB"; } ];
+            actions = {
+              update-props = {
+                "priority.driver" = 5000;
+                "priority.session" = 5000;
+              };
+            };
+          }
+          {
+            matches = [ { "api.alsa.card.name" = "USB Audio CODEC"; } ];
+            actions = {
+              update-props = {
+                "priority.driver" = 100;
+                "api.alsa.headroom" = 1024;
+                "api.alsa.period-size" = 512;
+              };
+            };
+          }
+        ];
+      };
       # Chromium/Brave silent audio (NullAudioSink, no Pulse stream):
       # 1) WP restoring per-app target.object to dead sink names
       # 2) Session default sink at extreme rates (e.g. 384 kHz) — Chromium refuses to open
