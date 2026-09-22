@@ -349,12 +349,22 @@ cat /run/teonix/display-bandwidth.conf       # 60 / 450 while Polaris is fitted
   no POST output at all on this board. This install already boots UEFI
   (systemd-boot on the ESP), so leave it that way and prefer "UEFI only" in setup.
 - **Enable large-address decoding** ("Above 4GB decoding" / "Memory Mapped I/O
-  above 4GB") if the T7810 setup offers it. DG2 wants a big BAR window and old
-  firmware that keeps everything under 4 GB can fail to allocate it. If the card
-  enumerates but never binds (`i915` probe failure over BAR allocation), add
-  `pci=realloc` to `boot.kernelParams` in `platform.nix` as a fallback.
-- **No Resizable BAR on BIOS A25/A34.** Alchemist loses noticeable performance
-  without ReBAR. It is not a boot issue and there is no fix on this platform.
+  above 4GB") if the T7810 setup offers it. It is already on: BAR 2 sits at
+  `0x33fe0000000`. That switch only allows addresses past 4 GB. It does not
+  grow the window. Turning it off leaves the card at 256 MiB, which is where
+  it already is.
+- **No Resizable BAR menu on BIOS A25/A34.** The firmware ships a 256 MiB
+  prefetch window and never grows it. That is a performance problem, not a boot
+  problem, and it is not a missing NixOS package. `pci=realloc` (2026-09-23)
+  tried and died with `Failed to resize BAR2 to 8192M (-ENOSPC)` on the switch
+  ports. `pci=realloc,nocrs` the same night ignored the Above-4G window
+  `0x30000000000-0x33fffffffff`, so `i915_resize_lmem_bar` never called
+  `pci_resize_resource` and logged `Can't resize LMEM BAR - platform support
+  is missing`. Both parameters are out of `gpu.nix`. The userspace setup is
+  the [NixOS Intel Graphics](https://wiki.nixos.org/wiki/Intel_Graphics) Arc
+  example: modesetting, `intel-media-driver`, `vpl-gpu-rt`, `LIBVA_DRIVER_NAME=iHD`,
+  firmware, `i915.enable_guc=3`. `intel-compute-runtime` is the wiki's optional
+  OpenCL runtime and is not installed.
 - **PCIe 3.0 x16** is what this board offers; the A750 is PCIe 4.0 x8 and
   negotiates 3.0 x8 fine.
 - Remember the firmware-UI trick from the top of this file: to reach F2/F12, run a
@@ -570,7 +580,7 @@ requests 240 with a 2000 budget for when you want it anyway; Super+S returns.
 The greeter was already pinned to 120. To make 240 the default again: `px=2000`
 in `gpu.nix` and `5120x1440@240` in `hyprland.lua`.
 
-### The Steam stutter was the render scheduler, not the CPUs (2026-09-23)
+### The Steam stutter is the 256 MiB BAR (2026-09-23)
 
 The complaint that survived the core: the desktop is fluid until Steam is up
 (Steam, Battle.net and WoW Classic, all Xwayland), then stutters — worst at
@@ -589,49 +599,111 @@ WoW (`kill -STOP`), pausing Battle.net, pausing both, a software cursor,
 kernel time were the mode (5120 wide) and the presence of the Steam clients'
 buffers, not what those clients were doing.
 
-What did move it, live, three times in a row at both refresh rates:
+A false lead, recorded so it is not chased again. Toggling
+`render:new_render_scheduling` live looked like the answer, three times in a
+row at both refresh rates:
 
 ```
   render:new_render_scheduling = false   80.3% cpu  (user 6.6%  sys 73.7%)   167 wakeups/s   ~4.81 ms
   render:new_render_scheduling = true    17.3% cpu  (user 13.9%  sys 3.4%)  1236 wakeups/s   ~0.14 ms
 ```
 
-The default scheduler (`src/output/MonitorFrameScheduler.cpp`) renders at the
-frame event and calls `commitPendingAndDoExplicitSync` immediately, with the
-GPU still working on that frame and the render fence unsignalled. The new one
-renders, hands the explicit-sync fd to the event loop, and commits only once
-the fence has fired (`onSyncFired`). Same render, same commit, different
-moment — and the 4 ms of kernel time per frame vanishes, so the wait was being
-burned in the atomic-commit path with a pending in-fence rather than slept
-through. The many small wakeups afterwards are the fence-fd readiness events;
-they cost 0.13 ms each and the thread is idle 83 % of the time at 240 Hz.
+But while it was on, the G9 picture froze, and it came back when the option
+was turned off. The new scheduler (`src/output/MonitorFrameScheduler.cpp`)
+hands the render fence fd to the event loop and only renders the next frame
+once it has fired; if that fence never signals the monitor simply stops being
+rendered. So the "cheap" number is most likely the cost of *not drawing the
+ultrawide* at all — it measures nothing about the stutter. The option stays
+off. If it is ever re-tried, do it with someone watching the G9.
 
-The setting is on in `hyprland.lua` (`render.new_render_scheduling = true`).
-Hyprland disables it by itself while direct scanout is active (fullscreen
-game), which is exactly when the compositor is not rendering anyway, and falls
-back to frame events with a log line if explicit sync ever fails.
-
-Where the kernel time exactly goes is still unproven: Hyprland runs setcap and
-is non-dumpable, so `perf`, `strace` and even `/proc/<tid>/wchan` need root.
-A kernel-matched `perf` is built at `/tmp/perf-result`; the one-liner to settle
-it (old scheduler on, Steam up) is
+The profile settled it. Hyprland runs setcap and is non-dumpable, so this
+needs root (kernel-matched `perf` built with
+`nix build .#nixosConfigurations.mainframe.config.boot.kernelPackages.perf --out-link /tmp/perf-result`):
 
 ```
 sudo /tmp/perf-result/bin/perf record -t $(pgrep -f '(^|/)Hyprland( |$)' | head -1) -g -o /tmp/hypr.perf -- sleep 10
-sudo chown teodor /tmp/hypr.perf && /tmp/perf-result/bin/perf report -i /tmp/hypr.perf --no-children --sort sym | head -40
+sudo chown teodor /tmp/hypr.perf
 ```
 
-Related and also fixed in the same pass: the Arc is running with a 256 MiB BAR.
-i915 tries to resize BAR 2 to 8 GiB at probe and the root-port window is too
-small (`can't assign; no space` / `Failed to resize BAR2 to 8192M (-ENOSPC)` /
-`Using a reduced BAR size of 256MiB`). Above-4G decoding is on; the window is
-just firmware-sized. `pci=realloc` is in `gpu.nix` so the kernel reassigns the
-bridge windows itself. Check after the reboot: `lspci -vs 07:00.0` Region 2
-`[size=8G]`, those three lines gone from `journalctl -k`. Fallback
-`pci=realloc,nocrs`; if it will not boot at all, drop the parameter from the
-boot-menu entry. Small BAR means everything the CPU touches in VRAM goes
-through a 256 MiB window; it is unrelated to the scheduler finding above but
-is the wrong way to run an 8 GiB card, and games (Steam, WoW) benefit directly.
+`kptr_restrict=1` hides kernel symbols from an unprivileged `perf report`, so
+either run the report with sudo or build a kallsyms file: shift the booted
+kernel's `System.map` (`$(dirname $(readlink -f /run/booted-system/kernel))/System.map`)
+by the KASLR slide (`perf script --show-mmap-events | grep kallsyms` gives the
+live `_text`; System.map's is `ffffffff81000000`), append `nm -n` of the
+`.ko` modules at the bases the same mmap events list, and pass
+`--kallsyms=`. Do the arithmetic in Python, not awk — awk doubles round these
+addresses. 10 s of Steam + WoW + Battle.net on screen at 240 Hz, 30 753 samples,
+inclusive:
+
+```
+  98.0%  IHyprRenderer::renderMonitor
+  89.7%    commitPendingAndDoExplicitSync -> drmModeAtomicCommit
+  88.8%      drm_mode_atomic_ioctl -> intel_atomic_commit -> drm_atomic_helper_prepare_planes
+  88.2%        intel_plane_pin_fb -> __i915_ttm_migrate -> ttm_bo_validate -> ttm_bo_alloc_resource
+  80.7%          ttm_lru_walk_for_evict -> ttm_bo_evict -> ttm_bo_handle_move_mem -> i915_ttm_move
+  77.5%            i915_ttm_tt_populate -> shmem_sg_alloc_table -> shmem_alloc_and_add_folio
+  28.3%              clear_page_erms          (self)
+   ~15%              memcg charge, page allocator, LRU bookkeeping (self, summed)
+   2.3%            emit_pte                   (the blit of the evicted object to system memory)
+   2.6%    i915_gem_execbuffer2_ioctl         (the actual rendering, for scale)
+```
+
+Read bottom-up: on *every* atomic commit, pinning the framebuffer for the
+display plane (`intel_plane_pin_fb`) has to migrate it into local memory, there
+is no room, so TTM walks the LRU and evicts someone else's object out of VRAM
+into system memory — which means allocating and zeroing fresh shmem pages for
+it (`clear_page_erms`, a quarter of the whole thread) and blitting it across.
+Next frame the evicted object is wanted again and the dance repeats. That is
+the ~4 ms of `sys` per frame, and it is why nothing on the compositor side
+moved it: the render itself is 2.6 %.
+
+Why "no room" on an 8 GiB card: the BAR. i915 tries to resize BAR 2 to 8 GiB at
+probe and the firmware-sized root-port window is too small:
+
+```
+i915 0000:07:00.0: BAR 2 [mem size 0x200000000 64bit pref]: can't assign; no space
+i915 0000:07:00.0: Failed to resize BAR2 to 8192M (-ENOSPC)
+i915 0000:07:00.0: Using a reduced BAR size of 256MiB
+```
+
+On a small-BAR i915 only 256 MiB of VRAM is CPU-visible, and every object
+that is not flagged GPU-only — display framebuffers are pinned through the
+non-GPU-only path — has to be placed inside that 256 MiB
+(`i915_ttm_place_from_region` caps `lpfn` at `io_size`). A 5120x1440 swapchain
+is 3 x 29.5 MiB, the two 1080p ones add 3 x 8 MiB each, and Steam, Battle.net
+and WoW bring their own CPU-visible buffers into the same window. Without
+Steam it fits; with Steam the window is oversubscribed and the framebuffer pin
+thrashes it every frame. That is the whole pattern: only with Steam up, only
+when the ultrawide is in its full mode (PIP is 2560x1440, half the buffer),
+worse at 240 because it happens per frame, and independent of what the games
+are doing because it is their *memory*, not their frame rate.
+
+Closing Netflix (hardware decode in Brave, even on a 1080p output) dropped the
+same session from 70 % cpu / 59 % sys to 21 % / 5 % sys with Steam, WoW and
+Battle.net still up. Decode buffers are not placed "on" a monitor; VA-API
+frames are CPU-visible and share the 256 MiB window with the G9 framebuffers.
+The tab was the thing forcing a full composite every frame into a window that
+was already full. Software decode would only stop the video buffers; the pin
+and eviction above still happen at 240 Hz whenever the window overflows.
+
+Above 4G is confirmed and is not the missing piece: the window is already at
+`0x33fe0000000`. It is 256 MiB wide because the BIOS never sizes an 8 GiB
+prefetch aperture. `pci=realloc` was booted 2026-09-23 and still failed, with
+the root port itself refusing the window (`pcieport 0000:05:00.0: bridge
+window [mem size 0x200000000 64bit pref]: can't assign; no space`) because
+realloc keeps trusting the ACPI host-bridge maps, which have no 8 GiB hole.
+
+`pci=realloc,nocrs` was booted at 01:28 the same night. The kernel logged
+`PCI: Ignoring host bridge windows from ACPI` and ignored
+`mem 0x30000000000-0x33fffffffff`. Region 2 stayed 256 MiB, and i915 logged
+`Can't resize LMEM BAR - platform support is missing` instead of the ENOSPC
+line. That string is `i915_resize_lmem_bar` failing to find a 64-bit root-bus
+window above 4 GB, which `nocrs` had removed, so the resize was never
+attempted. Both parameters are dropped. The NixOS wiki's Arc userspace
+(`intel-media-driver`, `vpl-gpu-rt`, `LIBVA_DRIVER_NAME=iHD`,
+`i915.enable_guc=3`) does not size this window. An 8 GiB BAR on this BIOS has
+to be assigned from UEFI before Linux. Until then the limit is PIP, or fewer
+outputs, while hardware-decoded video is playing.
 
 ### Reading `hypr-perf`
 
@@ -676,8 +748,8 @@ systemd-cgls --user | less                    # apps under app-graphical.slice, 
 cat /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/cpuset.cpus.effective  # no 2,30
 grep Cpus_allowed_list /proc/$(pidof Xwayland)/status   # not 2,30 (core-fence.sh moved it)
 ps -eLo pid=,comm=,psr= | awk '$3==2||$3==30' | grep -v Hypr   # only kernel per-cpu threads
-hyprctl getoption render:new_render_scheduling   # int: 1 — sys% on the render thread stays single-digit
-lspci -vs 07:00.0 | grep Region               # Region 2 [size=8G] once pci=realloc has taken; 256M = small BAR
+hyprctl getoption render:new_render_scheduling   # false — on, it froze the G9 (2026-09-23)
+lspci -vs 07:00.0 | grep Region               # Region 2 is 256M until UEFI grows it; 8G means ReBAR took
 journalctl -k -b | grep -c 'reduced BAR'      # 0 after the fix
 cat /sys/power/mem_sleep                      # kernel default since 2026-09-21: s2idle [deep]
 systemctl status gpu-resume-guard gpu-boot-guard

@@ -44,14 +44,19 @@
   # cannot quietly take the firmware away and leave the card dark.
   hardware.enableRedistributableFirmware = true;
 
-  # VAAPI (iHD) and QSV for Intel Gen12+/DG2. Mesa already provides the OpenGL
-  # (iris) and Vulkan (ANV) drivers, so nothing extra is needed to render. The
-  # AMD ROCm ICDs in modules/hardware/hardware-x86.nix stay: both sets are inert
-  # when their card is absent, which is the whole point.
+  # VA-API (iHD) and QSV for Intel Gen12+/DG2, per
+  # https://wiki.nixos.org/wiki/Intel_Graphics . Mesa already provides OpenGL
+  # (iris) and Vulkan (ANV), so nothing extra is needed to render.
+  # intel-compute-runtime is the wiki's optional OpenCL / Level Zero package;
+  # it does not affect display, the compositor, or the BAR, so it stays out.
+  # The AMD ROCm ICDs in modules/hardware/hardware-x86.nix stay: both sets are
+  # inert when their card is absent, which is the whole point.
+  hardware.graphics.enable = true;
   hardware.graphics.extraPackages = with pkgs; [
     intel-media-driver
     vpl-gpu-rt
   ];
+  environment.sessionVariables.LIBVA_DRIVER_NAME = "iHD";
 
   # The generic KMS DDX instead of a card-specific one. system-services.nix pins
   # [ "amdgpu" ] for every x86 host; on this one that pin would leave Xorg with no
@@ -68,25 +73,20 @@
   # this chassis, gpu-guard.nix powers off rather than reboots, and the first
   # thing to try is `mem_sleep_default=s2idle` back in boot.kernelParams.
 
-  # ------------------------------------------------------- resizable BAR (Arc)
+  # GuC submission + HuC. DG2 already defaults this on (this machine logged
+  # "GUC: submission enabled" without the parameter); the wiki asks for it
+  # explicitly because VA-API/QSV init on Arc fails when GuC is off.
+  # https://wiki.nixos.org/wiki/Intel_Graphics
   #
-  # i915 tries to grow the Arc's VRAM aperture (BAR 2) from 256 MiB to the full
-  # 8 GiB at probe and the firmware-sized root-port window is too small for it:
-  #
-  #   i915 0000:07:00.0: BAR 2 [mem size 0x200000000 64bit pref]: can't assign; no space
-  #   i915 0000:07:00.0: Failed to resize BAR2 to 8192M (-ENOSPC)
-  #   i915 0000:07:00.0: Using a reduced BAR size of 256MiB
-  #
-  # Above-4G decoding is already on (the window sits at 0x33fe0000000); what is
-  # missing is a window big enough. pci=realloc lets the kernel reassign bridge
-  # windows instead of trusting the firmware sizes, which is the documented way
-  # to let that resize succeed. Small-BAR i915 means only 256 MiB of the 8 GiB
-  # is CPU-visible and everything the CPU touches must be migrated through it.
-  # Verify after a reboot: `lspci -vs 07:00.0` shows Region 2 [size=8G] and the
-  # three lines above are gone from `journalctl -k`. If it does not take,
-  # `pci=realloc,nocrs` is the next step. If the machine fails to boot, edit the
-  # entry in the boot menu and drop the parameter; nothing else here depends on it.
-  boot.kernelParams = [ "pci=realloc" ];
+  # Not here, on purpose: pci=realloc and pci=realloc,nocrs. Both were booted
+  # 2026-09-23 and Region 2 stayed 256 MiB. realloc reached
+  # "Failed to resize BAR2 to 8192M (-ENOSPC)" on the PCIe switch ports.
+  # realloc,nocrs ignored the Above-4G host window
+  # (mem 0x30000000000-0x33fffffffff) and i915 then bailed earlier with
+  # "Can't resize LMEM BAR - platform support is missing" — that check in
+  # i915_resize_lmem_bar requires a 64-bit root-bus window above 4 GB, which
+  # nocrs had just deleted. No NixOS graphics option resizes the BAR.
+  boot.kernelParams = [ "i915.enable_guc=3" ];
 
   # ------------------------------------------------- display bandwidth budgets
   #
