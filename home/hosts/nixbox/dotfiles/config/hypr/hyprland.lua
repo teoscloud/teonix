@@ -265,6 +265,11 @@ hl.config({
         -- A fullscreen window (Netflix, mpv, games) is scanned out straight from
         -- its own buffer; that output costs the compositor nothing while fullscreen.
         direct_scanout = true,
+        -- render:new_render_scheduling stays at its default (off). Enabled live
+        -- on 2026-09-23 it dropped the render thread from 80 % / 73 % sys to
+        -- 17 % / 3 % sys with Steam up — but the G9 picture froze while it was
+        -- on, so that number may just be the output no longer being rendered.
+        -- Do not enable without confirming the ultrawide keeps updating. GPU.md.
     },
 
     general = {

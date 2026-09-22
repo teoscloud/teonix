@@ -68,6 +68,26 @@
   # this chassis, gpu-guard.nix powers off rather than reboots, and the first
   # thing to try is `mem_sleep_default=s2idle` back in boot.kernelParams.
 
+  # ------------------------------------------------------- resizable BAR (Arc)
+  #
+  # i915 tries to grow the Arc's VRAM aperture (BAR 2) from 256 MiB to the full
+  # 8 GiB at probe and the firmware-sized root-port window is too small for it:
+  #
+  #   i915 0000:07:00.0: BAR 2 [mem size 0x200000000 64bit pref]: can't assign; no space
+  #   i915 0000:07:00.0: Failed to resize BAR2 to 8192M (-ENOSPC)
+  #   i915 0000:07:00.0: Using a reduced BAR size of 256MiB
+  #
+  # Above-4G decoding is already on (the window sits at 0x33fe0000000); what is
+  # missing is a window big enough. pci=realloc lets the kernel reassign bridge
+  # windows instead of trusting the firmware sizes, which is the documented way
+  # to let that resize succeed. Small-BAR i915 means only 256 MiB of the 8 GiB
+  # is CPU-visible and everything the CPU touches must be migrated through it.
+  # Verify after a reboot: `lspci -vs 07:00.0` shows Region 2 [size=8G] and the
+  # three lines above are gone from `journalctl -k`. If it does not take,
+  # `pci=realloc,nocrs` is the next step. If the machine fails to boot, edit the
+  # entry in the boot menu and drop the parameter; nothing else here depends on it.
+  boot.kernelParams = [ "pci=realloc" ];
+
   # ------------------------------------------------- display bandwidth budgets
   #
   # display-safe.sh reads /run/teonix/display-bandwidth.conf if it exists and this

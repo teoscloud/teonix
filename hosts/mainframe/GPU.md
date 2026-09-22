@@ -570,6 +570,69 @@ requests 240 with a 2000 budget for when you want it anyway; Super+S returns.
 The greeter was already pinned to 120. To make 240 the default again: `px=2000`
 in `gpu.nix` and `5120x1440@240` in `hyprland.lua`.
 
+### The Steam stutter was the render scheduler, not the CPUs (2026-09-23)
+
+The complaint that survived the core: the desktop is fluid until Steam is up
+(Steam, Battle.net and WoW Classic, all Xwayland), then stutters — worst at
+5120x1440@240, but present at 120 as well. With the core verified leak-free the
+render thread still looked like this with that load on screen:
+
+```
+  render thread   79.7% cpu  (user 6.5%  sys 73.2%)   183 wakeups/s   ~4.36 ms cpu per wakeup   @240
+  render thread   89.5% cpu  (user 7.5%  sys 82.0%)   186 wakeups/s   ~4.81 ms cpu per wakeup   @120
+```
+
+One wakeup per frame, and each wakeup spent ~4 ms *inside the kernel*. That is
+not compositing work (user is 7 %) and it is not the game's frame rate: pausing
+WoW (`kill -STOP`), pausing Battle.net, pausing both, a software cursor,
+`direct_scanout = false` — none of it moved the number. The drivers of that
+kernel time were the mode (5120 wide) and the presence of the Steam clients'
+buffers, not what those clients were doing.
+
+What did move it, live, three times in a row at both refresh rates:
+
+```
+  render:new_render_scheduling = false   80.3% cpu  (user 6.6%  sys 73.7%)   167 wakeups/s   ~4.81 ms
+  render:new_render_scheduling = true    17.3% cpu  (user 13.9%  sys 3.4%)  1236 wakeups/s   ~0.14 ms
+```
+
+The default scheduler (`src/output/MonitorFrameScheduler.cpp`) renders at the
+frame event and calls `commitPendingAndDoExplicitSync` immediately, with the
+GPU still working on that frame and the render fence unsignalled. The new one
+renders, hands the explicit-sync fd to the event loop, and commits only once
+the fence has fired (`onSyncFired`). Same render, same commit, different
+moment — and the 4 ms of kernel time per frame vanishes, so the wait was being
+burned in the atomic-commit path with a pending in-fence rather than slept
+through. The many small wakeups afterwards are the fence-fd readiness events;
+they cost 0.13 ms each and the thread is idle 83 % of the time at 240 Hz.
+
+The setting is on in `hyprland.lua` (`render.new_render_scheduling = true`).
+Hyprland disables it by itself while direct scanout is active (fullscreen
+game), which is exactly when the compositor is not rendering anyway, and falls
+back to frame events with a log line if explicit sync ever fails.
+
+Where the kernel time exactly goes is still unproven: Hyprland runs setcap and
+is non-dumpable, so `perf`, `strace` and even `/proc/<tid>/wchan` need root.
+A kernel-matched `perf` is built at `/tmp/perf-result`; the one-liner to settle
+it (old scheduler on, Steam up) is
+
+```
+sudo /tmp/perf-result/bin/perf record -t $(pgrep -f '(^|/)Hyprland( |$)' | head -1) -g -o /tmp/hypr.perf -- sleep 10
+sudo chown teodor /tmp/hypr.perf && /tmp/perf-result/bin/perf report -i /tmp/hypr.perf --no-children --sort sym | head -40
+```
+
+Related and also fixed in the same pass: the Arc is running with a 256 MiB BAR.
+i915 tries to resize BAR 2 to 8 GiB at probe and the root-port window is too
+small (`can't assign; no space` / `Failed to resize BAR2 to 8192M (-ENOSPC)` /
+`Using a reduced BAR size of 256MiB`). Above-4G decoding is on; the window is
+just firmware-sized. `pci=realloc` is in `gpu.nix` so the kernel reassigns the
+bridge windows itself. Check after the reboot: `lspci -vs 07:00.0` Region 2
+`[size=8G]`, those three lines gone from `journalctl -k`. Fallback
+`pci=realloc,nocrs`; if it will not boot at all, drop the parameter from the
+boot-menu entry. Small BAR means everything the CPU touches in VRAM goes
+through a 256 MiB window; it is unrelated to the scheduler finding above but
+is the wrong way to run an 8 GiB card, and games (Steam, WoW) benefit directly.
+
 ### Reading `hypr-perf`
 
 `~/.local/bin/hypr-perf [seconds] [isolated-cpus]` samples the render thread from
@@ -613,6 +676,9 @@ systemd-cgls --user | less                    # apps under app-graphical.slice, 
 cat /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/cpuset.cpus.effective  # no 2,30
 grep Cpus_allowed_list /proc/$(pidof Xwayland)/status   # not 2,30 (core-fence.sh moved it)
 ps -eLo pid=,comm=,psr= | awk '$3==2||$3==30' | grep -v Hypr   # only kernel per-cpu threads
+hyprctl getoption render:new_render_scheduling   # int: 1 — sys% on the render thread stays single-digit
+lspci -vs 07:00.0 | grep Region               # Region 2 [size=8G] once pci=realloc has taken; 256M = small BAR
+journalctl -k -b | grep -c 'reduced BAR'      # 0 after the fix
 cat /sys/power/mem_sleep                      # kernel default since 2026-09-21: s2idle [deep]
 systemctl status gpu-resume-guard gpu-boot-guard
 systemctl status teonix-gpu-profile           # which card, which budgets
