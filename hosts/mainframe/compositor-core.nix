@@ -123,6 +123,10 @@ in
   # or the user-slice cpusets below are silently ignored.
   systemd.services."user@" = {
     overrideStrategy = "asDropin";
+    # A drop-in must not carry NixOS's default unit PATH: Environment=PATH on
+    # the unit overrides the manager environment, and here it would hand every
+    # user manager a PATH of coreutils+systemd only.
+    enableDefaultPath = false;
     serviceConfig.Delegate = "pids memory cpu cpuset";
   };
 
@@ -144,6 +148,12 @@ in
   # `uwsm start Hyprland` would be wayland-wm@Hyprland.service instead).
   systemd.user.services."wayland-wm@hyprland.desktop" = {
     overrideStrategy = "asDropin";
+    # Same as above, and here it was fatal: with NixOS's default PATH injected,
+    # start-hyprland's execvp("Hyprland") found nothing and UWSM's unit failed
+    # with result 'protocol' before the compositor ever started — GDM bounced
+    # straight back to the greeter (2026-09-22). The unit must inherit the PATH
+    # UWSM's env preloader put into the user manager.
+    enableDefaultPath = false;
     serviceConfig = {
       CPUAffinity = lib.replaceStrings [ "," ] [ " " ] coreCpus;
       NUMAPolicy = "bind";

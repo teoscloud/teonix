@@ -482,6 +482,14 @@ The old `dbus-update-activation-environment` / `import-environment` /
 `nixos-fake-graphical-session.target` lines are gone: UWSM owns
 `graphical-session.target`, and Hyprland exports its own variables.
 
+Pitfall met on the first try (2026-09-22): NixOS adds its default unit PATH
+(coreutils, findutils, grep, sed, systemd) as `Environment=PATH=` to *every*
+`systemd.services`/`systemd.user.services` entry, drop-ins included. On the unit
+that overrides the manager environment UWSM's env preloader had just set up, so
+`start-hyprland`'s `execvp("Hyprland")` found nothing, the unit failed with result
+`protocol`, and GDM bounced back to the greeter. Both drop-ins in
+`compositor-core.nix` set `enableDefaultPath = false` for this reason.
+
 Short one-shot binds (`hyprctl`, `brightnessctl`, `gsettings`, `playerctl`,
 `display-safe.sh` mode switches) are still bare; they run for milliseconds and
 exit, pinned or not.
