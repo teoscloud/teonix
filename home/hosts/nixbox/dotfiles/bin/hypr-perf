@@ -56,13 +56,16 @@ while (( SECONDS < end )); do
   read -r _ _ cpu <<<"$(stat_read)"
   cpus_seen[$cpu]=$(( ${cpus_seen[$cpu]:-0} + 1 ))
   if (( iso_full )); then
-    # Every thread's last CPU (field 39). Anything on the reserved CPUs that is
-    # not Hyprland's own is an intruder.
-    while read -r tpid tcomm tcpu; do
+    # Every runnable thread's CPU (field 39). Anything on the reserved CPUs that
+    # is not Hyprland's own is an intruder. Sleeping threads are skipped: psr is
+    # only the CPU they last ran on, and after core-fence.sh moves a thread its
+    # psr keeps saying 2/30 until it next wakes — a ghost, not an intruder.
+    while read -r tpid tcomm tcpu tstat; do
       [[ -n ${iso_set[$tcpu]:-} ]] || continue
       [[ $tpid == "$pid" ]] && continue
+      [[ $tstat == R* ]] || continue
       intruders["$tcomm($tpid)"]=$(( ${intruders["$tcomm($tpid)"]:-0} + 1 ))
-    done < <(ps -eLo pid=,comm=,psr= 2>/dev/null | awk '{print $1, $2, $3}')
+    done < <(ps -eLo pid=,comm=,psr=,stat= 2>/dev/null | awk '{print $1, $2, $3, $4}')
   fi
   sleep 0.25
 done

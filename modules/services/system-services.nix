@@ -201,9 +201,10 @@
     udisks2.enable = true;
     printing.enable = true;
 
-    # hypridle: started by exec-once in hyprland.conf, not as a system service
+    # hypridle: started from hyprland.lua at session start, not as a system service
     # (system service starts at GDM before any compositor is running → errors)
-    # mkForce: hyprlock module also sets this to true; we override it
+    # mkForce: hyprlock module also sets this to true; we override it. The package
+    # itself comes from modules/apps/package-set.nix.
     hypridle.enable = lib.mkForce false;
 
     xserver = {

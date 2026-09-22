@@ -469,12 +469,20 @@ sees.
   (C1/C1E/C3 stay), and the GPU's IRQ (`i915` by name in `/proc/interrupts`, IRQ 44
   today) moved to CPU 30 so vblank / flip-done completes on the render thread's
   own sibling. The rest of the chip keeps its power management.
+- Manager default affinity: PID 1 and every user manager run with
+  `CPUAffinity=0-1,3-29,31-55` (`systemd.settings.Manager`,
+  `systemd.user.settings.Manager`), so every process they fork starts off the
+  core. The compositor unit's own `CPUAffinity=` overrides it. See "The core was
+  leaking" below for why `isolcpus` alone did not do this.
 - cgroup cpusets, so nothing else can *ever* run there even if it inherits the
   compositor's affinity: `system.slice` (daemons) and the user manager's
-  `app.slice` + `background.slice` get `AllowedCPUs=0-1,3-29,31-55`. A cpuset
-  overrides inherited affinity, which is the point. `session.slice` (compositor,
-  PipeWire) stays unrestricted. `user@.service` needs `Delegate=… cpuset` for the
-  user slices to get the controller at all; the drop-in adds it.
+  `app.slice` + `background.slice` + `user.slice` (rootless docker scopes) get
+  `AllowedCPUs=0-1,3-29,31-55`, and so does every service sharing `session.slice`
+  with the compositor (pipewire, pipewire-pulse, wireplumber, the xdg portals,
+  dbus, gvfs, at-spi). A cpuset overrides inherited affinity, which is the point.
+  `session.slice` itself stays unrestricted — the compositor is in it and a child
+  cpuset cannot exceed its parent. `user@.service` needs `Delegate=… cpuset` for
+  the user slices to get the controller at all; the drop-in adds it.
 - The compositor unit, `wayland-wm@hyprland.desktop.service` (named after the session entry UWSM is started with), gets `CPUAffinity=2 30`,
   `NUMAPolicy=bind`, `NUMAMask=0` (memory local to the GPU's socket).
 
@@ -500,9 +508,53 @@ that overrides the manager environment UWSM's env preloader had just set up, so
 `protocol`, and GDM bounced back to the greeter. Both drop-ins in
 `compositor-core.nix` set `enableDefaultPath = false` for this reason.
 
-Short one-shot binds (`hyprctl`, `brightnessctl`, `gsettings`, `playerctl`,
-`display-safe.sh` mode switches) are still bare; they run for milliseconds and
-exit, pinned or not.
+### The core was leaking (2026-09-22, later the same day)
+
+With Steam up the desktop stuttered on every window spawn and a windowed WoW fell
+to 30 fps. Not the GPU (render engine ~20% for the game, ~50% total) — the
+reserved core was full of other people's threads. `isolcpus=domain` only takes
+2,30 out of load balancing; **it does not stop a task from being placed there**,
+and once there, nothing ever moves it off. Three leaks, all measured:
+
+1. **Inheritance from the compositor.** `CPUAffinity=2 30` on the unit is
+   inherited by everything Hyprland forks. `uwsm app` children get rescued by
+   their scope's cpuset — but Xwayland, wl-copy's clipboard server and anything
+   exec'd bare stay in the compositor's cgroup, pinned to 2,30 for the session.
+   Steam is the only X11 client here, so Xwayland went from idle to presenting
+   every Steam/WoW frame from the render thread's own core the moment Steam
+   started. That is why "it began when I launched Steam".
+2. **Every bind spawn.** Hyprland forks on the render thread, then `sh -c` ->
+   `bash` -> `uwsm app` (a Python program, ~150 ms of CPU to start) all ran
+   pinned to 2,30 until `systemd-run` finally moved the app into its scope. A
+   Python interpreter booting next to the render thread, on every window.
+3. **Full-mask squatters.** Tasks with mask `0-55` forked or woken on CPU 2 stay
+   there: `pipewire-pulse` at 12% (Steam is a Pulse client), Erlang/tokio/node
+   threads from rootless-docker scopes under the user manager's `user.slice`,
+   which had no cpuset at all; `session.slice` services had none either.
+
+Fixes, one per leak, all in place now:
+
+- `hyprland.lua` `spawn()`: every `exec()`/`run()` command is prefixed with
+  `taskset -c <housekeeping>`, housekeeping being `present` minus
+  `/sys/devices/system/cpu/isolated` (computed in Lua at config load; empty on a
+  host without isolation, so commands run bare there). `taskset` execs straight
+  into the command, so only Hyprland's fork + `sh -c` still touch the core.
+  Consequence: a command is *one program + args*. `VAR=x prog`, `a && b` and
+  `a | b` are shell syntax taskset cannot exec — those binds use `env …` or
+  `sh -c '…'`.
+- `scripts/core-fence.sh` (started first in `hyprland.start`, under
+  `uwsm app -s b`): every 5 s, any thread in the compositor's cgroup that is not
+  a Hyprland thread and whose mask touches an isolated CPU is `taskset` off to
+  housekeeping. Catches Xwayland (also after a respawn), wl-copy, bare children.
+  Logs a line per move to the scope's journal
+  (`journalctl --user -t bash -g core-fence`, or `journalctl --user
+  _SYSTEMD_UNIT=app-core-fence*`).
+- Manager default affinity + the extra cpusets listed above, so nothing under
+  either manager can be forked onto or drift onto 2,30 any more. Takes effect at
+  the next login / reboot; the two script-side fixes apply on `hyprctl reload`.
+
+Check: `hypr-perf 10 2,30` must say `intruders none on cpus 2,30`, and
+`grep Cpus_allowed_list /proc/$(pidof Xwayland)/status` must not read `2,30`.
 
 ### Reading `hypr-perf`
 
@@ -545,6 +597,8 @@ cat /proc/irq/44/smp_affinity_list            # GPU irq -> 30 (number: grep i915
 cat /sys/devices/system/cpu/cpu2/cpufreq/scaling_governor   # performance
 systemd-cgls --user | less                    # apps under app-graphical.slice, not the compositor unit
 cat /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/cpuset.cpus.effective  # no 2,30
+grep Cpus_allowed_list /proc/$(pidof Xwayland)/status   # not 2,30 (core-fence.sh moved it)
+ps -eLo pid=,comm=,psr= | awk '$3==2||$3==30' | grep -v Hypr   # only kernel per-cpu threads
 cat /sys/power/mem_sleep                      # kernel default since 2026-09-21: s2idle [deep]
 systemctl status gpu-resume-guard gpu-boot-guard
 systemctl status teonix-gpu-profile           # which card, which budgets

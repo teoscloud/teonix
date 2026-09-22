@@ -285,6 +285,10 @@ lib.filter (pkg: lib.meta.availableOn unstable-pkgs.stdenv.hostPlatform pkg) (
     dconf
     hyprpaper
     hyprpicker
+    # Started from hyprland.lua at session start (services.hypridle is off so
+    # it does not run under GDM); the module being off also meant the binary was
+    # never installed, so idle lock/dpms had silently never worked (2026-09-22).
+    hypridle
 
     (withGnomeLibsecret unstable-pkgs.brave)
     (withGnomeLibsecret unstable-pkgs.chromium)

@@ -16,16 +16,22 @@
 #     cat /sys/devices/system/cpu/cpu2/topology/thread_siblings_list   -> 2,30
 #     cat /sys/devices/system/node/node0/cpulist                        -> 0-13,28-41
 #
-# Three fences, so nothing else ever runs there:
+# Fences, so nothing else ever runs there:
 #   kernel   isolcpus removes 2,30 from the scheduler domains, nohz_full/rcu_nocbs
 #            stop the tick and RCU callbacks on them, irqaffinity keeps device
-#            interrupts off them by default.
-#   cgroups  system.slice and the user app/background slices carry a cpuset that
+#            interrupts off them by default. This alone does not keep tasks off:
+#            a task forked or woken there with a full mask stays there.
+#   managers PID 1 and every user manager run with CPUAffinity=<everything but
+#            2,30>, so every process they fork starts off the core.
+#   cgroups  system.slice, the user app/background/user slices and the services
+#            sharing session.slice with the compositor carry a cpuset that
 #            excludes 2,30 — a cpuset overrides inherited affinity, so anything
 #            UWSM launches into app-graphical.slice is forced off the core even if
 #            it forked from the compositor.
 #   unit     the UWSM compositor unit (wayland-wm@hyprland.desktop.service, session.slice)
-#            is pinned to 2,30 with memory bound to node 0.
+#            is pinned to 2,30 with memory bound to node 0. Its own children
+#            (Xwayland, bind exec chains) are moved off by hyprland.lua's spawn()
+#            and scripts/core-fence.sh.
 #
 # Requires the "Hyprland (UWSM)" session (programs.hyprland.withUWSM in
 # modules/apps/programs.nix): only then is the compositor a systemd unit this can
@@ -113,6 +119,17 @@ in
   # Firmware may reset governor / C-state masks across S3/S4; re-apply.
   powerManagement.resumeCommands = "${reserveCore}";
 
+  # isolcpus=domain is NOT a fence. It only takes 2,30 out of load balancing;
+  # a task whose mask still covers them can be forked or woken onto the core and
+  # then nothing ever moves it off again. Observed 2026-09-22 with Steam up:
+  # pipewire-pulse at 12% plus Erlang/tokio/node threads from rootless-docker
+  # scopes parked on cpu2 next to the render thread. So: every manager (PID 1
+  # and each user manager) gets a default affinity that excludes the core, and
+  # every process they fork inherits it. Only the compositor unit below opts
+  # back in with its own CPUAffinity= (unit setting overrides the default).
+  systemd.settings.Manager.CPUAffinity = otherCpus;
+  systemd.user.settings.Manager.CPUAffinity = otherCpus;
+
   # Daemons off the core.
   systemd.slices.system = {
     overrideStrategy = "asDropin";
@@ -140,24 +157,59 @@ in
     overrideStrategy = "asDropin";
     sliceConfig.AllowedCPUs = otherCpus;
   };
-
-  # The compositor itself. The NixOS session entry runs
-  # `uwsm start -e -D Hyprland hyprland.desktop`, and UWSM names the unit after
-  # its main argument: wayland-wm@hyprland.desktop.service (see
-  # /run/current-system/sw/share/wayland-sessions/hyprland-uwsm.desktop; a hand
-  # `uwsm start Hyprland` would be wayland-wm@Hyprland.service instead).
-  systemd.user.services."wayland-wm@hyprland.desktop" = {
+  # Rootless docker puts its container scopes under the user manager's
+  # user.slice (not app/background), so it had no cpuset at all.
+  systemd.user.slices.user = {
     overrideStrategy = "asDropin";
-    # Same as above, and here it was fatal: with NixOS's default PATH injected,
-    # start-hyprland's execvp("Hyprland") found nothing and UWSM's unit failed
-    # with result 'protocol' before the compositor ever started — GDM bounced
-    # straight back to the greeter (2026-09-22). The unit must inherit the PATH
-    # UWSM's env preloader put into the user manager.
+    sliceConfig.AllowedCPUs = otherCpus;
+  };
+
+  # session.slice itself must stay unrestricted (the compositor lives in it and
+  # a child cpuset cannot exceed its parent), so the fence goes on each service
+  # that shares the slice with it. cpusets are the hard layer: affinity is
+  # inherited and can be changed by the process, a cpuset cannot be escaped.
+  # enableDefaultPath = false on every drop-in: see user@ above — an injected
+  # Environment=PATH would replace the manager PATH for PipeWire, the portals...
+  systemd.user.services = lib.genAttrs [
+    "pipewire"
+    "pipewire-pulse"
+    "wireplumber"
+    "xdg-desktop-portal"
+    "xdg-desktop-portal-hyprland"
+    "xdg-document-portal"
+    "xdg-permission-store"
+    "dbus"
+    "gvfs-daemon"
+    "at-spi-dbus-bus"
+  ] (_: {
+    overrideStrategy = "asDropin";
     enableDefaultPath = false;
-    serviceConfig = {
-      CPUAffinity = lib.replaceStrings [ "," ] [ " " ] coreCpus;
-      NUMAPolicy = "bind";
-      NUMAMask = gpuNode;
+    serviceConfig.AllowedCPUs = otherCpus;
+  }) // {
+    # The compositor itself. The NixOS session entry runs
+    # `uwsm start -e -D Hyprland hyprland.desktop`, and UWSM names the unit after
+    # its main argument: wayland-wm@hyprland.desktop.service (see
+    # /run/current-system/sw/share/wayland-sessions/hyprland-uwsm.desktop; a hand
+    # `uwsm start Hyprland` would be wayland-wm@Hyprland.service instead).
+    #
+    # Children inherit this pin. Apps go through `uwsm app --`, whose scope's
+    # cpuset (app/background slice above) overrides it; what stays in this unit
+    # — Xwayland, wl-copy, the sh/bash/python chain of every bind before it
+    # reaches its scope — is handled by hyprland.lua's spawn() taskset prefix
+    # and scripts/core-fence.sh.
+    "wayland-wm@hyprland.desktop" = {
+      overrideStrategy = "asDropin";
+      # Same as above, and here it was fatal: with NixOS's default PATH injected,
+      # start-hyprland's execvp("Hyprland") found nothing and UWSM's unit failed
+      # with result 'protocol' before the compositor ever started — GDM bounced
+      # straight back to the greeter (2026-09-22). The unit must inherit the PATH
+      # UWSM's env preloader put into the user manager.
+      enableDefaultPath = false;
+      serviceConfig = {
+        CPUAffinity = lib.replaceStrings [ "," ] [ " " ] coreCpus;
+        NUMAPolicy = "bind";
+        NUMAMask = gpuNode;
+      };
     };
   };
 }

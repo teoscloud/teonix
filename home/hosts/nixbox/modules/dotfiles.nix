@@ -68,6 +68,12 @@ in {
     source = "${dotfilesPath}/config/hypr/scripts/scroll-columns.py";
     executable = true;
   };
+  # Moves Xwayland and other compositor children off the reserved core
+  # (hosts/mainframe/compositor-core.nix); exits at once without isolated CPUs.
+  home.file.".config/hypr/scripts/core-fence.sh" = {
+    source = "${dotfilesPath}/config/hypr/scripts/core-fence.sh";
+    executable = true;
+  };
 
   home.file.".config/hypr/scripts/main-monitor.sh" = {
     source = "${dotfilesPath}/config/hypr/scripts/main-monitor.sh";
