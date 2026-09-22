@@ -556,6 +556,20 @@ Fixes, one per leak, all in place now:
 Check: `hypr-perf 10 2,30` must say `intruders none on cpus 2,30`, and
 `grep Cpus_allowed_list /proc/$(pidof Xwayland)/status` must not read `2,30`.
 
+### 120 Hz is the everyday mode (2026-09-22, evening)
+
+With the core sealed and nothing else on it, the cursor still did not feel fully
+smooth at 5120x1440@240. Measured while the mouse moved (1000 Hz mouse, ~400-1000
+reports/s): render thread **88% cpu, 81% of it sys, ~4 ms per wakeup** — the
+thread spends whole frames inside i915, in the commit path of the two-pipe
+bigjoiner mode. Idle it is ~19%. That is a driver cost, not something the
+compositor or the core can fix, so the Arc's budget in `gpu.nix` is now
+`px=900`: single-pipe modes only, i.e. 5120x1440@120 (Super+S, the startup mode
+in `hyprland.lua`, `follow` after PIP) or 2560x1440@240 (Super+D). Super+Ctrl+S
+requests 240 with a 2000 budget for when you want it anyway; Super+S returns.
+The greeter was already pinned to 120. To make 240 the default again: `px=2000`
+in `gpu.nix` and `5120x1440@240` in `hyprland.lua`.
+
 ### Reading `hypr-perf`
 
 `~/.local/bin/hypr-perf [seconds] [isolated-cpus]` samples the render thread from

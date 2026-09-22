@@ -145,11 +145,17 @@
           # the S27 in DP-4 held pipe C, every 240 modeset failed EINVAL in
           # Hyprland, and the 240 that GDM/GNOME did manage that day (pipe
           # pairing unknown) came out as a magnified top-left quarter. Cabling
-          # is therefore part of the config: see the greeter layout below. If
-          # 240 ever misbehaves again, 900 is the value that admits only the
-          # single-pipe modes (5120x1440@120 ~885, 2560x1440@240 ~885).
+          # is therefore part of the config: see the greeter layout below.
+          #
+          # 2026-09-22: budget set to 900 on purpose, which admits only the
+          # single-pipe modes (5120x1440@120 ~885, 2560x1440@240 ~885) and bans
+          # the two-pipe 240. Measured with the mouse moving: the render thread
+          # sat at 88% cpu, 81% of it *sys*, ~4 ms per wakeup — the i915 commit
+          # path for the bigjoiner mode is where the time goes, and the cursor
+          # never felt fully smooth. 120 is the everyday mode; 2000 brings 240
+          # back (Super+S then picks it again).
           cap=240
-          px=2000
+          px=900
           ;;
         10de:*)
           name="NVIDIA device $id"

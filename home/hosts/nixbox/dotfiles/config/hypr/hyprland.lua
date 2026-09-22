@@ -89,17 +89,16 @@ local function run(cmd) return hl.dsp.exec_cmd(spawn(cmd)) end
 -- mainframe: what the G9 may be driven at depends on the fitted card, so the limits
 -- are not in here. teonix-gpu-profile writes TEONIX_MAX_PIXEL_RATE_MPS and
 -- TEONIX_MAX_REFRESH_MULTI_OUTPUT per boot and display-safe.sh enforces them.
--- Arc A750 (i915 6.18): 5120x1440@240 is the startup mode below — the panel's
--- own preferred mode, no EDID override. It needs two display pipes ("bigjoiner"),
--- which only works when the G9 is in the card's LAST DisplayPort connector so the
--- next pipe is free (verified clean 2026-09-21 with the two 1080p outputs lit;
--- see hosts/mainframe/gpu.nix for why cabling is part of the config). If it ever
--- comes up as a magnified top-left quarter or fails to light, Super+Ctrl+S drops
--- to the single-pipe 5120x1440@120 and works blind. See hosts/mainframe/GPU.md.
+-- Arc A750 (i915 6.18): 5120x1440@120 is the everyday mode below (2026-09-22),
+-- single pipe, no EDID override. The panel's 240 works too, but needs two
+-- display pipes ("bigjoiner") and its commit path kept the render thread ~88%
+-- busy in the kernel while the mouse moved — never quite smooth. gpu.nix caps
+-- the Arc's budget at 900 Mpx/s so display-safe.sh never picks 240 either;
+-- raise it to 2000 there and set 240 here to go back. See hosts/mainframe/GPU.md.
 --
 -- Changing the primary display means updating the G9 prefix above and the
 -- workspace rules below.
-hl.monitor({ output = G9, mode = "5120x1440@240", position = "0x0", scale = 1, bitdepth = 8 })
+hl.monitor({ output = G9, mode = "5120x1440@120", position = "0x0", scale = 1, bitdepth = 8 })
 -- Samsung 27" stays ABOVE the G9 (top-right corner). ASUS sits to the RIGHT of
 -- the G9, bottom edges flush — Super+Esc toggles main between those two. Positions
 -- match the 5120-wide full-mode default; when the G9's width changes they are
@@ -399,21 +398,21 @@ hl.bind(key(MS, "L"), run(scripts .. "/audio-transmit-toggle.sh ssh"))
 -- Display modes. No connector names here on purpose: display-safe.sh discovers the
 -- outputs, picks the primary by pixel count and verifies every modeset against
 -- sysfs, so any panel works in any DP/HDMI port. Banned modes (over the pixel-rate
--- budget, e.g. 5120x1440@240 on the Arc, 5120x1440@120 on the RX 580) are never
--- requested by any of these. See hosts/mainframe/GPU.md.
+-- budget, e.g. 5120x1440@240 on the Arc at the default 900, 5120x1440@120 on the
+-- RX 580) are never requested by any of these. See hosts/mainframe/GPU.md.
 --
 --   Super+S        ultrawide: primary at its largest allowed mode at its fastest
---                  refresh (Arc: 5120x1440@240, the default; RX 580: 5120x1440@60),
---                  all other outputs stay on. Reverts itself if it goes dark.
---   Super+Ctrl+S   single-pipe fallback: the same, under a 900 Mpx/s budget passed
---                  in the environment (display-safe.sh honours the override), which
---                  admits only one-pipe modes -> 5120x1440@120 on the Arc. For when
---                  the two-pipe 240 comes up wrong; works blind.
---   Super+D        high refresh: primary at its fastest allowed mode (Arc: also
---                  5120x1440@240 now — same as Super+S; RX 580: 2560x1440@120).
+--                  refresh under the boot budget (Arc, 900 Mpx/s: 5120x1440@120,
+--                  the default; RX 580: 5120x1440@60), all other outputs stay on.
+--                  Reverts itself if it goes dark.
+--   Super+Ctrl+S   the two-pipe 240 on request: same, under a 2000 Mpx/s budget
+--                  passed in the environment (display-safe.sh honours the
+--                  override) -> 5120x1440@240 on the Arc. Super+S goes back.
+--   Super+D        high refresh: primary at its fastest allowed mode (Arc:
+--                  2560x1440@240, single pipe; RX 580: 2560x1440@120).
 --   Super+Shift+D  panic button: collapse to one known-good output.
 hl.bind(key(M, "S"), run(displaySafe .. " ultrawide"))
-hl.bind(key(MC, "S"), run("env TEONIX_MAX_PIXEL_RATE_MPS=900 " .. displaySafe .. " ultrawide"))
+hl.bind(key(MC, "S"), run("env TEONIX_MAX_PIXEL_RATE_MPS=2000 " .. displaySafe .. " ultrawide"))
 hl.bind(key(M, "D"), run(displaySafe .. " highrefresh"))
 hl.bind(key(MS, "D"), run(displaySafe .. " safe"))
 
