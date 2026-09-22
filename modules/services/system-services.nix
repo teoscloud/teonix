@@ -29,11 +29,16 @@
     # No defaultSession on purpose: with it set, the NixOS GDM module runs
     # `set-session <default>` in display-manager's preStart, which overwrites
     # every user's AccountsService session record before each greeter start
-    # ("basically ignore session history", per the module). Left unset, GDM
+    # ("basically ignore session history", per the module). With it null, GDM
     # remembers whatever each user picked last, so a Hyprland (UWSM) login
-    # stays the default login.
+    # stays the default login. Forced to null, not merely unset: the plasma6
+    # module sets `defaultSession = mkDefault "plasma"`, which is why dropping
+    # our "gnome" only moved the forced pick to Plasma (2026-09-22). Priority 60
+    # beats that mkDefault (1000) but still yields to a host's mkForce (50) —
+    # applenix pins "hyprland".
     displayManager = {
       gdm.enable = true;
+      defaultSession = lib.mkOverride 60 null;
     };
 
     # Desktop Managers - KDE Plasma 6 + GNOME (Hyprland is via programs.hyprland)
