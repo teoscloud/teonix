@@ -48,6 +48,15 @@ def option_int(name):
     return int(g.group(1)) if g else 0
 
 
+def option_bool(name):
+    # "bool: true" (Lua config) or "int: 1" (legacy). Unknown -> True: never
+    # leave animations switched off because the reply could not be parsed.
+    out = (hyprctl("getoption", name) or "").lower()
+    if "false" in out or re.search(r":\s*0\b", out):
+        return False
+    return True
+
+
 def primary_info(name):
     for m in hj("monitors") or []:
         if m["name"] == name:
@@ -139,17 +148,19 @@ def rescale(primary):
         have = (c["px"] + g) / usable
         if abs(want - have) < 0.004:
             continue
-        steps.append("dispatch focuswindow address:%s" % c["addr"])
-        steps.append("dispatch layoutmsg colresize %.4f" % want)
+        steps.append('hl.dispatch(hl.dsp.focus({ window = "address:%s" }))' % c["addr"])
+        steps.append('hl.dispatch(hl.dsp.layout("colresize %.4f"))' % want)
 
     if steps:
-        anim = option_int("animations:enabled")
-        batch = ["keyword animations:enabled 0", *steps,
-                 "dispatch workspace %d" % active_ws]
+        # One Lua chunk (hyprland.lua config: no `hyprctl keyword`, and
+        # `hyprctl dispatch` takes hl.dsp.* calls). Animations off for the batch.
+        anim = "true" if option_bool("animations:enabled") else "false"
+        chunk = ["hl.config({ animations = { enabled = false } })", *steps,
+                 "hl.dispatch(hl.dsp.focus({ workspace = %d }))" % active_ws]
         if active_addr and active_addr != "0x0":
-            batch.append("dispatch focuswindow address:%s" % active_addr)
-        batch.append("keyword animations:enabled %d" % anim)
-        hyprctl("--batch", " ; ".join(batch))
+            chunk.append('hl.dispatch(hl.dsp.focus({ window = "address:%s" }))' % active_addr)
+        chunk.append("hl.config({ animations = { enabled = %s } })" % anim)
+        hyprctl("eval", "\n".join(chunk))
         print("scroll-columns: resized %d column(s) for usable width %d"
               % (len(steps) // 2, usable), file=sys.stderr)
 

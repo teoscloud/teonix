@@ -64,7 +64,7 @@ CAP="${_env_cap:-${TEONIX_MAX_REFRESH_MULTI_OUTPUT:-}}"
 PXRATE="${_env_px:-${TEONIX_MAX_PIXEL_RATE_MPS:-}}"
 # Secondaries never run above this, whatever the GPU could afford: every Hz on
 # any output is one more full compositor pass per second on Hyprland's single
-# render thread (the ASUS VG245 advertises 75; 60 matches hyprland.conf). Not a
+# render thread (the ASUS VG245 advertises 75; 60 matches hyprland.lua). Not a
 # bandwidth limit, a compositor budget. Empty disables it.
 SEC_CAP="${TEONIX_SECONDARY_REFRESH_CAP-60}"
 
@@ -72,6 +72,28 @@ log() { printf 'display-safe: %s\n' "$*" >&2; }
 
 have_hypr() { hyprctl monitors -j >/dev/null 2>&1; }
 monitors_json() { hyprctl monitors -j 2>/dev/null; }
+
+# Hyprland's Lua config (0.55+) has no `hyprctl keyword`; monitor rules are set
+# with `hyprctl eval 'hl.monitor({...})'`, which merges into the existing rule
+# for that output and applies it. Same one-line rule strings as before:
+#   hypr_monitor 'SEL,MODE,POS[,SCALE[,bitdepth,N]]'   |   hypr_monitor 'SEL,disable'
+lua_str() { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; printf '"%s"' "$s"; }
+hypr_monitor() {
+  local -a f
+  IFS=, read -ra f <<< "$1"
+  local sel="${f[0]}" lua
+  if [ "${f[1]:-}" = "disable" ]; then
+    lua="hl.monitor({ output = $(lua_str "$sel"), disabled = true })"
+  else
+    lua="hl.monitor({ output = $(lua_str "$sel"), disabled = false"
+    lua+=", mode = $(lua_str "${f[1]:-preferred}")"
+    lua+=", position = $(lua_str "${f[2]:-auto}")"
+    lua+=", scale = ${f[3]:-1}"
+    [ "${f[4]:-}" = "bitdepth" ] && lua+=", bitdepth = ${f[5]:-8}"
+    lua+=" })"
+  fi
+  hyprctl eval "$lua" >/dev/null 2>&1
+}
 
 # ---------------------------------------------------------------- sysfs truth
 
@@ -254,11 +276,11 @@ cmd_safe() {
   while read -r n; do
     [ -z "$n" ] && continue
     [ "$n" = "$primary" ] && continue
-    hyprctl keyword monitor "$n,disable" >/dev/null 2>&1
+    hypr_monitor "$n,disable"
   done < <(all_names)
   sleep 1
 
-  hyprctl keyword monitor "$primary,$mode,0x0,1" >/dev/null 2>&1
+  hypr_monitor "$primary,$mode,0x0,1"
   sleep 1
 
   if [ "$(sysfs_enabled "$primary")" = "enabled" ]; then
@@ -267,7 +289,7 @@ cmd_safe() {
   fi
 
   log "WARNING: $primary did not commit at $mode; retrying at preferred"
-  hyprctl keyword monitor "$primary,preferred,0x0,1" >/dev/null 2>&1
+  hypr_monitor "$primary,preferred,0x0,1"
   sleep 1
   if [ "$(sysfs_enabled "$primary")" = "enabled" ]; then
     log "ok: $primary is enabled at preferred"
@@ -279,7 +301,7 @@ cmd_safe() {
   return 1
 }
 
-# Secondary placement. One output (EDID prefix, same as hyprland.conf) sits to
+# Secondary placement. One output (EDID prefix, same as hyprland.lua) sits to
 # the RIGHT of the primary, bottom edges flush. Everyone else sits ABOVE, bottom
 # edges flush with the primary's top, packed right-to-left from the primary's
 # right edge. On this desk that is ASUS VG245 beside the G9 and Samsung S27E590
@@ -420,7 +442,7 @@ apply_multi() {
   mode="$(best_mode "$primary" "" "$key")"
   log "$label: $primary at $mode; ASUS to the right, remaining outputs above"
 
-  # Hyprland re-validates the layout after every single `keyword monitor`, and a
+  # Hyprland re-validates the layout after every single monitor rule change, and a
   # transient overlap earns a sticky "Monitor DP-2 overlaps with other monitors"
   # banner. So order the steps so that no intermediate layout overlaps: when the
   # primary GROWS (2560 -> 5120 wide) the secondaries are anchored to the new,
@@ -437,15 +459,15 @@ apply_multi() {
   place_secondaries() {
     while IFS= read -r line; do
       [ -z "$line" ] && continue
-      hyprctl keyword monitor "$line,1,bitdepth,8" >/dev/null 2>&1
+      hypr_monitor "$line,1,bitdepth,8"
     done <<< "$secondaries"
   }
 
   if [ "$new_w" -gt "$old_w" ]; then
     place_secondaries
-    hyprctl keyword monitor "$primary,$mode,0x0,1,bitdepth,8" >/dev/null 2>&1
+    hypr_monitor "$primary,$mode,0x0,1,bitdepth,8"
   else
-    hyprctl keyword monitor "$primary,$mode,0x0,1,bitdepth,8" >/dev/null 2>&1
+    hypr_monitor "$primary,$mode,0x0,1,bitdepth,8"
     place_secondaries
   fi
 
@@ -566,10 +588,10 @@ follow_reanchor() {
   mode="$(current_mode "$primary")"
   log "follow: secondaries off their anchors for $primary at $mode; re-placing"
   # Same mode, so this is a move at most, never a modeset.
-  hyprctl keyword monitor "$primary,$mode,0x0,1,bitdepth,8" >/dev/null 2>&1
+  hypr_monitor "$primary,$mode,0x0,1,bitdepth,8"
   while IFS= read -r line; do
     [ -z "$line" ] && continue
-    hyprctl keyword monitor "$line,1,bitdepth,8" >/dev/null 2>&1
+    hypr_monitor "$line,1,bitdepth,8"
   done < <(plan_secondaries "$primary" "$mode")
 }
 
@@ -597,7 +619,7 @@ follow_tick() {
 # disconnect + reconnect with a *different EDID* (2-block, tops out at
 # 2560x1440@120), so Hyprland's config pin (5120x1440@240) no longer exists and it
 # falls back to the panel's preferred mode — but the secondaries keep their
-# 5120-wide anchors from hyprland.conf and end up floating 2560 px away, with no
+# 5120-wide anchors from hyprland.lua and end up floating 2560 px away, with no
 # edge to drag the cursor across. Listen on Hyprland's event socket, and after
 # every monitoradded burst re-run the ultrawide placement (best advertised mode
 # for the primary, secondaries re-anchored to its real width). PIP -> full is
@@ -668,7 +690,7 @@ cmd_restore() {
   # Re-apply by description, so a panel that moved ports still gets its layout.
   while read -r rule; do
     [ -z "$rule" ] && continue
-    hyprctl keyword monitor "$rule" >/dev/null 2>&1
+    hypr_monitor "$rule"
   done < <(python3 - "$SAVED" <<'PY'
 import json, sys
 try:

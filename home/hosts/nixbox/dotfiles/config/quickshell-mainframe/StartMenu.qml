@@ -225,7 +225,7 @@ Scope {
                         Repeater {
                             model: [
                                 { label: "Lock", danger: false, argv: ["hyprlock"] },
-                                { label: "Exit", danger: false, argv: ["hyprctl", "dispatch", "exit"] },
+                                { label: "Exit", danger: false, argv: ["hyprctl", "dispatch", "hl.dsp.exit()"] },
                                 { label: "Sleep", danger: false, argv: ["systemctl", "suspend"] },
                                 { label: "Reboot", danger: true, argv: ["systemctl", "reboot"] },
                                 { label: "Shutdown", danger: true, argv: ["systemctl", "poweroff"] }

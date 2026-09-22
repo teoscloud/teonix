@@ -104,7 +104,7 @@ IPC: `qs ipc call theme toggle` / `qs ipc call theme set dark`
 
 - `../../hypr/mainframe-decoration.conf` — `rounding = 0`, popin 55%, no soft shadow/blur
 - `../../hypr/glass-decoration.conf` — restore glass rounding
-- Applied via `qsmainframe` / `qsglass` (`hyprctl keyword`)
+- Applied via `qsmainframe` / `qsglass` (`hyprctl eval`, Lua config)
 
 Stock Hyprland has no chamfer API. Mainframe forces square corners + angular borders (paper-fold dog-ears as border-region marks if a plugin is added later).
 

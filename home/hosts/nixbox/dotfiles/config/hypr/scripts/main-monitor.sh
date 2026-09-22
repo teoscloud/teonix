@@ -26,7 +26,7 @@ STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/teonix-display"
 CUR_FILE="$STATE_DIR/main-monitor"
 PREV_FILE="$STATE_DIR/main-monitor.prev"
 QS_IPC="$HOME/.config/quickshell/scripts/qs-live-ipc.sh"
-# Super+Esc pair: EDID prefix, same string as hyprland.conf / display-safe.sh.
+# Super+Esc pair: EDID prefix, same string as hyprland.lua / display-safe.sh.
 # Not a connector name — any port.
 TOGGLE_PARTNER="${TEONIX_MAIN_TOGGLE_PARTNER:-ASUSTek COMPUTER INC VG245}"
 
@@ -203,13 +203,14 @@ make_main() {
   # main, then move the ones that already exist.
   while IFS=$'\t' read -r ws isdef; do
     [ -z "$ws" ] && continue
-    rule="$ws, monitor:$rule_monitor"
-    [ "$isdef" = "1" ] && rule="$rule, default:true"
-    hyprctl keyword workspace "$rule" >/dev/null 2>&1
+    # Lua config: rules and dispatchers go through `hyprctl eval`.
+    rule="hl.workspace_rule({ workspace = \"$ws\", monitor = \"$rule_monitor\""
+    [ "$isdef" = "1" ] && rule="$rule, default = true"
+    hyprctl eval "$rule })" >/dev/null 2>&1
 
     for id in "${existing[@]}"; do
       if [ "$id" = "$ws" ]; then
-        hyprctl dispatch moveworkspacetomonitor "$ws" "$target" >/dev/null 2>&1
+        hyprctl eval "hl.dispatch(hl.dsp.workspace.move({ workspace = \"$ws\", monitor = \"$target\" }))" >/dev/null 2>&1
         moved=$((moved + 1))
         break
       fi
@@ -226,7 +227,7 @@ make_main() {
       || log "could not reach quickshell; bar will follow on its next start"
   fi
 
-  hyprctl dispatch focusmonitor "$target" >/dev/null 2>&1
+  hyprctl eval "hl.dispatch(hl.dsp.focus({ monitor = \"$target\" }))" >/dev/null 2>&1
   log "main is now $target${desc:+ ($desc)}, $moved workspace(s) moved from $source"
 }
 

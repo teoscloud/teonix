@@ -10,7 +10,7 @@ case "$dir" in
   *) printf 'focus-column: expected l or r\n' >&2; exit 1 ;;
 esac
 
-hyprctl dispatch layoutmsg "focus $dir" >/dev/null 2>&1 || exit 1
+hyprctl eval "hl.dispatch(hl.dsp.layout(\"focus $dir\"))" >/dev/null 2>&1 || exit 1
 
 at="" size=""
 while IFS= read -r line; do
@@ -30,4 +30,4 @@ ah="${size#*,}"
 
 cx=$((${at%%,*} + aw / 2))
 cy=$((${at#*,} + ah / 2))
-hyprctl dispatch -- movecursor "$cx" "$cy" >/dev/null 2>&1
+hyprctl eval "hl.dispatch(hl.dsp.cursor.move({ x = $cx, y = $cy }))" >/dev/null 2>&1

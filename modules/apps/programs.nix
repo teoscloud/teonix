@@ -13,7 +13,7 @@
       # every launched app in its own scope under app-graphical.slice. Mainframe's
       # compositor-core.nix pins and fences by those unit names; elsewhere it is
       # just a cleaner systemd session. UWSM owns graphical-session.target, so the
-      # hand-rolled dbus/import-environment lines in hyprland.conf are gone.
+      # hand-rolled dbus/import-environment lines in hyprland.lua are gone.
       withUWSM = true;
     };
 

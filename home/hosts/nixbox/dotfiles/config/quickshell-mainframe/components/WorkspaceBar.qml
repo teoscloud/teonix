@@ -47,7 +47,7 @@ Item {
         if (idx < 0)
             idx = 0;
         const next = ids[(idx + delta + ids.length * 8) % ids.length];
-        Hyprland.dispatch("workspace " + next);
+        Hyprland.dispatch("hl.dsp.focus({ workspace = " + next + " })");
     }
 
     Rectangle {
@@ -120,7 +120,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: Hyprland.dispatch("workspace " + wsId)
+                        onClicked: Hyprland.dispatch("hl.dsp.focus({ workspace = " + wsId + " })")
                         onWheel: event => {
                             if (event.angleDelta.y > 0)
                                 root.switchRelative(1);

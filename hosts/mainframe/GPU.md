@@ -305,11 +305,21 @@ destroyed again the moment that output gets a real workspace.
 so they run for **every** suspend, not just idle-triggered ones. That means the
 resume modeset is always the least demanding one possible.
 
-Monitors in `hyprland.conf` are matched by EDID description prefix (`desc:`), with
+Monitors in `hyprland.lua` are matched by EDID description prefix (`desc:`), with
 an empty-name catch-all last so any unknown panel in any port still gets a sane
 mode. The serial is deliberately omitted from the prefix: some panels report a
 different serial per port — the S27E590 gives `HTQGA01931` on DP but `0x304D4645`
 on HDMI. Get a prefix with `hyprctl monitors` and drop the trailing serial.
+
+The config is Lua (`hyprland.lua`, Hyprland ≥ 0.55; hyprlang `.conf` is gone in
+0.57). With the Lua manager `hyprctl keyword` does not exist and `hyprctl dispatch`
+takes `hl.dsp.*` calls, so every script here drives Hyprland through
+`hyprctl eval 'hl.monitor({...})'` / `hl.dispatch(...)` / `hl.config({...})`
+(display-safe.sh's `hypr_monitor` wraps the monitor rule; main-monitor.sh,
+focus-column.sh, cyclemon.sh, scroll-columns.py, qs-live-ipc.sh, qsmainframe.sh,
+qsglass.sh and the Quickshell QML were ported the same day, 2026-09-22).
+`hl.monitor` merges into the existing rule for that output, so a re-enable must
+pass `disabled = false` explicitly — the helper always does.
 
 ## Swapping the GPU
 
@@ -430,7 +440,7 @@ visibly stutters, which is what a 240 Hz panel makes obvious.
 Make that one thread never wait for anything, and stop rendering frames nobody
 sees.
 
-**Frames** (`hyprland.conf`, live via `hyprctl reload`):
+**Frames** (`hyprland.lua`, live via `hyprctl reload`):
 
 - ASUS VG245 pinned to `1920x1080@60` instead of `preferred` (75). 15 passes/s
   for a side panel. `display-safe.sh` enforces the same for every secondary via
@@ -473,7 +483,7 @@ sees.
 The pin lives on a systemd unit, so Hyprland must *be* one: pick **"Hyprland
 (UWSM)"** in GDM (`programs.hyprland.withUWSM` in `modules/apps/programs.nix`;
 plain "Hyprland" is still installed). Under UWSM the compositor runs in
-`session.slice`, and `hyprland.conf` launches every long-lived child through
+`session.slice`, and `hyprland.lua` launches every long-lived child through
 `uwsm app --` (`-s b` for background daemons), which hands it to `systemd-run` as
 its own scope under `app-graphical.slice`/`background-graphical.slice` — the
 restricted cpusets — instead of leaving it a child of the compositor stuck on CPUs

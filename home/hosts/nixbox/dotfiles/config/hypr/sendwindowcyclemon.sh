@@ -35,4 +35,4 @@ echo "Switching to monitor: $next_monitor, workspace: $next_workspace"
 
 
 # Move the window to the next workspace using the correct syntax
-hyprctl dispatch movetoworkspace "$next_workspace,address:$current_window"
+hyprctl eval "hl.dispatch(hl.dsp.window.move({ workspace = \"$next_workspace\", window = \"address:$current_window\" }))"

@@ -8,18 +8,19 @@ GLASS="$HOME/teonix/home/hosts/nixbox/dotfiles/config/quickshell"
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell"
 SELF="$MF/scripts/qs-live-ipc.sh"
 
-# Runtime rebind: live hyprland.conf is a Home Manager store symlink until updatehome.
+# Runtime rebind: live hyprland.lua is a Home Manager store symlink until updatehome.
 if [[ "${1:-}" == "--install-binds" ]]; then
   command -v hyprctl >/dev/null || exit 0
   ipc="bash $SELF"
-  hyprctl keyword unbind 'SUPER, SPACE' >/dev/null 2>&1 || true
-  hyprctl keyword unbind 'SUPER, period' >/dev/null 2>&1 || true
-  hyprctl keyword unbind 'SUPER, O' >/dev/null 2>&1 || true
-  hyprctl keyword unbind 'SUPER, N' >/dev/null 2>&1 || true
-  hyprctl keyword bind "SUPER, SPACE, exec, $ipc launcher toggle" >/dev/null
-  hyprctl keyword bind "SUPER, period, exec, $ipc emoji toggle" >/dev/null
-  hyprctl keyword bind "SUPER, O, exec, $ipc power toggle" >/dev/null
-  hyprctl keyword bind "SUPER, N, exec, $ipc notifs toggle" >/dev/null
+  # Lua config: binds are (re)registered through `hyprctl eval`. Key strings
+  # must match hyprland.lua exactly for hl.unbind to hit.
+  hyprctl eval "
+    hl.unbind('SUPER + SPACE') hl.unbind('SUPER + period') hl.unbind('SUPER + O') hl.unbind('SUPER + N')
+    hl.bind('SUPER + SPACE', hl.dsp.exec_cmd('$ipc launcher toggle'))
+    hl.bind('SUPER + period', hl.dsp.exec_cmd('$ipc emoji toggle'))
+    hl.bind('SUPER + O', hl.dsp.exec_cmd('$ipc power toggle'))
+    hl.bind('SUPER + N', hl.dsp.exec_cmd('$ipc notifs toggle'))
+  " >/dev/null
   exit 0
 fi
 

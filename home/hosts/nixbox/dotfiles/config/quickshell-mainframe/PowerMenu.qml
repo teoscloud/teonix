@@ -57,7 +57,7 @@ Scope {
                         icon: "EXIT"
                         onActivate: {
                             Globals.powerMenuOpen = false
-                            run.command = ["hyprctl", "dispatch", "exit"]
+                            run.command = ["hyprctl", "dispatch", "hl.dsp.exit()"]
                             run.running = true
                         }
                     }

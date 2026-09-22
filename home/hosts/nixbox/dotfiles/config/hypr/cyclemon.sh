@@ -33,9 +33,9 @@ rm -f "$f"
 
 [ -n "${name:-}" ] || exit 1
 
-hyprctl dispatch focusmonitor "$name" >/dev/null 2>&1
+# Lua config: dispatchers go through `hyprctl eval`.
+hyprctl eval "hl.dispatch(hl.dsp.focus({ monitor = \"$name\" }))" >/dev/null 2>&1
 if [ -n "$ws" ]; then
-  hyprctl dispatch workspace "$ws" >/dev/null 2>&1
+  hyprctl eval "hl.dispatch(hl.dsp.focus({ workspace = \"$ws\" }))" >/dev/null 2>&1
 fi
-# -- so a negative Y (panel above the G9) is not parsed as a flag.
-hyprctl dispatch -- movecursor "$cx" "$cy" >/dev/null 2>&1
+hyprctl eval "hl.dispatch(hl.dsp.cursor.move({ x = $cx, y = $cy }))" >/dev/null 2>&1

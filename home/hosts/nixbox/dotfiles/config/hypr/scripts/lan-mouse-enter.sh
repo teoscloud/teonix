@@ -74,7 +74,7 @@ print(int(left["x"] + 80), int(left["y"] + left["height"] // 2))
 ')
 
 log "warp $x $y then ydotool left"
-hyprctl dispatch movecursor "$x" "$y"
+hyprctl eval "hl.dispatch(hl.dsp.cursor.move({ x = $x, y = $y }))"
 sleep 0.04
 if ydotool mousemove -- -240 0; then
   log "ydotool ok"

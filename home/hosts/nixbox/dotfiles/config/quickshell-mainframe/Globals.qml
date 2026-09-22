@@ -721,7 +721,7 @@ Singleton {
     }
 
     function switchWorkspace(id) {
-        Hyprland.dispatch("workspace " + id);
+        Hyprland.dispatch("hl.dsp.focus({ workspace = " + id + " })");
     }
 
     function cycleWorkspace(delta) {

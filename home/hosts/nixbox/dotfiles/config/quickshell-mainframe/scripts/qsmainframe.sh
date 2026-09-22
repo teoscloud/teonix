@@ -7,18 +7,19 @@ DEC="$HOME/teonix/home/hosts/nixbox/dotfiles/config/hypr/mainframe-decoration.co
 KILL="$MF/scripts/qs-kill-all.sh"
 
 if [[ -f "$DEC" ]] && command -v hyprctl >/dev/null; then
-  hyprctl --batch "\
-keyword decoration:rounding 9;\
-keyword decoration:rounding_power 1;\
-keyword decoration:shadow:enabled false;\
-keyword decoration:blur:enabled false;\
-keyword general:border_size 1;\
-keyword general:col.active_border rgba(2a2e34ee) rgba(fffffff0) 45deg;\
-keyword general:col.inactive_border rgba(9aa0a8aa);\
-keyword bezier linear,0,0,1,1;\
-keyword animation borderangle,1,22,linear,loop;\
-keyword animation windowsIn,1,4,default,popin 55%;\
-keyword animation windowsOut,1,3,default,popin 55%" >/dev/null 2>&1 || true
+  # Lua config: live decoration through `hyprctl eval` (no `hyprctl keyword`).
+  hyprctl eval '
+    hl.config({
+      decoration = { rounding = 9, rounding_power = 1, shadow = { enabled = false }, blur = { enabled = false } },
+      general = { border_size = 1, col = {
+        active_border = { colors = { "rgba(2a2e34ee)", "rgba(fffffff0)" }, angle = 45 },
+        inactive_border = "rgba(9aa0a8aa)" } },
+    })
+    hl.curve("linear", { type = "bezier", points = { { 0, 0 }, { 1, 1 } } })
+    hl.animation({ leaf = "borderangle", enabled = true, speed = 22, bezier = "linear", style = "loop" })
+    hl.animation({ leaf = "windowsIn", enabled = true, speed = 4, bezier = "default", style = "popin 55%" })
+    hl.animation({ leaf = "windowsOut", enabled = true, speed = 3, bezier = "default", style = "popin 55%" })
+  ' >/dev/null 2>&1 || true
 fi
 
 bash "$KILL"

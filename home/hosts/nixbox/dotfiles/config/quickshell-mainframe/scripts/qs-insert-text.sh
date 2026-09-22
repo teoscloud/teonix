@@ -77,10 +77,10 @@ if [ -n "$focus_addr" ]; then
     0x*|0X*) ;;
     *) focus_addr="0x$focus_addr" ;;
   esac
-  hyprctl dispatch focuswindow "address:$focus_addr" >/dev/null 2>&1 || true
+  hyprctl eval "hl.dispatch(hl.dsp.focus({ window = \"address:$focus_addr\" }))" >/dev/null 2>&1 || true
   sleep 0.08
 else
-  hyprctl dispatch focuscurrentorlast >/dev/null 2>&1 || true
+  hyprctl eval "hl.dispatch(hl.dsp.focus({ last = true }))" >/dev/null 2>&1 || true
   sleep 0.08
 fi
 
@@ -97,7 +97,7 @@ if command -v wtype >/dev/null 2>&1; then
 fi
 
 # Hyprland-native paste into the (now focused) client
-if hyprctl dispatch sendshortcut "CTRL,V," >/dev/null 2>&1; then
+if hyprctl eval "hl.dispatch(hl.dsp.send_shortcut({ mods = \"CTRL\", key = \"V\" }))" >/dev/null 2>&1; then
   exit 0
 fi
 

@@ -10,7 +10,7 @@ Wired from `home/hosts/nixbox/modules/dotfiles.nix` (imported by `home/nixbox.ni
 | Path | HM |
 |------|-----|
 | `~/.config/quickshell` | Out-of-store symlink → this tree (`mkOutOfStoreSymlink`) so edits hot-reload without rebuild |
-| `~/.config/hypr/hyprland.conf` | Store copy — blur layerrules, Super+Space / Super+Period binds, BusChain QS env |
+| `~/.config/hypr/hyprland.lua` | Store copy — blur layerrules, Super+Space / Super+Period binds, BusChain QS env |
 | Packages | `quickshell`, `libqalculate` (`qalc`), `ffmpeg` (wallpaper tint), `wl-clipboard`, `wtype`, `gnome-calculator` |
 | Session env | `BUSCHAIN_CONTROL_QS_MIXER=1`, `BUSCHAIN_CONTROL_QS_STRIP=1` in `home/nixbox.nix` |
 

@@ -159,19 +159,18 @@ Singleton {
     // Spinning active-window border. Speed 22 ≈ 2.2s/rev (glass is 30).
     function applyHyprBorders() {
         const active = palette === "dark"
-            ? "rgba(101214ee) rgba(f0f2f6f0) 45deg"
-            : "rgba(2a2e34ee) rgba(fffffff0) 45deg"
+            ? '{ colors = { "rgba(101214ee)", "rgba(f0f2f6f0)" }, angle = 45 }'
+            : '{ colors = { "rgba(2a2e34ee)", "rgba(fffffff0)" }, angle = 45 }'
         const inactive = palette === "dark"
-            ? "rgba(4a5058aa)"
-            : "rgba(9aa0a8aa)"
-        hyprDeco.command = ["hyprctl", "--batch",
-            "keyword decoration:rounding 9;" +
-            "keyword decoration:rounding_power 1;" +
-            "keyword general:border_size 1;" +
-            "keyword general:col.active_border " + active + ";" +
-            "keyword general:col.inactive_border " + inactive + ";" +
-            "keyword bezier linear,0,0,1,1;" +
-            "keyword animation borderangle,1,22,linear,loop"]
+            ? '"rgba(4a5058aa)"'
+            : '"rgba(9aa0a8aa)"'
+        // Lua config: `hyprctl keyword` is gone, live changes go through eval.
+        hyprDeco.command = ["hyprctl", "eval",
+            "hl.config({ decoration = { rounding = 9, rounding_power = 1 }, " +
+            "general = { border_size = 1, col = { active_border = " + active +
+            ", inactive_border = " + inactive + " } } }) " +
+            'hl.curve("linear", { type = "bezier", points = { { 0, 0 }, { 1, 1 } } }) ' +
+            'hl.animation({ leaf = "borderangle", enabled = true, speed = 22, bezier = "linear", style = "loop" })']
         hyprDeco.running = true
     }
 

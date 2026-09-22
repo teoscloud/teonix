@@ -6,20 +6,20 @@ while read -r line; do
   case "$line" in
     openwindow*)
       sleep 0.06
-      hyprctl dispatch layoutmsg promote
+      hyprctl dispatch 'hl.dsp.layout("promote")'
       sleep 0.12
       # First column (left): focus it and set to 0.66
-      hyprctl dispatch layoutmsg focus l
+      hyprctl dispatch 'hl.dsp.layout("focus l")'
       sleep 0.08
-      hyprctl dispatch layoutmsg colresize 0.66
+      hyprctl dispatch 'hl.dsp.layout("colresize 0.66")'
       sleep 0.05
       # Back to new window and set its column to 0.66
-      hyprctl dispatch layoutmsg focus r
+      hyprctl dispatch 'hl.dsp.layout("focus r")'
       sleep 0.05
-      hyprctl dispatch layoutmsg colresize 0.66
+      hyprctl dispatch 'hl.dsp.layout("colresize 0.66")'
       # Force all columns to 0.66 in case the layout ignored the first column
       sleep 0.03
-      hyprctl dispatch layoutmsg colresize all 0.66
+      hyprctl dispatch 'hl.dsp.layout("colresize all 0.66")'
       ;;
   esac
 done < <(socat -U - "UNIX-CONNECT:$SOCK")

@@ -7,18 +7,19 @@ GLASS="$ROOT/quickshell"
 KILL="$ROOT/quickshell-mainframe/scripts/qs-kill-all.sh"
 
 if command -v hyprctl >/dev/null; then
-  hyprctl --batch "\
-keyword decoration:rounding 10;\
-keyword decoration:rounding_power 2;\
-keyword decoration:shadow:enabled true;\
-keyword decoration:blur:enabled true;\
-keyword general:border_size 1;\
-keyword general:col.active_border rgba(141417ee) rgba(FFFFFFFFee) 45deg;\
-keyword general:col.inactive_border rgba(595959aa);\
-keyword bezier linear,0,0,1,1;\
-keyword animation borderangle,1,30,linear,loop;\
-keyword animation windows,1,7,default;\
-keyword animation windowsOut,1,7,default,popin 80%" >/dev/null 2>&1 || true
+  # Lua config: live decoration through `hyprctl eval` (no `hyprctl keyword`).
+  hyprctl eval '
+    hl.config({
+      decoration = { rounding = 10, rounding_power = 2, shadow = { enabled = true }, blur = { enabled = true } },
+      general = { border_size = 1, col = {
+        active_border = { colors = { "rgba(141417ee)", "rgba(FFFFFFee)" }, angle = 45 },
+        inactive_border = "rgba(595959aa)" } },
+    })
+    hl.curve("linear", { type = "bezier", points = { { 0, 0 }, { 1, 1 } } })
+    hl.animation({ leaf = "borderangle", enabled = true, speed = 30, bezier = "linear", style = "loop" })
+    hl.animation({ leaf = "windows", enabled = true, speed = 7, bezier = "default" })
+    hl.animation({ leaf = "windowsOut", enabled = true, speed = 7, bezier = "default", style = "popin 80%" })
+  ' >/dev/null 2>&1 || true
 fi
 
 bash "$KILL"

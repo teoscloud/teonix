@@ -232,8 +232,8 @@ Scope {
         const addr = root.formatAddress(t.address || t.lastIpcObject?.address);
         const cls = root.toplevelClass(t);
         const focusCmd = addr
-            ? ("hyprctl dispatch focuswindow address:" + addr)
-            : (cls ? ("hyprctl dispatch focuswindow class:" + cls) : "");
+            ? ("hyprctl dispatch 'hl.dsp.focus({ window = \"address:" + addr + "\" })'")
+            : (cls ? ("hyprctl dispatch 'hl.dsp.focus({ window = \"class:" + cls + "\" })'") : "");
         if (!focusCmd)
             return;
 
@@ -242,23 +242,23 @@ Scope {
                 'pos=$(hyprctl cursorpos); ' +
                 'x=${pos%%,*}; y=${pos#*,}; y=${y// /}; ' +
                 focusCmd + '; ' +
-                'hyprctl dispatch movecursor "$x" "$y"'
+                'hyprctl dispatch "hl.dsp.cursor.move({ x = $x, y = $y })"'
             ];
             focusKeepCursor.running = true;
             return;
         }
 
         if (addr)
-            Hyprland.dispatch("focuswindow address:" + addr);
+            Hyprland.dispatch('hl.dsp.focus({ window = "address:' + addr + '" })');
         else if (cls)
-            Hyprland.dispatch("focuswindow class:" + cls);
+            Hyprland.dispatch('hl.dsp.focus({ window = "class:' + cls + '" })');
     }
 
     function closeToplevels(list) {
         for (let i = 0; i < list.length; i++) {
             const addr = root.formatAddress(list[i].address || list[i].lastIpcObject?.address);
             if (addr)
-                Hyprland.dispatch("closewindow address:" + addr);
+                Hyprland.dispatch('hl.dsp.window.close({ window = "address:' + addr + '" })');
         }
     }
 
