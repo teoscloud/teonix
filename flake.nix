@@ -220,6 +220,10 @@
           # Arc A750 unchanged and picks the display budgets from the fitted card
           # at boot, so a swap needs no rebuild and can be undone. See GPU.md.
           ./hosts/mainframe/gpu.nix
+          # Hyprland's single render thread gets physical core 2 (+HT 30) on the
+          # GPU's socket to itself: kernel isolation, cgroup cpusets for everyone
+          # else, GPU IRQ on the sibling. Needs the "Hyprland (UWSM)" session.
+          ./hosts/mainframe/compositor-core.nix
           # Fixed Odyssey G9 EDID. Disabled 2026-09-21: in full (non-PIP) mode the
           # panel's own EDID already carries 5120x1440@240 on i915, and that mode
           # is the one the driver renders wrong. Re-enable only to change which

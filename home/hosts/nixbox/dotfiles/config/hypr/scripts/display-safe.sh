@@ -21,6 +21,9 @@
 #                                 5120x1440@120 (~885) while allowing 5120x1440@60
 #                                 and 2560x1440@120 (~442).
 #   TEONIX_MAX_REFRESH_MULTI_OUTPUT  refresh cap for SECONDARY outputs.
+#   TEONIX_SECONDARY_REFRESH_CAP  compositor budget for SECONDARY outputs, default
+#                                 60: never a bandwidth issue, but every Hz on any
+#                                 output is one more render pass per second.
 #
 # Modes:
 #   safe                    reduce to one output at a mode that actually commits
@@ -59,6 +62,11 @@ for _bw in $BW_CONFS; do
 done
 CAP="${_env_cap:-${TEONIX_MAX_REFRESH_MULTI_OUTPUT:-}}"
 PXRATE="${_env_px:-${TEONIX_MAX_PIXEL_RATE_MPS:-}}"
+# Secondaries never run above this, whatever the GPU could afford: every Hz on
+# any output is one more full compositor pass per second on Hyprland's single
+# render thread (the ASUS VG245 advertises 75; 60 matches hyprland.conf). Not a
+# bandwidth limit, a compositor budget. Empty disables it.
+SEC_CAP="${TEONIX_SECONDARY_REFRESH_CAP-60}"
 
 log() { printf 'display-safe: %s\n' "$*" >&2; }
 
@@ -283,13 +291,16 @@ RIGHT_OF_PRIMARY="${TEONIX_RIGHT_OF_PRIMARY:-ASUSTek COMPUTER INC VG245}"
 plan_secondaries() {
   local f
   f="$(snapshot)" || return 1
-  python3 - "$f" "$1" "$2" "$CAP" "$PXRATE" "$RIGHT_OF_PRIMARY" <<'PY'
+  python3 - "$f" "$1" "$2" "$CAP" "$PXRATE" "$RIGHT_OF_PRIMARY" "$SEC_CAP" <<'PY'
 import json, re, sys
 monitors = json.load(open(sys.argv[1]))
 primary, pmode = sys.argv[2], sys.argv[3]
 cap = float(sys.argv[4]) if sys.argv[4] else None
 px = float(sys.argv[5]) if sys.argv[5] else None
 right_prefix = sys.argv[6]
+sec_cap = float(sys.argv[7]) if sys.argv[7] else None
+if sec_cap is not None:
+    cap = sec_cap if cap is None else min(cap, sec_cap)
 
 g = re.match(r"(\d+)x(\d+)@", pmode)
 xright = int(g.group(1)) if g else None

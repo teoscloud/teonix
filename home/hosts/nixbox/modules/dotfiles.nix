@@ -189,6 +189,12 @@ in {
     source = "${dotfilesPath}/bin/nixmon";
     executable = true;
   };
+  # Compositor render-thread probe: CPU %, placement, wakeups, GPU IRQ rate,
+  # monitor modes, intruders on the reserved compositor CPUs.
+  home.file.".local/bin/hypr-perf" = {
+    source = "${dotfilesPath}/bin/hypr-perf";
+    executable = true;
+  };
 
   # ✅ Symlink ios font config
   home.file.".config/fontconfig/fonts.conf".source = "${dotfilesPath}/config/fontconfig/fonts.conf";

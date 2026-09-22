@@ -184,6 +184,7 @@ a GNOME session.
 | `gpu.nix` | GPU and display policy for whatever card is fitted | No — only the budget table inside it is |
 | `gpu-guard.nix` | Board-level no-video protection | No — keep it |
 | `platform.nix` | Hibernate tier (`resumeDevice`, swap, `HibernateDelaySec`) | No |
+| `compositor-core.nix` | Hyprland's render thread gets physical core 2 (+HT 30) to itself; see "Compositor core" below | No — GPU IRQ is found by driver name (`i915`/`xe`/`amdgpu`) |
 
 `gpu.nix` is written so that **the machine boots with either card and needs no
 rebuild to swap them**. That matters because the card in the slot is the only POST
@@ -265,7 +266,7 @@ atomic commit failed.
 
 | Command | Used by | Behaviour |
 | --- | --- | --- |
-| `ultrawide` | `Super+S` | Primary at its largest allowed mode, fastest refresh (Arc: `5120x1440@240`, the default; RX 580: `5120x1440@60`), others on |
+| `ultrawide` | `Super+S` | Primary at its largest allowed mode, fastest refresh (Arc: `5120x1440@240`, the default; RX 580: `5120x1440@60`), others on at ≤ `TEONIX_SECONDARY_REFRESH_CAP` (60) |
 | `ultrawide` with `TEONIX_MAX_PIXEL_RATE_MPS=900` | `Super+Ctrl+S` | Single-pipe fallback (Arc: `5120x1440@120`) for when the two-pipe 240 comes up wrong; works blind |
 | `highrefresh` | `Super+D` | Primary at its fastest allowed mode (Arc: also `5120x1440@240`; RX 580: `2560x1440@120`), others on |
 | `safe` | `Super+Shift+D` | Panic: collapse to one known-good output |
@@ -407,9 +408,125 @@ Unchanged by any swap: the `desc:` monitor rules (port- and card-agnostic) and
 `gpu-guard.nix`. The ROCm ICDs in `modules/hardware/hardware-x86.nix` are shared
 with `nixbox` and stay.
 
+## Compositor core (2026-09-22)
+
+### The problem
+
+Hyprland composites every output from **one thread**. Each vblank on each output
+is one full pass — damage tracking, blur, borders, the borderangle loop on the
+active window — so three outputs at 120+75+60 Hz are ~255 passes/s before any
+client draws anything, and every visible client that redraws (Chrome, the IDE,
+Electron, Quickshell) adds its commits on top. Measured with `hypr-perf` on a busy
+desktop: **60-90% of a 3 GHz Broadwell core, ~700 wakeups/s, most of it in the
+kernel** (the GPU's ioctls) — and the scheduler was running that thread on **CPU
+23/48, the socket without the Arc**. Pausing every client except the IDE dropped it
+to 10%, so no single knob (VFR, render scheduling, animations) moves it: it is
+per-frame work × frames. When that thread is preempted, migrated across sockets,
+or has to wait for a core to leave C6 (133 µs here), a frame is late and the cursor
+visibly stutters, which is what a 240 Hz panel makes obvious.
+
+### The shape of the fix
+
+Make that one thread never wait for anything, and stop rendering frames nobody
+sees.
+
+**Frames** (`hyprland.conf`, live via `hyprctl reload`):
+
+- ASUS VG245 pinned to `1920x1080@60` instead of `preferred` (75). 15 passes/s
+  for a side panel. `display-safe.sh` enforces the same for every secondary via
+  `TEONIX_SECONDARY_REFRESH_CAP` (default 60; not a bandwidth limit, a compositor
+  budget) so `follow`/`ultrawide` do not put it back to 75.
+- `render:direct_scanout = 1`: a fullscreen window is scanned out from its own
+  buffer; that output costs the compositor nothing while fullscreen.
+- `cursor:no_hardware_cursors = 0`, explicit: the cursor rides the hardware plane
+  and never falls back to a render.
+- `animation = borderangle ... loop` on the active window is **left alone**, on
+  purpose.
+
+**A core of its own** (`compositor-core.nix`, needs one reboot):
+
+- CPUs **2 and 30** — one physical core and its hyperthread, both on NUMA node 0
+  (`0-13,28-41`), the Arc's socket. `thread_siblings_list` and
+  `node0/cpulist` are the facts to re-check if the CPUs are ever changed.
+- Kernel: `isolcpus=domain,managed_irq,2,30 nohz_full=2,30 rcu_nocbs=2,30
+  irqaffinity=0-1,3-29,31-55 preempt=full`. The pair leaves the scheduler
+  domains (nothing lands there without explicit affinity), gets no tick and no RCU
+  callbacks while a single task runs, and no device interrupt defaults to it. The
+  `PREEMPT_DYNAMIC` kernel is switched to full preemption for the shortest
+  wakeup-to-run latency of the `SCHED_RR` compositor thread.
+- `teonix-compositor-core` (oneshot at boot, re-run by `resumeCommands`):
+  `performance` governor on `policy2`/`policy30` only, C6 disabled on both
+  (C1/C1E/C3 stay), and the GPU's IRQ (`i915` by name in `/proc/interrupts`, IRQ 44
+  today) moved to CPU 30 so vblank / flip-done completes on the render thread's
+  own sibling. The rest of the chip keeps its power management.
+- cgroup cpusets, so nothing else can *ever* run there even if it inherits the
+  compositor's affinity: `system.slice` (daemons) and the user manager's
+  `app.slice` + `background.slice` get `AllowedCPUs=0-1,3-29,31-55`. A cpuset
+  overrides inherited affinity, which is the point. `session.slice` (compositor,
+  PipeWire) stays unrestricted. `user@.service` needs `Delegate=… cpuset` for the
+  user slices to get the controller at all; the drop-in adds it.
+- The compositor unit, `wayland-wm@hyprland.desktop.service` (named after the session entry UWSM is started with), gets `CPUAffinity=2 30`,
+  `NUMAPolicy=bind`, `NUMAMask=0` (memory local to the GPU's socket).
+
+### UWSM is required
+
+The pin lives on a systemd unit, so Hyprland must *be* one: pick **"Hyprland
+(UWSM)"** in GDM (`programs.hyprland.withUWSM` in `modules/apps/programs.nix`;
+plain "Hyprland" is still installed). Under UWSM the compositor runs in
+`session.slice`, and `hyprland.conf` launches every long-lived child through
+`uwsm app --` (`-s b` for background daemons), which hands it to `systemd-run` as
+its own scope under `app-graphical.slice`/`background-graphical.slice` — the
+restricted cpusets — instead of leaving it a child of the compositor stuck on CPUs
+2/30. `uwsm app` is `systemd-run` underneath and works in the plain session too.
+The old `dbus-update-activation-environment` / `import-environment` /
+`nixos-fake-graphical-session.target` lines are gone: UWSM owns
+`graphical-session.target`, and Hyprland exports its own variables.
+
+Short one-shot binds (`hyprctl`, `brightnessctl`, `gsettings`, `playerctl`,
+`display-safe.sh` mode switches) are still bare; they run for milliseconds and
+exit, pinned or not.
+
+### Reading `hypr-perf`
+
+`~/.local/bin/hypr-perf [seconds] [isolated-cpus]` samples the render thread from
+`/proc` (no root) and prints one block:
+
+```
+  render thread   61.4% cpu  (user 12.6%  sys 48.8%)   918 wakeups/s   ~0.67 ms cpu per wakeup
+  scheduling      RR rtprio 1 nice -   allowed cpus 0-55
+  ran on          cpu48:38
+  gpu irq         1279/s   irq44->0-13,28-41
+  monitor         DP-1   1920x1080@60
+  ...
+```
+
+Before the core: `allowed cpus 0-55`, `ran on` wanders, often to socket 1. After
+the reboot into the UWSM session it should read `allowed cpus 2,30`, `ran on
+cpu2:… cpu30:…` only, `reserved cpus cpu2:performance/C6off=1 …`,
+`irq44->30`, and `intruders none on cpus 2,30` (that line lists any non-Hyprland
+thread caught on the reserved CPUs, with the cpuset or affinity that leaked it).
+The busy % is workload-dependent — compare like with like — but the thing that
+matters is not the average, it is that under load the cursor stays smooth while
+Netflix, Chrome and the IDE all redraw.
+
+Baseline 2026-09-22, G9 in PIP (2560x1440@120), busy desktop: 61-71% cpu, 690-920
+wakeups/s, 49-62% of it *sys*, running on CPUs 23/30/44/48.
+
+### Rollback
+
+Pick plain "Hyprland" in GDM: everything still works, the isolated core simply
+idles (isolation is a kernel parameter, so it stays reserved until the previous
+generation is booted). To undo fully, drop `compositor-core.nix` from the host
+list in `flake.nix` and rebuild.
+
 ## Quick checks
 
 ```bash
+hypr-perf 20                                  # render thread: cpu %, where it ran, irq, intruders
+cat /proc/irq/44/smp_affinity_list            # GPU irq -> 30 (number: grep i915 /proc/interrupts)
+cat /sys/devices/system/cpu/cpu2/cpufreq/scaling_governor   # performance
+systemd-cgls --user | less                    # apps under app-graphical.slice, not the compositor unit
+cat /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/cpuset.cpus.effective  # no 2,30
 cat /sys/power/mem_sleep                      # kernel default since 2026-09-21: s2idle [deep]
 systemctl status gpu-resume-guard gpu-boot-guard
 systemctl status teonix-gpu-profile           # which card, which budgets

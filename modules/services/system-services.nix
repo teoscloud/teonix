@@ -17,15 +17,23 @@
     # nixpkgs defaults to dbus-broker; a live `nixos-rebuild switch` from classic dbus is blocked
     # (switchInhibitors). Pin classic dbus so `switch` / `systemupdate` keep working. To migrate to
     # broker later: delete this line, then `sudo nixos-rebuild boot --flake …` and reboot.
-    dbus.implementation = "dbus";
+    # mkForce: programs.uwsm (via programs.hyprland.withUWSM) asks for "broker"
+    # outright; UWSM runs fine on classic dbus, it just handles the activation
+    # environment itself.
+    dbus.implementation = lib.mkForce "dbus";
 
     # Freedesktop Secret Service for Mailspring, browsers, etc. (not KWallet).
     gnome.gnome-keyring.enable = true;
 
-    # Display Manager - GDM; session picker includes Plasma + GNOME + Hyprland
+    # Display Manager - GDM; session picker includes Plasma + GNOME + Hyprland.
+    # No defaultSession on purpose: with it set, the NixOS GDM module runs
+    # `set-session <default>` in display-manager's preStart, which overwrites
+    # every user's AccountsService session record before each greeter start
+    # ("basically ignore session history", per the module). Left unset, GDM
+    # remembers whatever each user picked last, so a Hyprland (UWSM) login
+    # stays the default login.
     displayManager = {
       gdm.enable = true;
-      defaultSession = "gnome";
     };
 
     # Desktop Managers - KDE Plasma 6 + GNOME (Hyprland is via programs.hyprland)
