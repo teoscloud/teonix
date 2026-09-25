@@ -89,27 +89,26 @@ local function run(cmd) return hl.dsp.exec_cmd(spawn(cmd)) end
 -- mainframe: what the G9 may be driven at depends on the fitted card, so the limits
 -- are not in here. teonix-gpu-profile writes TEONIX_MAX_PIXEL_RATE_MPS and
 -- TEONIX_MAX_REFRESH_MULTI_OUTPUT per boot and display-safe.sh enforces them.
--- Arc A750 (i915 6.18): 5120x1440@120 is the everyday mode below (2026-09-22),
--- single pipe, no EDID override. The panel's 240 works too, but needs two
--- display pipes ("bigjoiner") and its commit path kept the render thread ~88%
--- busy in the kernel while the mouse moved — never quite smooth. gpu.nix caps
--- the Arc's budget at 900 Mpx/s so display-safe.sh never picks 240 either;
--- raise it to 2000 there and set 240 here to go back. See hosts/mainframe/GPU.md.
+-- Arc A750 (i915 6.18): everyday mode is 16:9, 2560x1440@120
+-- (2026-09-25). Positions below match that width; display-safe follow
+-- re-anchors if the panel comes up wider. Super+S is the manual 5120x1440@120
+-- ultrawide. Super+Ctrl+S returns to 16:9 and restores column pixel widths
+-- (they are fractions of the workspace, so 5120 -> 2560 otherwise halves them).
+-- gpu.nix still caps the Arc at 900 Mpx/s, so 5120x1440@240 is never picked.
 --
 -- Changing the primary display means updating the G9 prefix above and the
 -- workspace rules below.
-hl.monitor({ output = G9, mode = "5120x1440@120", position = "0x0", scale = 1, bitdepth = 8 })
+hl.monitor({ output = G9, mode = "2560x1440@120", position = "0x0", scale = 1, bitdepth = 8 })
 -- Samsung 27" stays ABOVE the G9 (top-right corner). ASUS sits to the RIGHT of
--- the G9, bottom edges flush — Super+Esc toggles main between those two. Positions
--- match the 5120-wide full-mode default; when the G9's width changes they are
--- re-anchored by display-safe.sh plan_secondaries — via Super+S / Super+D, and
--- automatically by the `follow` loop when the G9 toggles PIP (2560 wide).
+-- the G9, bottom edges flush — Super+Esc toggles main between those two.
+-- Coordinates are for the 2560-wide 16:9 default; display-safe.sh re-anchors
+-- them when Super+S widens the G9 to 5120 or the panel drops into PIP.
 -- desc: only — any port.
-hl.monitor({ output = S27, mode = "preferred", position = "3200x-1080", scale = 1, bitdepth = 8 })
+hl.monitor({ output = S27, mode = "preferred", position = "640x-1080", scale = 1, bitdepth = 8 })
 -- 60 not preferred (75): each Hz on any output is one more full compositor pass
 -- per second on Hyprland's single render thread. 15 fewer passes/s for a 24"
 -- side panel. See GPU.md "Compositor core".
-hl.monitor({ output = ASUS, mode = "1920x1080@60", position = "5120x360", scale = 1, bitdepth = 8 })
+hl.monitor({ output = ASUS, mode = "1920x1080@60", position = "2560x360", scale = 1, bitdepth = 8 })
 -- Catch-all: any other panel, in any port, gets its preferred mode placed to the
 -- right automatically. Keep this last.
 hl.monitor({ output = "", mode = "preferred", position = "auto-right", scale = 1, bitdepth = 8 })
@@ -192,10 +191,9 @@ hl.on("hyprland.start", function()
     -- Display watchdog: if every output ever ends up dark, recover in-session instead
     -- of needing a reboot (which on mainframe cannot clear a wedged GPU anyway).
     exec("uwsm app -s b -a display-watchdog -- bash -lc '" .. displaySafe .. " watchdog'")
-    -- Layout follower: the G9 toggling PIP is a DP reconnect with a smaller EDID
-    -- (2560x1440@120 max); Hyprland falls back to that mode but leaves the secondaries
-    -- at their 5120-wide anchors below. After every monitoradded burst this re-runs
-    -- the ultrawide placement, so PIP and full mode both get a contiguous layout.
+    -- Layout follower: the G9 toggling PIP is a DP reconnect. After every
+    -- monitoradded burst this re-applies the 16:9 layout and restores scrolling
+    -- column widths in pixels.
     exec("uwsm app -s b -a display-follow -- bash -lc '" .. displaySafe .. " follow'")
     -- lan-mouse: send this keyboard/mouse to the Windows PC (UDP 4242)
     -- exec("lan-mouse daemon")
@@ -403,21 +401,22 @@ hl.bind(key(MS, "L"), run(scripts .. "/audio-transmit-toggle.sh ssh"))
 -- Display modes. No connector names here on purpose: display-safe.sh discovers the
 -- outputs, picks the primary by pixel count and verifies every modeset against
 -- sysfs, so any panel works in any DP/HDMI port. Banned modes (over the pixel-rate
--- budget, e.g. 5120x1440@240 on the Arc at the default 900, 5120x1440@120 on the
+-- budget, e.g. 5120x1440@240 on the Arc at 900 Mpx/s, 5120x1440@120 on the
 -- RX 580) are never requested by any of these. See hosts/mainframe/GPU.md.
 --
 --   Super+S        ultrawide: primary at its largest allowed mode at its fastest
---                  refresh under the boot budget (Arc, 900 Mpx/s: 5120x1440@120,
---                  the default; RX 580: 5120x1440@60), all other outputs stay on.
---                  Reverts itself if it goes dark.
---   Super+Ctrl+S   the two-pipe 240 on request: same, under a 2000 Mpx/s budget
---                  passed in the environment (display-safe.sh honours the
---                  override) -> 5120x1440@240 on the Arc. Super+S goes back.
---   Super+D        high refresh: primary at its fastest allowed mode (Arc:
---                  2560x1440@240, single pipe; RX 580: 2560x1440@120).
+--                  refresh under the boot budget (Arc, 900 Mpx/s: 5120x1440@120;
+--                  RX 580: 5120x1440@60), all other outputs stay on.
+--                  Reverts itself if it goes dark. Column widths are restored
+--                  in pixels after the modeset.
+--   Super+Ctrl+S   16:9: 2560x1440@120 on the Arc (refresh nearest 120 among
+--                  16:9 modes). Same column restore, so leaving the ultrawide
+--                  does not halve every window.
+--   Super+D        high refresh: primary at its fastest allowed mode under the
+--                  same cap (Arc: 2560x1440@240, still 16:9; RX 580: 2560x1440@120).
 --   Super+Shift+D  panic button: collapse to one known-good output.
 hl.bind(key(M, "S"), run(displaySafe .. " ultrawide"))
-hl.bind(key(MC, "S"), run("env TEONIX_MAX_PIXEL_RATE_MPS=2000 " .. displaySafe .. " ultrawide"))
+hl.bind(key(MC, "S"), run(displaySafe .. " sixteen"))
 hl.bind(key(M, "D"), run(displaySafe .. " highrefresh"))
 hl.bind(key(MS, "D"), run(displaySafe .. " safe"))
 
@@ -435,10 +434,8 @@ hl.bind(key(M, "SPACE"), run(ipc .. " launcher toggle"))
 hl.bind(key(M, "period"), run(ipc .. " emoji toggle"))
 -- Legacy: wofi --show drun / wofi-emoji
 
--- Terminal: cool-retro-term, via a launcher that first pushes the current
--- qs-mainframe palette + zsh into its settings DB (it only reads that at
--- startup, and re-saves stale in-memory settings on close).
-hl.bind(key(M, "T"), run("uwsm app -a cool-retro-term -- bash " .. home .. "/.config/quickshell/scripts/qs-retro-term-launch.sh"))
+-- Terminal. cool-retro-term stays installed; Super+T is kitty.
+hl.bind(key(M, "T"), run("uwsm app -a kitty -- kitty"))
 hl.bind(key(M, "Q"), hl.dsp.window.close())
 hl.bind(key(M, "N"), run("sh -c 'uwsm app -- codium ~/myprojects/teonix-unstable/ && uwsm app -- codium ~/.config/'"))
 hl.bind(key(M, "C"), function()

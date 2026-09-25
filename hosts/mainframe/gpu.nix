@@ -167,13 +167,10 @@
           # pairing unknown) came out as a magnified top-left quarter. Cabling
           # is therefore part of the config: see the greeter layout below.
           #
-          # 2026-09-22: budget set to 900 on purpose, which admits only the
-          # single-pipe modes (5120x1440@120 ~885, 2560x1440@240 ~885) and bans
-          # the two-pipe 240. Measured with the mouse moving: the render thread
-          # sat at 88% cpu, 81% of it *sys*, ~4 ms per wakeup — the i915 commit
-          # path for the bigjoiner mode is where the time goes, and the cursor
-          # never felt fully smooth. 120 is the everyday mode; 2000 brings 240
-          # back (Super+S then picks it again).
+          # 2026-09-25: 900 again, so 5120x1440@240 (~1767) is never selected.
+          # Hyprland's everyday mode is 16:9, 2560x1440@120. Super+S can still
+          # ask for 5120x1440@120 (~885). Super+D can pick 2560x1440@240
+          # (~885). The greeter stays 5120x1440@120 (monitors.xml below).
           cap=240
           px=900
           ;;

@@ -103,13 +103,20 @@ def gap():
     return 2 * option_int("general:gaps_in") + 2 * option_int("general:border_size")
 
 
-def snapshot(primary):
+def snapshot(primary, force=False):
     info = primary_info(primary)
     if not info:
         return 0
     mon_id, usable, _ = info
+    prev = load_state()
+    # A modeset just changed the workspace width and rescale has not run yet.
+    # The live sizes are the old fractions on the new width; recording them
+    # would make the squash permanent. rescale passes force=True once it has
+    # put the intended pixel widths back.
+    if not force and prev.get("usable") and prev["usable"] != usable:
+        return 0
     g = gap()
-    old = load_state().get("windows", {})
+    old = prev.get("windows", {})
     windows = {}
     for c in columns_on(mon_id):
         live = c["px"]
@@ -166,7 +173,7 @@ def rescale(primary):
 
     # Re-snapshot against the new width, keeping intended widths for columns
     # that are now pinned at full width.
-    snapshot(primary)
+    snapshot(primary, force=True)
     return 0
 
 

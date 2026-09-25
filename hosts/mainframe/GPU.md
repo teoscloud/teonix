@@ -214,8 +214,8 @@ It sets:
 - `teonix-gpu-profile` — reads the fitted display device from the PCI bus before
   the greeter starts and writes that card's budgets to
   `/run/teonix/display-bandwidth.conf` (RX 580: 60 Hz / 450 Mpx/s; Arc DG2:
-  240 Hz / 2000 Mpx/s, no ban — the two-pipe `5120x1440@240` works once the G9 is
-  in the last DP connector, see the 2026-09-21 notes below). An unrecognised
+  240 Hz secondary cap / 900 Mpx/s, which admits `5120x1440@120` and bans
+  `5120x1440@240`). An unrecognised
   card gets permissive numbers plus a notice at login.
   `/etc/teonix/display-bandwidth.conf` carries the RX 580 numbers as the fallback
   if the service never ran; `display-safe.sh` prefers `/run`, falls back to `/etc`,
@@ -266,9 +266,9 @@ atomic commit failed.
 
 | Command | Used by | Behaviour |
 | --- | --- | --- |
-| `ultrawide` | `Super+S` | Primary at its largest allowed mode, fastest refresh (Arc: `5120x1440@240`, the default; RX 580: `5120x1440@60`), others on at ≤ `TEONIX_SECONDARY_REFRESH_CAP` (60) |
-| `ultrawide` with `TEONIX_MAX_PIXEL_RATE_MPS=900` | `Super+Ctrl+S` | Single-pipe fallback (Arc: `5120x1440@120`) for when the two-pipe 240 comes up wrong; works blind |
-| `highrefresh` | `Super+D` | Primary at its fastest allowed mode (Arc: also `5120x1440@240`; RX 580: `2560x1440@120`), others on |
+| `ultrawide` | `Super+S` | Primary at its largest allowed mode, fastest refresh (Arc: `5120x1440@120`; RX 580: `5120x1440@60`), others on at ≤ `TEONIX_SECONDARY_REFRESH_CAP` (60). Restores scrolling-column pixel widths |
+| `sixteen` | `Super+Ctrl+S`, startup, `follow` | 16:9, refresh nearest 120 (Arc: `2560x1440@120`). Same column restore, so leaving the ultrawide does not halve every window |
+| `highrefresh` | `Super+D` | Primary at its fastest allowed mode under the cap (Arc: `2560x1440@240`; RX 580: `2560x1440@120`), others on |
 | `safe` | `Super+Shift+D` | Panic: collapse to one known-good output |
 | `verify-or-revert` | both live modes | Reverts if the output went dark; warns if the mode was merely refused |
 | `save-and-deescalate` | `hypridle` pre-sleep | Remember the layout, then go safe |
@@ -577,8 +577,17 @@ compositor or the core can fix, so the Arc's budget in `gpu.nix` is now
 `px=900`: single-pipe modes only, i.e. 5120x1440@120 (Super+S, the startup mode
 in `hyprland.lua`, `follow` after PIP) or 2560x1440@240 (Super+D). Super+Ctrl+S
 requests 240 with a 2000 budget for when you want it anyway; Super+S returns.
-The greeter was already pinned to 120. To make 240 the default again: `px=2000`
-in `gpu.nix` and `5120x1440@240` in `hyprland.lua`.
+The greeter stays pinned to 120. 240 was the session default again on
+2026-09-23 (`px=2000`). As of 2026-09-25 the full panel is 120 in every path:
+`px=900` in `gpu.nix` and `5120x1440@120` in `hyprland.lua`. Super+S,
+Super+Ctrl+S and `follow` all read that cap, so none of them can select
+`5120x1440@240`. PIP is unchanged: that EDID has no 5120 mode, and `follow`
+places whatever it advertises. Super+D can still pick `2560x1440@240`, which
+is under 900 Mpx/s and is not the full panel. As of 2026-09-25 later the same
+day, Hyprland's everyday mode is 16:9: `2560x1440@120` in `hyprland.lua`, and
+`follow` / Super+Ctrl+S select that (`display-safe.sh sixteen`). Super+S is
+the manual `5120x1440@120`. Both modesets reapply scrolling-column widths in
+pixels; a quiet snapshot will not record the squashed fractions first.
 
 ### The Steam stutter is the 256 MiB BAR (2026-09-23)
 

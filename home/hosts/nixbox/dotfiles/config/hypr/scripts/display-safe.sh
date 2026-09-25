@@ -13,11 +13,9 @@
 #
 #   TEONIX_MAX_PIXEL_RATE_MPS     hard per-output BAN: any mode whose w*h*refresh
 #                                 exceeds this many megapixels/s is never selected.
-#                                 On the Arc A750 (2000) nothing is banned: the G9
-#                                 runs 5120x1440@240 (~1767). Passing 900 in the
-#                                 environment (Super+Ctrl+S) admits only the
-#                                 single-pipe modes 5120x1440@120 and 2560x1440@240
-#                                 (both ~885). On the RX 580 (450) it outlaws
+#                                 On the Arc A750 (900) 5120x1440@240 (~1767) is
+#                                 banned; 5120x1440@120 and 2560x1440@240 (both
+#                                 ~885) remain. On the RX 580 (450) it outlaws
 #                                 5120x1440@120 (~885) while allowing 5120x1440@60
 #                                 and 2560x1440@120 (~442).
 #   TEONIX_MAX_REFRESH_MULTI_OUTPUT  refresh cap for SECONDARY outputs.
@@ -28,11 +26,14 @@
 # Modes:
 #   safe                    reduce to one output at a mode that actually commits
 #   ultrawide               primary at its largest-area allowed mode, fastest refresh
-#                           (G9: Arc 5120x1440@240, RX 580 5120x1440@60), every other
-#                           output on
+#                           (G9: Arc 5120x1440@120 at the 900 budget, RX 580
+#                           5120x1440@60), every other output on. Restores
+#                           scrolling-column pixel widths afterwards.
+#   sixteen / 16:9          primary at 16:9, refresh nearest 120 (G9:
+#                           2560x1440@120). Everyday mode, same column restore.
 #   highrefresh             primary at its highest-refresh allowed mode (G9: Arc
-#                           5120x1440@240 too, RX 580 2560x1440@120), every other
-#                           output on
+#                           2560x1440@240 under that same cap, RX 580
+#                           2560x1440@120), every other output on
 #   verify-or-revert SEL    fall back to `safe` if SEL did not really light up
 #   watchdog                loop: if no output is enabled at all, recover
 #   follow                  loop: after every monitoradded event (the G9 toggling
@@ -201,7 +202,7 @@ import json, re, sys
 monitors = json.load(open(sys.argv[1]))
 name = sys.argv[2]
 cap = float(sys.argv[3]) if sys.argv[3] else None
-by_refresh = sys.argv[4] == "refresh"
+rank = sys.argv[4]
 pxrate = float(sys.argv[5]) if sys.argv[5] else None
 for m in monitors:
     if m["name"] != name:
@@ -220,7 +221,16 @@ for m in monitors:
         # 239.76 (5120x1440), 239.90 (2560x1440) and 239.97 (3840x1080), and a raw
         # float compare would crown 3840x1080 the "fastest" mode. Same tier, so
         # pixel count decides; the exact rate only breaks real ties.
-        key = (round(r), w * h, r) if by_refresh else (w * h, round(r), r)
+        # "aspect" is 16:9 only (2560x1440 on the G9), refresh nearest 120.
+        aspect = abs((w / h) - (16 / 9)) <= 0.03 if h else False
+        if rank == "aspect" and not aspect:
+            continue
+        if rank == "refresh":
+            key = (round(r), w * h, r)
+        elif rank == "aspect":
+            key = (-abs(round(r) - 120), w * h, r)
+        else:
+            key = (w * h, round(r), r)
         if best is None or key > best[0]:
             best = (key, "%dx%d@%g" % (w, h, r))
     print(best[1] if best else "preferred")
@@ -374,15 +384,14 @@ PY
   rm -f "$f"
 }
 
-# Is the live layout already what `ultrawide` would produce? Primary at its best
-# allowed area mode at 0x0, every secondary enabled at the mode and position
-# plan_secondaries wants. Used by `follow` so a hotplug that Hyprland's own config
-# rules already handled correctly (PIP -> full) costs no extra modeset.
+# Is the live layout already the everyday 16:9 mode? Primary at that mode at
+# 0x0, every secondary enabled where plan_secondaries wants it. Used by
+# `follow` so a hotplug Hyprland already placed correctly costs no extra modeset.
 layout_is_current() {
   local f primary mode plan
   primary="$(pick_primary)"
   [ -n "$primary" ] || return 1
-  mode="$(best_mode "$primary" "" area)"
+  mode="$(best_mode "$primary" "" aspect)"
   plan="$(plan_secondaries "$primary" "$mode")"
   f="$(snapshot)" || return 1
   python3 - "$f" "$primary" "$mode" "$plan" <<'PY'
@@ -471,13 +480,24 @@ apply_multi() {
     place_secondaries
   fi
 
-  [ "$verify" = "noverify" ] && return 0
-  cmd_verify_or_revert "$primary" "$mode"
+  if [ "$verify" = "noverify" ]; then
+    # Clients still report the old size for a moment after the modeset.
+    sleep 0.4
+  else
+    cmd_verify_or_revert "$primary" "$mode"
+  fi
+  # Scrolling columns are fractions of the workspace. A 5120 -> 2560 modeset
+  # from a bind does not emit monitoradded, so `follow` never saw it and every
+  # column kept its old fraction — half the pixels. Rescale from the last
+  # pixel snapshot now. A quiet tick must not snapshot the squashed sizes first.
+  follow_columns rescale
 }
 
-# Largest picture: most pixels first, then refresh (5120x1440@240 on the G9 with the Arc).
+# Largest picture: most pixels first, then refresh (5120x1440@120 on the G9 with the Arc at 900 Mpx/s).
 cmd_ultrawide()   { apply_multi area "ultrawide mode"; }
-# Fastest picture: highest refresh first, then pixels (also 5120x1440@240 on the G9 with the Arc).
+# 16:9, refresh nearest 120 (2560x1440@120 on the G9). Everyday mode.
+cmd_sixteen()     { apply_multi aspect "16:9 mode"; }
+# Fastest picture: highest refresh first, then pixels (2560x1440@240 on the G9 with the Arc at that cap).
 cmd_highrefresh() { apply_multi refresh "high-refresh mode"; }
 
 # Two distinct failure modes, which deserve different reactions:
@@ -541,7 +561,7 @@ follow_settle() {
     return 0
   fi
   log "follow: outputs changed, re-anchoring layout"
-  apply_multi area "follow" noverify
+  apply_multi aspect "follow" noverify
 }
 
 # Are the secondaries anchored to the primary's CURRENT footprint? Positions
@@ -612,12 +632,15 @@ follow_columns() {
 follow_tick() {
   have_hypr || return 0
   anchors_current || follow_reanchor
+  # Rescale first. Snapshotting a just-shrunk workspace would store the
+  # squashed fractions as the widths to restore.
+  follow_columns rescale
   follow_columns snapshot
 }
 
 # Keep the layout right across hotplugs. The G9 toggling PIP is a real DP
 # disconnect + reconnect with a *different EDID* (2-block, tops out at
-# 2560x1440@120), so Hyprland's config pin (5120x1440@240) no longer exists and it
+# 2560x1440@120), so Hyprland's config pin (5120x1440@120) no longer exists and it
 # falls back to the panel's preferred mode — but the secondaries keep their
 # 5120-wide anchors from hyprland.lua and end up floating 2560 px away, with no
 # edge to drag the cursor across. Listen on Hyprland's event socket, and after
@@ -721,6 +744,7 @@ PY
 case "${1:-}" in
   safe)                cmd_safe ;;
   ultrawide)           cmd_ultrawide ;;
+  sixteen|16:9)        cmd_sixteen ;;
   highrefresh)         cmd_highrefresh ;;
   verify-or-revert)    shift; cmd_verify_or_revert "${1:-}" "${2:-}" ;;
   watchdog)            cmd_watchdog ;;
@@ -728,7 +752,7 @@ case "${1:-}" in
   save-and-deescalate) cmd_save_and_deescalate ;;
   restore)             cmd_restore ;;
   *)
-    printf 'usage: %s {safe|ultrawide|highrefresh|verify-or-revert SEL|watchdog|follow|save-and-deescalate|restore}\n' \
+    printf 'usage: %s {safe|ultrawide|sixteen|highrefresh|verify-or-revert SEL|watchdog|follow|save-and-deescalate|restore}\n' \
       "$(basename "$0")" >&2
     exit 2
     ;;
