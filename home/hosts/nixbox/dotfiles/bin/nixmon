@@ -752,6 +752,8 @@ read_temps() {
   PKG_TEMP=""
   for f in /sys/class/hwmon/hwmon*/temp*_input; do
     [[ -r $f ]] || continue
+    # dell_smm reads are SMIs that stall every core (audio xruns).
+    [[ -r ${f%/*}/name ]] && { IFS= read -r lab <"${f%/*}/name"; [[ $lab == dell_smm ]] && continue; }
     lab=""
     [[ -r ${f%_input}_label ]] && IFS= read -r lab <"${f%_input}_label"
     read -r t <"$f"
@@ -1764,8 +1766,15 @@ next_tab() { TAB=$(( TAB % 6 + 1 )); }
 prev_tab() { TAB=$(( TAB == 1 ? 6 : TAB - 1 )); }
 
 handle_key() {
-  local k rest
-  IFS= read -rsn1 -t "$INTERVAL" k || return 0
+  local k rest rc
+  IFS= read -rsn1 -t "$INTERVAL" k
+  rc=$?
+  # >128 is the timeout. Anything else is EOF: the terminal is gone, and
+  # looping on an instant EOF spins a core and hammers sysfs forever.
+  if (( rc != 0 )); then
+    (( rc > 128 )) && return 0
+    exit 0
+  fi
   if [[ $k == $'\e' ]]; then
     IFS= read -rsn2 -t 0.02 rest || rest=""
     case $rest in

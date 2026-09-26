@@ -102,42 +102,114 @@ Scope {
         launchProc.running = true
     }
 
+    // Which cell the marker is on. Set at the moment of the switch — a click,
+    // a wheel step, or Hyprland's workspacev2 (emitted when the slide starts) —
+    // and kept off the client-list refresh. That refresh returns after the
+    // slide and used to rebuild the row, so the marker only started traveling
+    // once the switch was already over.
+    property int railWorkspace: 0
+    property int pendingAim: 0
+    property var workspaceIds: []
+
+    function publishWorkspaceIds() {
+        const ids = Globals.occupiedWorkspaceIds().slice()
+        if (root.railWorkspace > 0 && ids.indexOf(root.railWorkspace) < 0)
+            ids.push(root.railWorkspace)
+        ids.sort((a, b) => a - b)
+        const use = ids.length ? ids : [root.railWorkspace > 0 ? root.railWorkspace : 1]
+        const prev = root.workspaceIds || []
+        if (prev.length === use.length) {
+            let same = true
+            for (let i = 0; i < use.length; i++) {
+                if (prev[i] !== use[i]) {
+                    same = false
+                    break
+                }
+            }
+            if (same)
+                return
+        }
+        root.workspaceIds = use
+    }
+
+    function aimWorkspace(id, fromEvent) {
+        const n = Number(id)
+        if (!(n > 0))
+            return
+        // A fast wheel can request the next cell before the previous event
+        // arrives. Drop that stale event so it doesn't pull the marker back.
+        if (fromEvent && root.pendingAim > 0 && n !== root.pendingAim)
+            return
+        if (fromEvent)
+            root.pendingAim = 0
+        if (n !== root.railWorkspace)
+            root.railWorkspace = n
+        root.publishWorkspaceIds()
+    }
+
     function switchWorkspace(id) {
-        Globals.switchWorkspace(id)
+        const n = Number(id)
+        if (!(n > 0))
+            return
+        root.pendingAim = n
+        aimHold.restart()
+        root.aimWorkspace(n, false)
+        Globals.switchWorkspace(n)
     }
 
     function cycleWorkspace(delta) {
-        Globals.cycleWorkspace(delta)
+        const ids = Globals.occupiedWorkspaceIds()
+        if (!ids.length)
+            return
+        const cur = root.railWorkspace > 0
+            ? root.railWorkspace
+            : Number(Hyprland.focusedWorkspace?.id ?? Hyprland.activeWorkspace?.id ?? 1)
+        let idx = 0
+        for (let i = 0; i < ids.length; i++) {
+            if (ids[i] === cur) {
+                idx = i
+                break
+            }
+        }
+        root.switchWorkspace(ids[(idx + delta + ids.length * 8) % ids.length])
     }
 
-    readonly property var workspaceGroups: {
-        void toplevelEpoch
-        void Globals.layoutEpoch
-        const focused = Number(Hyprland.focusedWorkspace?.id ?? Hyprland.activeWorkspace?.id ?? 1)
-        const ids = Globals.occupiedWorkspaceIds()
-        const groups = []
-        const use = ids.length ? ids : [focused > 0 ? focused : 1]
-        for (let i = 0; i < use.length; i++) {
-            const w = use[i]
-            groups.push({
-                id: w,
-                active: w === focused,
-                clients: clientsOnWorkspace(w)
-            })
-        }
-        return groups
+    Timer {
+        id: aimHold
+        interval: 400
+        onTriggered: root.pendingAim = 0
     }
+
+    onToplevelEpochChanged: root.publishWorkspaceIds()
 
     Connections {
         target: Hyprland
+        function onFocusedWorkspaceChanged() {
+            root.aimWorkspace(Hyprland.focusedWorkspace?.id, true)
+        }
         function onRawEvent(event) {
             const name = event?.name || ""
-            if (["openwindow", "closewindow", "windowtitlev2", "activewindowv2", "workspace", "focusedmon", "movewindow", "movewindowv2"].indexOf(name) >= 0)
+            if (name === "workspacev2") {
+                const parts = event.parse(2)
+                root.aimWorkspace(parts[0], true)
+                return
+            }
+            if (name === "focusedmon") {
+                const parts = event.parse(2)
+                root.aimWorkspace(parts[1], true)
+                return
+            }
+            // Focus itself doesn't move windows. Refreshing clients here comes
+            // back after the workspace slide and used to restart the marker.
+            if (["openwindow", "closewindow", "movewindow", "movewindowv2"].indexOf(name) >= 0)
                 root.refreshToplevelState()
         }
     }
 
-    Component.onCompleted: Qt.callLater(() => root.refreshToplevelState())
+    Component.onCompleted: {
+        root.aimWorkspace(Hyprland.focusedWorkspace?.id ?? Hyprland.activeWorkspace?.id ?? 1, false)
+        Qt.callLater(() => root.refreshToplevelState())
+    }
 
     FileView {
         id: appsFile
@@ -333,18 +405,24 @@ Scope {
                             spacing: 4
 
                             Repeater {
-                                model: root.workspaceGroups
+                                model: root.workspaceIds
 
                                 delegate: OctPill {
                                     id: wsCell
                                     required property var modelData
                                     required property int index
-                                    property var wsData: modelData
+                                    readonly property int wsId: Number(modelData)
+                                    // Clients stay on this binding so a focus change
+                                    // doesn't rebuild the cell and postpone the marker.
+                                    readonly property var clients: {
+                                        void root.toplevelEpoch
+                                        return root.clientsOnWorkspace(wsCell.wsId)
+                                    }
 
                                     height: wsRow.height
-                                    active: wsData.active
+                                    active: wsCell.wsId === root.railWorkspace
                                     contentW: instRow.implicitWidth
-                                    onActivated: root.switchWorkspace(wsCell.wsData.id)
+                                    onActivated: root.switchWorkspace(wsCell.wsId)
                                     onWheelUp: root.cycleWorkspace(-1)
                                     onWheelDown: root.cycleWorkspace(1)
 
@@ -362,19 +440,19 @@ Scope {
                                         spacing: 5
 
                                         MfShape {
-                                            visible: !wsCell.wsData.clients || wsCell.wsData.clients.length === 0
+                                            visible: !wsCell.clients || wsCell.clients.length === 0
                                             anchors.verticalCenter: parent.verticalCenter
                                             width: visible ? 9 : 0
                                             height: 9
                                             kind: "oct"
                                             slant: 3
-                                            fillColor: wsCell.wsData.active ? Theme.accentHot : Theme.fgMuted
+                                            fillColor: wsCell.active ? Theme.accentHot : Theme.fgMuted
                                             strokeColor: "transparent"
                                             strokeWidth: 0
                                         }
 
                                         Repeater {
-                                            model: wsCell.wsData.clients
+                                            model: wsCell.clients
 
                                             delegate: Item {
                                                 required property var modelData
@@ -383,11 +461,13 @@ Scope {
                                                 width: Theme.instanceIcon
                                                 height: width
 
-                                                NoirIcon {
+                                                IconImage {
                                                     id: instIcon
                                                     anchors.fill: parent
+                                                    asynchronous: true
+                                                    mipmap: true
                                                     source: root.iconSource(root.toplevelClass(client))
-                                                    ink: Theme.palette === "dark" ? Theme.accentHot : Theme.fg
+                                                    readonly property bool ready: status === Image.Ready && !!source
                                                 }
 
                                                 Text {

@@ -10,6 +10,13 @@
     "iommu=pt"
   ];
 
+  # Every dell_smm_hwmon read (fan/temp) is an SMI: all cores stop in firmware
+  # for ~0.5 ms, PipeWire's RT thread included. Any sensor poller (nixmon,
+  # btop, sensors) then makes the ALSA followers drop periods, heard as
+  # crackle — 48 xruns in 20 s at one sweep per 0.5 s, 0 without. The BIOS
+  # still runs the fans; we only lose RPM readouts.
+  boot.blacklistedKernelModules = [ "dell_smm_hwmon" ];
+
   boot.extraModprobeConfig = ''
     options kvm_intel nested=1
     options kvm ignore_msrs=1
